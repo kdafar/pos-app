@@ -1,35 +1,68 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/electron-vite.animate.svg'
-import './App.css'
+import { Routes, Route, NavLink } from 'react-router-dom';
+import PromosPage from './renderer/pages/PromosPage';
+import TablesPage from './renderer/pages/TablesPage';
+import PaymentMethodsPage from './renderer/pages/PaymentMethodsPage';
+import LocationsPage from './renderer/pages/LocationsPage';
+import RecentOrdersPage from './renderer/pages/RecentOrdersPage';
 
-function App() {
-  const [count, setCount] = useState(0)
-
+function Sidebar() {
   return (
-    <>
-      <div>
-        <a href="https://electron-vite.github.io" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div className="h-screen w-64 bg-gray-800 text-white flex flex-col">
+      <div className="p-4 font-bold text-lg">POS App</div>
+      <nav className="flex flex-col p-2 space-y-1">
+        <div className="px-2 text-xs font-semibold text-gray-400 uppercase">Orders</div>
+        <NavLink to="/" className="p-2 rounded-md hover:bg-gray-700">POS Terminal</NavLink>
+        <NavLink to="/orders/recent" className="p-2 rounded-md hover:bg-gray-700">Recent Orders</NavLink>
+
+        <div className="px-2 pt-4 text-xs font-semibold text-gray-400 uppercase">Catalog</div>
+        <NavLink to="/catalog/categories" className="p-2 rounded-md hover:bg-gray-700">Categories</NavLink>
+        <NavLink to="/catalog/items" className="p-2 rounded-md hover:bg-gray-700">Items</NavLink>
+        <NavLink to="/catalog/addons" className="p-2 rounded-md hover:bg-gray-700">Addons</NavLink>
+        <NavLink to="/catalog/promos" className="p-2 rounded-md hover:bg-gray-700">Promos</NavLink>
+
+        <div className="px-2 pt-4 text-xs font-semibold text-gray-400 uppercase">Dine-in</div>
+        <NavLink to="/dinein/tables" className="p-2 rounded-md hover:bg-gray-700">Tables</NavLink>
+
+        <div className="px-2 pt-4 text-xs font-semibold text-gray-400 uppercase">System</div>
+        <NavLink to="/settings" className="p-2 rounded-md hover:bg-gray-700">Settings</NavLink>
+        <NavLink to="/system/payment-methods" className="p-2 rounded-md hover:bg-gray-700">Payment Methods</NavLink>
+        <NavLink to="/system/locations" className="p-2 rounded-md hover:bg-gray-700">Locations</NavLink>
+      </nav>
+    </div>
+  );
 }
 
-export default App
+function Placeholder({ title }: { title: string }) {
+  return <div className="p-4"><h1>{title}</h1></div>;
+}
+
+function App() {
+  return (
+    <div className="flex">
+      <Sidebar />
+      <main className="flex-1 h-screen overflow-auto">
+        <Routes>
+          <Route path="/" element={<Placeholder title="POS Terminal" />} />
+          <Route path="/orders/recent" element={<Placeholder title="Recent Orders" />} />
+          <Route path="/catalog/categories" element={<Placeholder title="Categories" />} />
+          <Route path="/catalog/items" element={<Placeholder title="Items" />} />
+          <Route path="/catalog/addons" element={<Placeholder title="Addons" />} />
+          <Route path="/catalog/promos" element={<PromosPage />} />
+          <Route path="/dinein/tables" element={<Placeholder title="Tables" />} />
+          <Route path="/settings" element={<Placeholder title="Settings" />} />
+          <Route path="/system/payment-methods" element={<PaymentMethodsPage />} />
+          <Route path="/system/locations" element={<LocationsPage />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+export default App; />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+export default App;

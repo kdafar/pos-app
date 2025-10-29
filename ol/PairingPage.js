@@ -1,5 +1,5 @@
-import { el } from '../utils.js';
-import api from '../api.js';
+import { el } from '../src/renderer/utils.js';
+import api from '../src/renderer/api.js';
 
 export function PairingPage() {
   const c = document.createElement('div');

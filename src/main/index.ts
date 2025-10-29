@@ -1,45 +1,52 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
-import fs from 'node:fs';
 import db, { getMeta, migrate, setMeta } from './db';
 import { saveSecret, loadSecret } from './secureStore';
 import { bootstrap, configureApi, pairDevice, pullChanges, pushOutbox } from './sync';
 import crypto from 'node:crypto';
 
+// The built directory structure
+//
+// ├─┬─┬ out
+// │ │ ├── main
+// │ │ │   └── index.js
+// │ │ ├── preload
+// │ │ │   └── index.js
+// │ │ └── renderer
+// │
+process.env.APP_ROOT = path.join(__dirname, '../..');
+
 async function createWindow() {
   migrate();
-
-  // pick a working preload
-  const candidates = [
-    path.join(__dirname, '../preload/index.js'),
-    path.join(__dirname, '../preload/index.cjs'),
-    path.join(__dirname, '../preload/index.mjs'),
-    path.join(__dirname, '../preload.js'),
-  ];
-  const preloadPath = candidates.find(p => fs.existsSync(p));
-  if (!preloadPath) throw new Error(`Preload not found. Tried:\n${candidates.join('\n')}`);
 
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: preloadPath,
+      // Use the preload script provided by electron-vite.
+      // It's compiled and placed in the out directory.
+      preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
     },
   });
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    await win.loadURL(process.env.ELECTRON_RENDERER_URL);
+  // Vite DEV server URL
+  const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL'];
+
+  if (VITE_DEV_SERVER_URL) {
+    win.loadURL(VITE_DEV_SERVER_URL);
   } else {
-    await win.loadFile(path.join(__dirname, '../renderer/index.html'));
+    // Load the index.html of the app.
+    win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 }
 
 app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
 
 const nowMs = () => Date.now();
 
@@ -245,7 +252,7 @@ ipcMain.handle('orders:setDeliveryFee', async (_e, orderId: string, fee: number)
 ipcMain.handle('tables:listAvailable', async () => {
   const branchId = Number(getMeta('branch_id') || 0);
   return db.prepare(`
-    SELECT id, label, number, capacity
+    SELECT id, label, number, capacity, is_available, branch_id
     FROM tables
     WHERE is_available = 1 AND (branch_id = ? OR ? = 0)
     ORDER BY number ASC, label COLLATE NOCASE ASC
@@ -561,9 +568,30 @@ function recalcOrderTotals(orderId: string) {
 
 ipcMain.handle('orders:listOpen', async () => {
   return db.prepare(`
-    SELECT id, number, status, subtotal, grand_total, opened_at
+    SELECT id, number, status, order_type, subtotal, grand_total, opened_at
     FROM orders
     WHERE status IS NULL OR status = 'open'
+    ORDER BY opened_at DESC
+    LIMIT 50
+  `).all();
+});
+
+ipcMain.handle('orders:listActive', async () => {
+  return db.prepare(`
+    SELECT id, number, status, order_type, subtotal, grand_total, opened_at
+    FROM orders
+    WHERE status IS NULL OR status = 'open'
+    ORDER BY opened_at DESC
+    LIMIT 50
+  `).all();
+});
+
+ipcMain.handle('orders:listPrepared', async () => {
+  // Handler for orders that are prepared/ready for pickup/delivery
+  return db.prepare(`
+    SELECT id, number, status, subtotal, grand_total, opened_at
+    FROM orders
+    WHERE status = 'prepared'
     ORDER BY opened_at DESC
     LIMIT 50
   `).all();
@@ -584,6 +612,13 @@ ipcMain.handle('orders:start', async () => {
   `).run(id, number, deviceId, branchId, now);
 
   return { id, number, device_id: deviceId, branch_id: branchId, opened_at: now, status: 'open' };
+});
+
+ipcMain.handle('orders:setType', async (_e, orderId: string, type: 1 | 2 | 3) => {
+  db.prepare(`UPDATE orders SET order_type = ? WHERE id = ?`).run(type, orderId);
+  // Return the updated order object
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  return { ok: true, order };
 });
 
 ipcMain.handle('orders:get', async (_e, orderId: string) => {
@@ -643,6 +678,17 @@ ipcMain.handle('settings:set', async (_e, key: string, value: string) => {
   return { ok: true };
 });
 
+function getOrderWithLines(orderId: string) {
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  const lines = db.prepare(`
+    SELECT id, order_id, item_id, name, qty, unit_price, tax_amount, line_total, temp_line_id
+    FROM order_lines
+    WHERE order_id = ?
+    ORDER BY rowid ASC
+  `).all(orderId);
+  return { order, lines };
+}
+
 ipcMain.handle('orders:createFromCart', async (_e, customerData: {
   full_name: string;
   mobile: string;
@@ -684,5 +730,5 @@ ipcMain.handle('orders:createFromCart', async (_e, customerData: {
     db.prepare('DELETE FROM cart').run();
   })();
 
-  return ipcMain.handle('orders:get', _e, orderId);
+  return getOrderWithLines(orderId);
 });

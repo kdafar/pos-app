@@ -1,4 +1,4 @@
-import { el } from '../utils.js';
+import { el } from '../src/renderer/utils.js';
 
 const api = window.api;
 

@@ -76,9 +76,4 @@ export const CatalogRepo = {
     `;
     return db.prepare(sql).all(...params);
   },
-
-  listPromos() {
-    return db.prepare(`SELECT id,code,type,value,min_total,max_discount,start_at,end_at,active,updated_at
-                       FROM promos ORDER BY active DESC, code`).all();
-  },
 };

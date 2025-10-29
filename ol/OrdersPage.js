@@ -1,6 +1,6 @@
-import { el, els, fmtMoney, timeAgo } from '../utils.js';
-import { refreshBrandLabel } from '../ui/sidebar.js';
-import { showCheckoutModal } from '../CheckoutModal.js';
+import { el, els, fmtMoney, timeAgo } from '../src/renderer/utils.js';
+import { refreshBrandLabel } from '../src/renderer/ui/sidebar.js';
+import { showCheckoutModal } from '../src/renderer/CheckoutModal.js';
 
 const api = window.api;
 

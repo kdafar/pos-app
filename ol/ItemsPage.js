@@ -1,4 +1,4 @@
-import { el, fmtMoney } from '../utils.js';
+import { el, fmtMoney } from '../src/renderer/utils.js';
 
 const api = window.api;
 

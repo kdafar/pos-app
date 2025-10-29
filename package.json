@@ -13,14 +13,21 @@
     "preview": "electron-vite preview"
   },
   "dependencies": {
+    "@heroui/react": "^2.8.5",
+    "@tailwindcss/vite": "^4.1.16",
+    "@tanstack/react-table": "^8.21.3",
     "axios": "^1.12.2",
     "better-sqlite3": "^12.4.1",
     "dayjs": "^1.11.18",
+    "framer-motion": "^12.23.24",
     "i18next": "^25.6.0",
     "keytar": "^7.9.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "lucide": "^0.548.0",
+    "lucide-react": "^0.548.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "react-i18next": "^16.2.0",
+    "react-router-dom": "^7.9.4",
     "zod": "^4.1.12",
     "zustand": "^5.0.8"
   },
@@ -33,7 +40,7 @@
     "@types/react-dom": "^18.2.21",
     "@typescript-eslint/eslint-plugin": "^7.1.1",
     "@typescript-eslint/parser": "^7.1.1",
-    "@vitejs/plugin-react": "^4.2.1",
+    "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.21",
     "electron": "^30.0.1",
     "electron-builder": "^24.13.3",
@@ -44,7 +51,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.16",
     "typescript": "^5.2.2",
-    "vite": "^5.1.6",
+    "vite": "^5.4.21",
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5"
   }
