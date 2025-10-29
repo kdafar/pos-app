@@ -1,0 +1,72 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+@'
+# --- Node / Electron ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# --- Build outputs ---
+dist/
+out/
+build/
+release/
+coverage/
+*.map
+*.asar
+
+# --- Caches ---
+.vite/
+.vscode/
+.idea/
+.cache/
+.sass-cache/
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- Env / secrets ---
+.env
+.env.*.local
+
+# --- Runtime data / local DBs ---
+/data/
+*.db
+*.sqlite
+
+# --- Native compiled artifacts ---
+*.node
+
+# --- Installers / artifacts ---
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb
+'@ | Set-Content .gitignore
