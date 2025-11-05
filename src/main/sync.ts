@@ -92,6 +92,29 @@ function normItemAddonGroup(m: any) {
   };
 }
 
+function mapRole(typeOrRole: any) {
+  const t = Number(typeOrRole);
+  if (!Number.isNaN(t)) {
+    return t === 1 ? 'admin' : t === 4 ? 'kitchen' : t === 6 ? 'branch' : 'branch';
+  }
+  return String(typeOrRole || 'branch').toLowerCase();
+}
+
+function normUser(u: any) {
+  return {
+    id: Number(u.id),
+    name: (u.name ?? '') as string,
+    username: u.username != null ? String(u.username) : null,
+    email: u.email ? String(u.email).toLowerCase() : null,
+    role: mapRole(u.role ?? u.type),
+    password_hash: (u.password_hash ?? u.password ?? null) as string | null, // Laravel hash ($2y$…)
+    is_active: u.is_active === undefined ? 1 : (u.is_active ? 1 : 0),
+    branch_id: u.branch_id == null ? null : Number(u.branch_id),
+    updated_at: u.updated_at ? String(u.updated_at) : null,
+  };
+}
+
+
 function normPromo(p: any) {
   return {
     id: S(p.id)!,
@@ -260,6 +283,7 @@ export async function pairDevice(baseUrl: string, pairCode: string, branchId: st
 
 /* ---------- Bootstrap (full catalog seed) ---------- */
 export async function bootstrap(baseUrl: string) {
+  console.log('[SYNC] bootstrap() called with', baseUrl);
   const deviceId = getMeta('device_id') ?? '';
   const token = await loadSecret('device_token');
   const branchId = Number(getMeta('branch_id') ?? 0);
@@ -297,6 +321,7 @@ export async function bootstrap(baseUrl: string) {
   const subcats = asArray(catalog.subcategories ?? []);
   const ordersSeed = asArray(catalog.orders_seed ?? []);
   const tables = asArray(catalog.tables ?? catalog.table_list ?? []);
+  const users = asArray(data.users ?? catalog.users ?? []);
 
   const tx = db.transaction(() => {
     // items
@@ -524,6 +549,22 @@ export async function bootstrap(baseUrl: string) {
     `);
     for (const o of ordersSeed) upOrderSeed.run(normOrderSeed(o));
 
+    const upUser = db.prepare(`
+  INSERT INTO pos_users (id, name, username, email, role, password_hash, is_active, branch_id, updated_at)
+  VALUES (@id, @name, @username, lower(@email), @role, @password_hash, @is_active, @branch_id, @updated_at)
+  ON CONFLICT(id) DO UPDATE SET
+    name=excluded.name,
+    username=excluded.username,
+    email=excluded.email,
+    role=excluded.role,
+    password_hash=excluded.password_hash,
+    is_active=excluded.is_active,
+    branch_id=excluded.branch_id,
+    updated_at=excluded.updated_at
+`);
+for (const u of users) upUser.run(normUser(u));
+
+
     // cursor
     db.prepare(`
       INSERT INTO sync_state(key,value) VALUES('cursor',?)
@@ -606,6 +647,15 @@ export async function pullChanges() {
         item_id=excluded.item_id,group_id=excluded.group_id,is_required=excluded.is_required,max_select=excluded.max_select,updated_at=excluded.updated_at
     `);
 
+    const upUser = db.prepare(`
+      INSERT INTO pos_users (id, name, username, email, role, password_hash, is_active, branch_id, updated_at)
+      VALUES (@id, @name, @username, lower(@email), @role, @password_hash, @is_active, @branch_id, @updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name=excluded.name, username=excluded.username, email=excluded.email,
+        role=excluded.role, password_hash=excluded.password_hash,
+        is_active=excluded.is_active, branch_id=excluded.branch_id, updated_at=excluded.updated_at
+    `);
+
     for (const c of changes) {
       const op = c.op;
       const tbl = String(c.table || '').toLowerCase();
@@ -644,7 +694,11 @@ export async function pullChanges() {
       } else if (tbl === 'item_addons_group' || tbl === 'item_addon_groups') {
         if (op === 'delete') delBy('item_addon_groups', c.pk);
         else if (c.data) upItemAddonGroup.run(normItemAddonGroup(c.data));
+      } else if (tbl === 'pos_user' || tbl === 'pos_users') {
+        if (op === 'delete') delBy('pos_users', c.pk);
+        else if (c.data) upUser.run(normUser(c.data));
       }
+
       // Extend here for categories, tables, states, cities, blocks, subcategories if your /pull returns them.
     }
 

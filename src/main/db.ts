@@ -200,6 +200,7 @@ export function migrate() {
       updated_at TEXT
     );
 
+    
     -- Orders
     CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
@@ -295,6 +296,18 @@ export function migrate() {
       last_accessed INTEGER,
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS pos_users (
+      id            INTEGER PRIMARY KEY,
+      name          TEXT,
+      username      TEXT,
+      email         TEXT,
+      role          TEXT,            -- 'admin' | 'kitchen' | 'branch'
+      password_hash TEXT,            -- Laravel bcrypt from backend
+      is_active     INTEGER DEFAULT 1,
+      branch_id     INTEGER,
+      updated_at    TEXT
+    )
   `);
 
   // Phase 2: ensure columns exist on legacy installs (safe ALTER TABLE order matters)
@@ -345,6 +358,7 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS idx_orders_opened_at ON orders(opened_at DESC);
     CREATE INDEX IF NOT EXISTS idx_orders_mobile ON orders(mobile);
     CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id);
+    CREATE INDEX IF NOT EXISTS idx_pos_users_email ON pos_users(lower(email));
   `);
 
   // Column-dependent index on items(type) — guard it

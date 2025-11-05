@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { readOrCreateMachineId } from './machineId';
 
 // DB + meta
 import db, { getMeta, migrate, setMeta } from './db';
@@ -8,6 +9,7 @@ import { saveSecret, loadSecret } from './secureStore';
 
 // Sync core
 import { bootstrap, configureApi, pairDevice, pullChanges, pushOutbox } from './sync';
+import { registerAuthHandlers } from './handlers/auth';
 
 // Optional socket server (kept from your file)
 import { createSocketServer } from './socket';
@@ -21,6 +23,9 @@ process.env.APP_ROOT = path.join(__dirname, '../..');
 
 async function createWindow() {
   migrate();
+
+  if (getMeta('pos.mode') == null) setMeta('pos.mode', 'live')
+  if (getMeta('sync.disabled') == null) setMeta('sync.disabled', '0')
 
   const win = new BrowserWindow({
     width: 1200,
@@ -37,7 +42,10 @@ async function createWindow() {
 
   if (VITE_DEV_SERVER_URL) {
     await win.loadURL(VITE_DEV_SERVER_URL);
-    win.webContents.openDevTools();
+    // Only open if you explicitly ask for it
+    if (process.env.ELECTRON_OPEN_DEVTOOLS === '1') {
+      win.webContents.openDevTools({ mode: 'detach' });
+    }
   } else {
     await win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
@@ -263,8 +271,7 @@ ipcMain.handle('sync:configure', async (_e, baseUrl: string) => {
 });
 
 ipcMain.handle('sync:pair', async (_e, baseUrl: string, pairCode: string, branchId: string, deviceName: string) => {
-  let mid = getMeta('machine_id');
-  if (!mid) mid = await app.getMachineId();
+  const mid = await readOrCreateMachineId();
   setMeta('machine_id', mid);
   return pairDevice(baseUrl, pairCode, branchId, deviceName, mid);
 });
@@ -272,48 +279,86 @@ ipcMain.handle('sync:pair', async (_e, baseUrl: string, pairCode: string, branch
 ipcMain.handle('sync:bootstrap', async (_e, baseUrl?: string) => {
   const url = baseUrl || getMeta('server.base_url') || '';
   if (!url) throw new Error('Missing base URL');
-  return bootstrap(url);
+
+  const payload = await bootstrap(url);
+
+  // persist branch meta if present
+  if (payload?.branch?.id) setMeta('branch_id', String(payload.branch.id));
+  if (payload?.branch?.name) setMeta('branch.name', String(payload.branch.name));
+
+  // ⬇️ upsert staff users from backend
+  const users = payload?.catalog?.users || [];
+  if (Array.isArray(users) && users.length) {
+    const upsert = db.prepare(`
+      INSERT INTO pos_users (id, name, username, email, role, password_hash, is_active, branch_id, updated_at)
+      VALUES (@id, @name, NULL, @email, @role, @password_hash, @is_active, @branch_id, @updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name=excluded.name,
+        email=excluded.email,
+        role=excluded.role,
+        password_hash=excluded.password_hash,
+        is_active=excluded.is_active,
+        branch_id=excluded.branch_id,
+        updated_at=excluded.updated_at
+    `);
+    const tx = db.transaction((list: any[]) => { for (const u of list) upsert.run(u); });
+    tx(users);
+  }
+
+  return payload; // keep your renderer expectations
 });
 
 // --- ADDED: Handler for 'sync:run' ---
 // This manually triggers the full auto-sync logic (pull + push)
 ipcMain.handle('sync:run', async () => {
-    console.log('[Sync] Manual sync:run triggered');
-    if ((getMeta('pos.mode') || 'live') !== 'live') {
-        throw new Error('Offline mode: Sync disabled');
+  console.log('[Sync] Manual sync:run triggered');
+
+  if ((getMeta('pos.mode') || 'live') !== 'live') {
+    throw new Error('Offline mode: Sync disabled');
+  }
+
+  const base = getMeta('server.base_url') || '';
+  const device_id = getMeta('device_id') || '';
+  const branch_id = Number(getMeta('branch_id') || 0);
+  const token = await loadSecret('device_token');
+  if (!base || !device_id || !token) {
+    throw new Error('Not configured for sync (missing URL, device ID, or token)');
+  }
+
+  // Make sure axios is configured
+  configureApi(base, { id: device_id, branch_id }, token);
+
+  // ← NEW: run bootstrap once if not done (or cursor is 0)
+  const cursorRow = db.prepare('SELECT value FROM sync_state WHERE key=?')
+                      .pluck().get('cursor') as string | undefined;
+  const cursor = Number(cursorRow ?? 0);
+  const bootDone = getMeta('bootstrap.done') === '1';
+
+  if (!bootDone || cursor === 0) {
+    console.log('[Sync] First-time bootstrap…');
+    await bootstrap(base);                     // seeds items/categories/users/etc.
+    setMeta('bootstrap.done', '1');
+  }
+
+  // Then incremental
+  await pullChanges();
+
+  // Optional: push completed orders
+  let pushedCount = 0;
+  const pending = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
+  if (pending > 0) {
+    const batch = collectUnsyncedOrders(25);
+    if (batch.length) {
+      const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+      await pushOutbox(envelope, { orders: batch });
+      markOrdersSynced(batch.map(o => o.id));
+      pushedCount = batch.length;
     }
+  }
 
-    const base = getMeta('server.base_url') || '';
-    const device_id = getMeta('device_id') || '';
-    const branch_id = Number(getMeta('branch_id') || 0);
-    const token = await loadSecret('device_token');
-
-    if (!base || !device_id || !token) {
-        throw new Error('Not configured for sync (missing URL, device ID, or token)');
-    }
-
-    // Ensure API is configured (idempotent)
-    configureApi(base, { id: device_id, branch_id }, token);
-
-    // 1. Pull changes
-    await pullChanges();
-
-    // 2. Push outbox
-    let pushedCount = 0;
-    const pending = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
-    if (pending > 0) {
-        const batch = collectUnsyncedOrders(25); // Push up to 25
-        if (batch.length) {
-            const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
-            await pushOutbox(envelope, { orders: batch });
-            markOrdersSynced(batch.map(o => o.id));
-            pushedCount = batch.length;
-        }
-    }
-    
-    setMeta('sync.last_at', String(Date.now()));
-    console.log(`[Sync] Manual sync:run complete. Pushed: ${pushedCount}`);
-    return { ok: true, pulled: true, pushed: pushedCount };
+  setMeta('sync.last_at', String(Date.now()));
+  console.log(`[Sync] Manual sync:run complete. Pushed: ${pushedCount}`);
+  return { ok: true, pulled: true, pushed: pushedCount };
 });
 
 ipcMain.handle('sync:pull', async () => {
@@ -360,6 +405,15 @@ ipcMain.handle('sync:status', async () => {
   const branch_id = Number(getMeta('branch_id') || 0);
   const unsynced = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
   return { mode, last_sync_at, base_url, cursor, paired, token_present: !!token, device_id: deviceId || null, branch_name, branch_id, unsynced };
+});
+
+ipcMain.handle('dev:dumpPosUsers', () => {
+  return db.prepare(`
+    SELECT id, name, email, username, role, is_active, branch_id
+    FROM pos_users
+    ORDER BY name
+    LIMIT 50
+  `).all();
 });
 
 /* ======================================================================
@@ -702,69 +756,12 @@ ipcMain.handle('orders:removeLineByItem', async (_e, orderId: string, itemId: st
   return { ok: true, totals, lines };
 });
 
-// Accept either (orderId, lineId) OR (lineId)
-ipcMain.handle('orders:removeLine', async (_e, a: string, b?: string) => {
-  let orderId: string | null = null;
-  let lineId: string;
-
-  if (b) { orderId = a; lineId = b; }
-  else { lineId = a; const r = db.prepare(`SELECT order_id FROM order_lines WHERE id = ?`).get(lineId) as any; orderId = r?.order_id ?? null; }
-
-  const info = db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
-  let totals = null, lines = null;
-  if (orderId) {
-    totals = recalcOrderTotals(orderId);
-    lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
-  }
-  return { ok: info.changes > 0, totals, lines };
-});
-
-ipcMain.handle('orders:removeLineByItem', async (_e, orderId: string, itemId: string) => {
-  db.prepare(`DELETE FROM order_lines WHERE order_id = ? AND item_id = ?`).run(orderId, itemId);
-  const totals = recalcOrderTotals(orderId);
-  const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
-  return { ok: true, totals, lines };
-});
-
-
-// --- ADDED: Handler for 'orders:removeLine' ---
-ipcMain.handle('orders:removeLine', async (_e, orderId: string, lineId: string) => {
-    const info = db.prepare(`DELETE FROM order_lines WHERE id = ? AND order_id = ?`).run(lineId, orderId);
-    
-    if (info.changes === 0) {
-        // Line might not have existed or orderId didn't match
-        console.warn(`orders:removeLine did not find line ${lineId} on order ${orderId}`);
-    }
-
-    const totals = recalcOrderTotals(orderId);
-    const refreshed = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
-    
-    return { ok: info.changes > 0, totals, lines: refreshed };
-});
 
 ipcMain.handle('orders:removePromo', async (_e, orderId: string) => {
   db.prepare(`UPDATE orders SET promocode = NULL WHERE id = ?`).run(orderId);
   const totals = recalcOrderTotals(orderId);
   const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
   return { ok: true, order, totals };
-});
-
-
-ipcMain.handle('orders:setTable', async (_e, orderId: string, payload: { table_id: string; covers?: number }) => {
-  db.prepare(`UPDATE orders SET table_id = ?, covers = ? WHERE id = ?`)
-    .run(payload.table_id, Number(payload.covers ?? 1), orderId);
-
-  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
-  const t = db.prepare(`SELECT COALESCE(label, number) AS name FROM tables WHERE id = ?`).get(payload.table_id) as any;
-  const orderDto = { ...order, table_name: t?.name ?? null };
-  return { ok: true, order: orderDto };
-});
-
-ipcMain.handle('orders:clearTable', async (_e, orderId: string) => {
-  db.prepare(`UPDATE orders SET table_id = NULL, covers = NULL WHERE id = ?`).run(orderId);
-  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
-  const orderDto = { ...order, table_name: null };
-  return { ok: true, order: orderDto };
 });
 
 
@@ -1099,6 +1096,23 @@ ipcMain.handle('orders:complete', async (_e, orderId: string, customer: {
   return { ok: true, pushed, order: refreshed, lines };
 });
 
+ipcMain.handle('dev:stats', () => {
+  const q = (sql: string) => (db.prepare(sql).pluck().get() as number) || 0
+  return {
+    items: q('SELECT COUNT(*) FROM items'),
+    variations: q('SELECT COUNT(*) FROM variations'),
+    addon_groups: q('SELECT COUNT(*) FROM addon_groups'),
+    addons: q('SELECT COUNT(*) FROM addons'),
+    item_addon_groups: q('SELECT COUNT(*) FROM item_addon_groups'),
+    categories: q('SELECT COUNT(*) FROM categories'),
+    subcategories: q('SELECT COUNT(*) FROM subcategories'),
+    promos: q('SELECT COUNT(*) FROM promos'),
+    tables: q('SELECT COUNT(*) FROM tables'),
+    pos_users: q('SELECT COUNT(*) FROM pos_users'),
+  }
+})
+
+
 /** Push a batch of unsynced completed orders */
 ipcMain.handle('sync:flushOrders', async (_e, limit = 20) => {
   if ((getMeta('pos.mode') || 'live') !== 'live') throw new Error('Offline mode');
@@ -1154,6 +1168,84 @@ ipcMain.handle('orders:clearTable', async (_e, orderId: string) => {
   return { ok: true, order };
 });
 
+
+// --- Auth services adapter wired to your current project ---
+const services = {
+  store: {
+    get: (k: string) => getMeta(k),
+    set: (k: string, v: any) => setMeta(k, v),
+    delete: (k: string) => setMeta(k, null),
+  },
+  sync: {
+    // configure(baseUrl) => configures axios client using the stored device + token
+    configure: async (baseUrl: string) => {
+      const device_id = getMeta('device_id') || '';
+      const branch_id = Number(getMeta('branch_id') || 0);
+      const token = await loadSecret('device_token');
+      if (!device_id || !token) throw new Error('Not paired');
+      setMeta('server.base_url', baseUrl);
+      configureApi(baseUrl, { id: device_id, branch_id }, token);
+    },
+
+    // bootstrap(baseUrl, pairCode) => PAIR the device (uses your existing pairDevice)
+    // NOTE: we read optional temp values (saved by the UI) for deviceName/branchId.
+    bootstrap: async (baseUrl: string | null, pairCode: string) => {
+  const url = baseUrl || services.store.get('server.base_url') || '';
+  if (!url) throw new Error('Missing base URL');
+
+  const machineId = await readOrCreateMachineId();
+
+  const tmpBranch = services.store.get('tmp.branch_id');
+  const tmpDeviceName = services.store.get('tmp.device_name');
+  const branchId = String(tmpBranch ?? services.store.get('branch_id') ?? '');
+  const deviceName = tmpDeviceName || 'POS';
+
+  await pairDevice(url, pairCode, branchId, deviceName, machineId);
+
+  services.store.set('tmp.branch_id', null);
+  services.store.set('tmp.device_name', null);
+
+  return { device_id: services.store.get('device_id') || null };
+},
+
+    // run() => pull + (optional) push unsynced, reusing your helpers
+    run: async () => {
+      const base = getMeta('server.base_url') || '';
+      const device_id = getMeta('device_id') || '';
+      const branch_id = Number(getMeta('branch_id') || 0);
+      const token = await loadSecret('device_token');
+      if (!base || !device_id || !token) throw new Error('Not configured');
+
+      configureApi(base, { id: device_id, branch_id }, token);
+      await pullChanges();
+
+      // optional: also push some queued orders (keeps parity with sync:run)
+      const pending = (db.prepare(
+        `SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`
+      ).pluck().get() as number) || 0;
+
+      if (pending > 0) {
+        const batch = collectUnsyncedOrders(25);
+        if (batch.length) {
+          const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+          await pushOutbox(envelope, { orders: batch });
+          markOrdersSynced(batch.map(o => o.id));
+        }
+      }
+    },
+  },
+};
+
+// ✅ Register the new handlers (pass your existing db instance)
+registerAuthHandlers(ipcMain, db, {
+  store: services.store,
+  sync: {
+    pairDevice,   // <-- from your sync.ts
+    bootstrap,    // <-- from your sync.ts
+    run: services.sync.run,          // use the async run helper from services
+    configure: services.sync.configure, // use the async configure helper from services
+  }
+});
 
 /* ======================================================================
     Background Auto-Sync (pull + flush) with backoff

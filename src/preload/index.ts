@@ -11,16 +11,26 @@ const bridge = {
     bootstrap: (baseUrl: string | null, pairCode: string) => ipcRenderer.invoke('sync:bootstrap', baseUrl, pairCode),
     pull: ()                                          => ipcRenderer.invoke('sync:pull'),
     push: (envelope: any, batch: any)                 => ipcRenderer.invoke('sync:push', envelope, batch),
+    status: ()                                        => ipcRenderer.invoke('sync:status'),
+    setMode: (next: 'live'|'offline')                 => ipcRenderer.invoke('sync:setMode', next),
+    run: ()                                           => ipcRenderer.invoke('sync:run'),
   },
-  catalog: {
-    search: (q: string) => ipcRenderer.invoke('catalog:search', q),
+  catalog: { search: (q: string) => ipcRenderer.invoke('catalog:search', q) },
+  auth: {
+    status: () => ipcRenderer.invoke('auth:status'),
+    listUsers: () => ipcRenderer.invoke('auth:listUsers'),
+    loginWithPin: (pin: string) => ipcRenderer.invoke('auth:loginWithPin', pin),
+    loginWithPassword: (login: string, password: string) => ipcRenderer.invoke('auth:loginWithPassword', login, password),
+    logout: () => ipcRenderer.invoke('auth:logout'),
+    pair: (baseUrl: string, pairCode: string, deviceName?: string, branchId?: number) =>
+      ipcRenderer.invoke('auth:pair', { baseUrl, pairCode, deviceName, branchId }),
+    unpair: () => ipcRenderer.invoke('auth:unpair'),
   },
-  // generic invoke if you still want it
   invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
 };
 
-// expose the SAME object under multiple names for compatibility
 contextBridge.exposeInMainWorld('pos', bridge);
-contextBridge.exposeInMainWorld('electronAPI', bridge); // ⬅️ add this alias
-contextBridge.exposeInMainWorld('api', { invoke: bridge.invoke }); // keep your old api.invoke
+contextBridge.exposeInMainWorld('electronAPI', bridge);
+contextBridge.exposeInMainWorld('api', { invoke: bridge.invoke });
+
 console.log('[preload] exposed window.pos, window.electronAPI, window.api');
