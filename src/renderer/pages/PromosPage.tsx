@@ -292,7 +292,7 @@ export default function PromosPage() {
             className="p-2 border rounded min-w-[260px] bg-transparent"
           />
           <select
-            className="p-2 border rounded bg-transparent"
+            className="ui-field"
             value={enabledFilter}
             onChange={(e) => setEnabledFilter(e.target.value as any)}
             title="Enabled/Disabled filter"
@@ -302,7 +302,7 @@ export default function PromosPage() {
             <option value="disabled">Disabled only</option>
           </select>
           <select
-            className="p-2 border rounded bg-transparent"
+            className="ui-field"
             value={timeFilter}
             onChange={(e) => setTimeFilter(e.target.value as any)}
             title="Time window filter"
@@ -313,7 +313,7 @@ export default function PromosPage() {
             <option value="expired">Expired</option>
           </select>
           <select
-            className="p-2 border rounded bg-transparent"
+            className="ui-field"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as any)}
             title="Type filter"
@@ -341,7 +341,7 @@ export default function PromosPage() {
 
           <label className="ml-3 text-sm opacity-70">Rows</label>
           <select
-            className="p-2 border rounded bg-transparent"
+            className="ui-field"
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
           >

@@ -183,7 +183,7 @@ export function ItemsPage() {
         <div className="flex items-center gap-2">
           <label className="text-sm opacity-70">Rows per page</label>
           <select
-            className="bg-transparent border border-white/10 rounded-lg px-2 py-1"
+            className="ui-field"
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
           >

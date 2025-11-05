@@ -206,7 +206,7 @@ export default function RecentOrdersPage() {
             className="p-2 border rounded bg-transparent min-w-[260px]"
           />
           <select
-            className="p-2 border rounded bg-transparent"
+            className="ui-field"
             value={type}
             onChange={(e) => setType(e.target.value as any)}
             title="Order type"
@@ -228,7 +228,7 @@ export default function RecentOrdersPage() {
 
           <label className="ml-3 text-sm opacity-70">Rows</label>
           <select
-            className="p-2 border rounded bg-transparent"
+            className="ui-field"
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
           >

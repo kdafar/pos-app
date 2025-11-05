@@ -207,7 +207,7 @@ export function CategoriesPage() {
             style={{ minWidth: 260 }}
           />
           <select
-            className="px-2 py-2 rounded-lg border border-white/10 bg-transparent"
+            className="ui-field"
             value={catVisFilter}
             onChange={(e) => setCatVisFilter(e.target.value as any)}
           >
@@ -296,7 +296,7 @@ export function CategoriesPage() {
               style={{ minWidth: 260 }}
             />
             <select
-              className="px-2 py-2 rounded-lg border border-white/10 bg-transparent"
+              className="ui-field"
               value={subsVisFilter}
               onChange={(e) => setSubsVisFilter(e.target.value as any)}
             >
@@ -307,7 +307,7 @@ export function CategoriesPage() {
 
             <label className="opacity-70 ml-4">Rows</label>
             <select
-              className="px-2 py-2 rounded-lg border border-white/10 bg-transparent"
+              className="ui-field"
               value={subsPageSize}
               onChange={(e) => setSubsPageSize(Number(e.target.value))}
             >

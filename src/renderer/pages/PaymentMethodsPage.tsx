@@ -190,7 +190,7 @@ export default function PaymentMethodsPage() {
             className="p-2 border rounded min-w-[260px] bg-transparent"
           />
           <select
-            className="p-2 border rounded bg-transparent"
+            className="ui-field"
             value={activeFilter}
             onChange={(e) => setActiveFilter(e.target.value as any)}
             title="Active filter"
@@ -210,7 +210,7 @@ export default function PaymentMethodsPage() {
 
           <label className="ml-3 text-sm opacity-70">Rows</label>
           <select
-            className="p-2 border rounded bg-transparent"
+            className="ui-field"
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
           >

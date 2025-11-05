@@ -275,7 +275,7 @@ export default function LocationsPage() {
             />
             <label className="ml-3 text-sm opacity-70">Rows</label>
             <select
-              className="p-2 border rounded bg-transparent"
+              className="ui-field"
               value={statePageSize}
               onChange={(e) => setStatePageSize(Number(e.target.value))}
             >
@@ -365,7 +365,7 @@ export default function LocationsPage() {
             />
 
             <select
-              className="p-2 border rounded bg-transparent"
+              className="ui-field"
               value={String(selectedState)}
               onChange={(e) =>
                 setSelectedState(e.target.value === 'all' ? 'all' : e.target.value)
@@ -399,7 +399,7 @@ export default function LocationsPage() {
 
             <label className="ml-3 text-sm opacity-70">Rows</label>
             <select
-              className="p-2 border rounded bg-transparent"
+              className="ui-field"
               value={cityPageSize}
               onChange={(e) => setCityPageSize(Number(e.target.value))}
             >

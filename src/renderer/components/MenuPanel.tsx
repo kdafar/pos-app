@@ -150,7 +150,7 @@ export default function MenuPanel({ onAddItem }: MenuPanelProps) {
       )}
 
       {/* Items Grid */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto nice-scroll nice-scroll p-4">
         {loading ? (
           <div className="flex items-center justify-center h-full text-gray-400">
             <div className="text-center">

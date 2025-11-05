@@ -201,7 +201,7 @@ export function AddonsPage() {
             />
             <label className="text-sm opacity-70">Rows</label>
             <select
-              className="px-2 py-2 rounded-lg border border-white/10 bg-transparent"
+              className="ui-field"
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
             >

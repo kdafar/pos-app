@@ -294,7 +294,7 @@ export function SettingsPage() {
         <div className="flex items-center gap-2">
           <label className="opacity-70">Rows</label>
           <select
-            className="px-2 py-1 rounded-lg border border-white/10 bg-transparent"
+            className="ui-field"
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
           >

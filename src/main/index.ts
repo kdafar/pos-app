@@ -1,19 +1,22 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
-import db, { getMeta, migrate, setMeta } from './db';
-import { saveSecret, loadSecret } from './secureStore';
-import { bootstrap, configureApi, pairDevice, pullChanges, pushOutbox } from './sync';
 import crypto from 'node:crypto';
 
-// The built directory structure
-//
-// ├─┬─┬ out
-// │ │ ├── main
-// │ │ │   └── index.js
-// │ │ ├── preload
-// │ │ │   └── index.js
-// │ │ └── renderer
-// │
+// DB + meta
+import db, { getMeta, migrate, setMeta } from './db';
+import { saveSecret, loadSecret } from './secureStore';
+
+// Sync core
+import { bootstrap, configureApi, pairDevice, pullChanges, pushOutbox } from './sync';
+
+// Optional socket server (kept from your file)
+import { createSocketServer } from './socket';
+
+// Squirrel
+if (require('electron-squirrel-startup')) {
+  app.quit();
+}
+
 process.env.APP_ROOT = path.join(__dirname, '../..');
 
 async function createWindow() {
@@ -23,8 +26,6 @@ async function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      // Use the preload script provided by electron-vite.
-      // It's compiled and placed in the out directory.
       preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -32,94 +33,186 @@ async function createWindow() {
     },
   });
 
-  // Vite DEV server URL
   const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL'];
 
   if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
+    await win.loadURL(VITE_DEV_SERVER_URL);
+    win.webContents.openDevTools();
   } else {
-    // Load the index.html of the app.
-    win.loadFile(path.join(__dirname, '../renderer/index.html'));
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 }
 
-app.whenReady().then(createWindow);
+app.on('ready', () => {
+  createWindow();
+  createSocketServer();
+  startAutoSyncLoop(); // 🔁 background pull+push
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+/* ======================================================================
+    Helpers
+    ====================================================================== */
+
 const nowMs = () => Date.now();
 
-// parses JSON array, CSV string, or a single number -> number[]
-function parseNumList(input: any): number[] {
-  if (input == null) return [];
-  if (typeof input === 'number') return [input];
-  const s = String(input).trim();
-  if (!s) return [];
+function readSettingRaw(key: string): string | null {
+  return db.prepare(`SELECT value FROM app_settings WHERE key = ?`).pluck().get(key) ?? null;
+}
+function readSettingBool(key: string, fallback = false): boolean {
+  const v = (readSettingRaw(key) ?? '').toString().trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+function readSettingNumber(key: string, fallback = 0): number {
+  const n = Number(readSettingRaw(key));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Multiple orders tabs helper (best effort; table may not exist on old DBs) */
+function safeAddToActiveOrders(orderId: string) {
   try {
-    const j = JSON.parse(s);
-    if (Array.isArray(j)) return j.map(n => Number(n) || 0);
-    const n = Number(j);
-    return Number.isFinite(n) ? [n] : [];
-  } catch {
-    return s.split(',').map(x => Number(x.trim()) || 0);
+    db.prepare(`
+      INSERT OR IGNORE INTO active_orders(order_id, tab_position, last_accessed)
+      VALUES(?, COALESCE((SELECT COALESCE(MAX(tab_position), -1)+1 FROM active_orders), 0), ?)
+    `).run(orderId, nowMs());
+  } catch { /* ignore if table missing */ }
+}
+
+/** Build a server-friendly order payload including lines. */
+function buildOrderPayload(orderId: string) {
+  const o = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
+  if (!o) return null;
+  const lines = db.prepare(`
+    SELECT id, order_id, item_id, name, name_ar, qty, unit_price, tax_amount, line_total,
+           variation_id, variation, variation_price, addons_id, addons_name, addons_price, addons_qty, notes
+    FROM order_lines WHERE order_id = ?
+    ORDER BY rowid ASC
+  `).all(orderId);
+
+  // Generic, POS-controller friendly envelope (fields are descriptive & stable)
+  return {
+    id: o.id,
+    number: o.number,
+    device_id: o.device_id,
+    branch_id: o.branch_id,
+    status: o.status,
+    order_type: o.order_type,      // 1=delivery, 2=pickup, 3=dine-in
+    customer: {
+      full_name: o.full_name,
+      mobile: o.mobile,
+      email: o.email,
+    },
+    address: {
+      state_id: o.state_id,
+      city_id: o.city_id,
+      block_id: o.block_id,
+      block: o.block,
+      address_type: o.address_type,
+      address: o.address,
+      building: o.building,
+      floor: o.floor,
+      house_no: o.house_no,
+      landmark: o.landmark,
+      table_id: o.table_id,        // dine-in
+      delivery_date: o.delivery_date,
+    },
+    payment: {
+      method_id: o.payment_method_id,
+      method_slug: o.payment_method_slug,
+      type: o.payment_type,
+      promocode: o.promocode,
+    },
+    totals: {
+      subtotal: o.subtotal,
+      tax_total: o.tax_total,
+      discount_total: o.discount_total,
+      delivery_fee: o.delivery_fee,
+      grand_total: o.grand_total,
+      discount_amount: o.discount_amount,
+      discount_pr: o.discount_pr,
+    },
+    timestamps: {
+      opened_at: o.opened_at,
+      closed_at: o.closed_at,
+      created_at: o.created_at,
+      updated_at: o.updated_at,
+    },
+    lines,
+  };
+}
+
+/** Collect unsynced completed orders (synced_at IS NULL/0) */
+function collectUnsyncedOrders(limit = 20) {
+  const rows = db.prepare(`
+    SELECT id
+    FROM orders
+    WHERE status = 'completed' AND (synced_at IS NULL OR synced_at = 0)
+    ORDER BY created_at ASC
+    LIMIT ?
+  `).all(limit) as Array<{ id: string }>;
+
+  const payloads: any[] = [];
+  for (const r of rows) {
+    const p = buildOrderPayload(r.id);
+    if (p) payloads.push(p);
   }
+  return payloads;
 }
 
-// addons total per unit (sum(price_i * qty_i))
-function addonsUnitTotal(addons_price: any, addons_qty: any): number {
-  const prices = parseNumList(addons_price);
-  const qtys   = parseNumList(addons_qty);
-  if (!prices.length) return 0;
-  if (!qtys.length) return prices.reduce((a,b)=>a+(Number(b)||0), 0);
-  let sum = 0;
-  for (let i=0;i<prices.length;i++){
-    const p = Number(prices[i]) || 0;
-    const q = Number(qtys[i] ?? 1) || 1;
-    sum += p * q;
-  }
-  return sum;
+/** Mark a batch of orders as synced (best effort). */
+function markOrdersSynced(orderIds: string[]) {
+  if (!orderIds.length) return;
+  const now = nowMs();
+  const stmt = db.prepare(`UPDATE orders SET synced_at = ? WHERE id = ?`);
+  const tx = db.transaction((ids: string[]) => {
+    for (const id of ids) stmt.run(now, id);
+  });
+  tx(orderIds);
 }
 
-function baseUnitPrice(row: any): number {
-  // prefer variation_price if variation selected; else price
-  const varP = Number(row.variation_price);
-  const price = Number(row.price);
-  const unit = Number.isFinite(varP) && varP > 0 ? varP : (Number(price)||0);
-  const addons = addonsUnitTotal(row.addons_price, row.addons_qty);
-  return unit + addons;
+/** Recalc totals whenever needed */
+function recalcOrderTotals(orderId: string) {
+  const sums = db.prepare(`
+    SELECT COALESCE(SUM(line_total), 0) AS subtotal
+    FROM order_lines
+    WHERE order_id = ?
+  `).get(orderId) as { subtotal: number };
+
+  const order = db.prepare(`
+    SELECT COALESCE(delivery_fee,0) AS delivery_fee, promocode
+    FROM orders WHERE id = ?
+  `).get(orderId) as any;
+  
+  const delivery_fee = Number(order?.delivery_fee || 0);
+  const subtotal = Number(sums?.subtotal || 0);
+  
+  // V_TODO: Implement real discount logic based on order.promocode
+  const discount_total = 0; 
+  
+  const tax_total = 0; // V_TODO: Implement tax logic if needed
+  const grand_total = subtotal + delivery_fee - discount_total;
+
+  db.prepare(`
+    UPDATE orders
+    SET subtotal = ?, tax_total = ?, discount_total = ?, grand_total = ?
+    WHERE id = ?
+  `).run(subtotal, tax_total, discount_total, grand_total, orderId);
+
+  return { subtotal, tax_total, discount_total, delivery_fee, grand_total };
 }
 
-function calcLineTotal(row: any): number {
-  const unit = baseUnitPrice(row);
-  const qty  = Number(row.qty) || 0;
-  return +(unit * qty).toFixed(3);
-}
 
-function cartTotals() {
-  const rows = db.prepare(`SELECT * FROM cart`).all() as any[];
-  const subtotal = rows.reduce((s, r) => s + calcLineTotal(r), 0);
-  // tax disabled per your request
-  const discount_total = 0;
+/* ======================================================================
+    IPC: KV + Settings
+    ====================================================================== */
 
-  // delivery fee from selected city if order_type=1 (delivery)
-  const orderType = Number(getMeta('cart.order_type') || 0); // 1 delivery, 2 pickup, 3 dine-in
-  let delivery_fee = 0;
-  if (orderType === 1) {
-    const cityId = getMeta('cart.city_id');
-    if (cityId) {
-      const city = db.prepare(`SELECT delivery_fee FROM cities WHERE id = ?`).get(cityId) as any;
-      if (city && Number.isFinite(Number(city.delivery_fee))) delivery_fee = Number(city.delivery_fee);
-    }
-    // allow voiding delivery fee (like web)
-    if (getMeta('cart.void_delivery_fee') === '1') delivery_fee = 0;
-  }
-
-  const grand_total = +(subtotal - discount_total + delivery_fee).toFixed(3);
-  return { subtotal, discount_total, delivery_fee, grand_total };
-}
-
-/** KV **/
 ipcMain.handle('store:set', async (_e, key: string, value: string) => {
   if (key === 'device_token') return saveSecret('device_token', value);
   setMeta(key, value);
@@ -129,7 +222,36 @@ ipcMain.handle('store:get', async (_e, key: string) => {
   return getMeta(key) ?? null;
 });
 
-/** Sync Configure — persist base URL too **/
+ipcMain.handle('settings:get', async (_e, key: string) => readSettingRaw(key));
+ipcMain.handle('settings:getBool', async (_e, key: string, fallback = false) => readSettingBool(key, fallback));
+ipcMain.handle('settings:getNumber', async (_e, key: string, fallback = 0) => readSettingNumber(key, fallback));
+
+// Handler for 'settings:all'
+const getAllSettings = async () => {
+  return db.prepare(`SELECT key, value FROM app_settings ORDER BY key ASC`).all();
+};
+ipcMain.handle('settings:all', getAllSettings);
+
+// --- ADDED: Handler for 'settings:getAll' (aliases 'settings:all') ---
+ipcMain.handle('settings:getAll', getAllSettings);
+
+// --- ADDED: Handler for 'settings:getPosUser' ---
+ipcMain.handle('settings:getPosUser', async () => {
+    // V_TODO: Return actual user data if/when available
+    // For now, returning device/branch context
+    return {
+        name: readSettingRaw('pos.user_name') ?? 'POS User',
+        id: readSettingRaw('pos.user_id') ?? null,
+        deviceId: getMeta('device_id') ?? null,
+        branchName: getMeta('branch.name') ?? null,
+        branchId: Number(getMeta('branch_id') ?? 0),
+    };
+});
+
+/* ======================================================================
+    IPC: Sync configure / pair / status / run / pull / push
+    ====================================================================== */
+
 ipcMain.handle('sync:configure', async (_e, baseUrl: string) => {
   const device_id = getMeta('device_id') ?? '';
   const branch_id = Number(getMeta('branch_id') ?? 0);
@@ -140,32 +262,70 @@ ipcMain.handle('sync:configure', async (_e, baseUrl: string) => {
   configureApi(baseUrl, { id: device_id, branch_id }, token);
 });
 
-/** Pairing **/
 ipcMain.handle('sync:pair', async (_e, baseUrl: string, pairCode: string, branchId: string, deviceName: string) => {
-  // Get or create a unique, persistent ID for this machine
   let mid = getMeta('machine_id');
   if (!mid) mid = await app.getMachineId();
   setMeta('machine_id', mid);
   return pairDevice(baseUrl, pairCode, branchId, deviceName, mid);
 });
 
-/** Pull/Bootstrap/Push **/
 ipcMain.handle('sync:bootstrap', async (_e, baseUrl?: string) => {
   const url = baseUrl || getMeta('server.base_url') || '';
   if (!url) throw new Error('Missing base URL');
   return bootstrap(url);
 });
+
+// --- ADDED: Handler for 'sync:run' ---
+// This manually triggers the full auto-sync logic (pull + push)
+ipcMain.handle('sync:run', async () => {
+    console.log('[Sync] Manual sync:run triggered');
+    if ((getMeta('pos.mode') || 'live') !== 'live') {
+        throw new Error('Offline mode: Sync disabled');
+    }
+
+    const base = getMeta('server.base_url') || '';
+    const device_id = getMeta('device_id') || '';
+    const branch_id = Number(getMeta('branch_id') || 0);
+    const token = await loadSecret('device_token');
+
+    if (!base || !device_id || !token) {
+        throw new Error('Not configured for sync (missing URL, device ID, or token)');
+    }
+
+    // Ensure API is configured (idempotent)
+    configureApi(base, { id: device_id, branch_id }, token);
+
+    // 1. Pull changes
+    await pullChanges();
+
+    // 2. Push outbox
+    let pushedCount = 0;
+    const pending = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
+    if (pending > 0) {
+        const batch = collectUnsyncedOrders(25); // Push up to 25
+        if (batch.length) {
+            const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+            await pushOutbox(envelope, { orders: batch });
+            markOrdersSynced(batch.map(o => o.id));
+            pushedCount = batch.length;
+        }
+    }
+    
+    setMeta('sync.last_at', String(Date.now()));
+    console.log(`[Sync] Manual sync:run complete. Pushed: ${pushedCount}`);
+    return { ok: true, pulled: true, pushed: pushedCount };
+});
+
 ipcMain.handle('sync:pull', async () => {
-  // Optional: respect offline mode
   if ((getMeta('pos.mode') || 'live') !== 'live') throw new Error('Offline mode');
   return pullChanges();
 });
+
 ipcMain.handle('sync:push', async (_e, envelope, batch) => {
   if ((getMeta('pos.mode') || 'live') !== 'live') throw new Error('Offline mode');
   return pushOutbox(envelope, batch);
 });
 
-/** Ensure at least one bootstrap when DB is empty **/
 ipcMain.handle('app:ensureBootstrap', async () => {
   const itemsCount = (db.prepare('SELECT COUNT(*) FROM items').pluck().get() as number) || 0;
   if (itemsCount > 0) return { bootstrapped: false, itemsCount };
@@ -178,49 +338,33 @@ ipcMain.handle('app:ensureBootstrap', async () => {
   return { bootstrapped: true, itemsCount: after };
 });
 
-/** Live/Offline mode + status **/
-ipcMain.handle('sync:getStatus', async () => {
-  console.log('\n[DEBUG] Checking sync status...');
-  const mode = getMeta('pos.mode') || 'live';
-  const last_sync_at = Number(getMeta('sync.last_at') || 0);
-  const base_url = getMeta('server.base_url') || '';
-  const deviceId = getMeta('device_id');
-  console.log(`[DEBUG]  - Found deviceId in DB: ${deviceId || 'null'}`);
-  let token = deviceId ? await loadSecret('device_token') : null;
-  console.log(`[DEBUG]  - Loaded token from keychain (initial attempt): ${token ? '*** (present)' : 'null'}`);
-
-  // Retry loading token once if deviceId exists but token is missing, to handle keytar init race condition
-  if (deviceId && !token) {
-    console.log('[DEBUG]  - deviceId exists but token is missing. Retrying after delay...');
-    await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
-    token = await loadSecret('device_token');
-    console.log(`[DEBUG]  - Loaded token from keychain (second attempt): ${token ? '*** (present)' : 'null'}`);
-  }
-
-  const paired = !!(deviceId && token);
-  console.log(`[DEBUG]  - Final paired status: ${paired}`);
-  const cursor = paired ? (Number(db.prepare('SELECT value FROM sync_state WHERE key = ?').pluck().get('cursor') || 0)) : 0;
-
-  const branch_name = getMeta('branch.name') || '';
-  const branch_id = Number(getMeta('branch_id') || 0);
-  const result = { mode, last_sync_at, base_url, cursor, paired, token_present: !!token, device_id: deviceId || null, branch_name, branch_id };
-  console.log('[DEBUG] Returning status:', JSON.stringify(result));
-  return result;
-});
+/** Online/offline mode & status (for your topbar switch + sync btn) */
 ipcMain.handle('sync:setMode', async (_e, mode: 'live' | 'offline') => {
   setMeta('pos.mode', mode);
   return { ok: true, mode };
 });
-ipcMain.handle('sync:now', async () => {
-  if ((getMeta('pos.mode') || 'live') !== 'live') throw new Error('Offline mode');
-  const base = getMeta('server.base_url') || '';
-  if (!base) throw new Error('No server.base_url');
-  await bootstrap(base);
-  await pullChanges();
-  return { ok: true };
+
+ipcMain.handle('sync:status', async () => {
+  const mode = getMeta('pos.mode') || 'live';
+  const last_sync_at = Number(getMeta('sync.last_at') || 0);
+  const base_url = getMeta('server.base_url') || '';
+  const deviceId = getMeta('device_id');
+  let token = deviceId ? await loadSecret('device_token') : null;
+  if (deviceId && !token) {
+    await new Promise(r => setTimeout(r, 100));
+    token = await loadSecret('device_token');
+  }
+  const paired = !!(deviceId && token);
+  const cursor = paired ? (Number(db.prepare('SELECT value FROM sync_state WHERE key = ?').pluck().get('cursor') || 0)) : 0;
+  const branch_name = getMeta('branch.name') || '';
+  const branch_id = Number(getMeta('branch_id') || 0);
+  const unsynced = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
+  return { mode, last_sync_at, base_url, cursor, paired, token_present: !!token, device_id: deviceId || null, branch_name, branch_id, unsynced };
 });
 
-/** IPC — secure bridge **/
+/* ======================================================================
+    IPC: Catalog / Geo / Tables (unchanged)
+    ====================================================================== */
 
 ipcMain.handle('catalog:search', async (_e, q: string) => {
   const stmt = db.prepare(`
@@ -232,7 +376,6 @@ ipcMain.handle('catalog:search', async (_e, q: string) => {
   return stmt.all(`%${q}%`, `%${q}%`, q);
 });
 
-// ---------- Catalog read-only ----------
 ipcMain.handle('catalog:listCategories', async () => {
   return db.prepare(`
     SELECT id, name, name_ar, position, visible, updated_at
@@ -241,86 +384,110 @@ ipcMain.handle('catalog:listCategories', async () => {
   `).all();
 });
 
-ipcMain.handle('orders:setDeliveryFee', async (_e, orderId: string, fee: number) => {
-  const val = Math.max(0, Number(fee || 0));
-  db.prepare(`UPDATE orders SET delivery_fee = ? WHERE id = ?`).run(val, orderId);
-  const totals = recalcOrderTotals(orderId);
-  const order  = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
-  return { ok: true, totals, order };
-});
-
-ipcMain.handle('tables:listAvailable', async () => {
-  const branchId = Number(getMeta('branch_id') || 0);
-  return db.prepare(`
-    SELECT id, label, number, capacity, is_available, branch_id
-    FROM tables
-    WHERE is_available = 1 AND (branch_id = ? OR ? = 0)
-    ORDER BY number ASC, label COLLATE NOCASE ASC
-  `).all(branchId, branchId);
-});
-
-ipcMain.handle('catalog:listItems', async (_e, filter: { q?: string|null; categoryId?: string|null; subcategoryId?: string|null } | null = null) => {
+ipcMain.handle('catalog:listItems', async (_e, filter: { q?: string | null; categoryId?: string | null; subcategoryId?: string | null } | null = null) => {
   const where: string[] = [];
   const params: any[] = [];
-
   if (filter?.q) {
     where.push(`(name LIKE ? OR name_ar LIKE ? OR barcode = ?)`);
     const q = filter.q.trim();
     params.push(`%${q}%`, `%${q}%`, q);
   }
-  if (filter?.categoryId) {
-    where.push(`category_id = ?`);
-    params.push(filter.categoryId);
-  }
-  if (filter?.subcategoryId) {
-    where.push(`subcategory_id = ?`);
-    params.push(filter.subcategoryId);
-  }
+  if (filter?.categoryId) { where.push(`category_id = ?`); params.push(filter.categoryId); }
+  if (filter?.subcategoryId) { where.push(`subcategory_id = ?`); params.push(filter.subcategoryId); }
 
   const sql = `
     SELECT id, name, name_ar, barcode, price, is_outofstock, updated_at, category_id, subcategory_id
     FROM items
-    ${where.length > 0 ? 'WHERE ' + where.join(' AND ') : ''}
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY name COLLATE NOCASE ASC
     LIMIT 500
   `;
   return db.prepare(sql).all(...params);
 });
 
-ipcMain.handle('catalog:listAddonGroups', async () => {
-  return db.prepare(`
-    SELECT
-      g.id, g.name, g.name_ar, g.is_required, g.max_select, g.updated_at,
-      (SELECT COUNT(*) FROM addons a WHERE a.group_id = g.id) AS addons_count
-    FROM addon_groups g
-    ORDER BY g.name COLLATE NOCASE ASC
-  `).all();
-});
-
-ipcMain.handle('catalog:listAddons', async (_e, groupId: string | null = null) => {
-  if (groupId) {
+ipcMain.handle('catalog:listSubcategories', async (_e, categoryId: string | null = null) => {
+  if (categoryId) {
     return db.prepare(`
-      SELECT id, group_id, name, name_ar, price, updated_at
-      FROM addons
-      WHERE group_id = ?
-      ORDER BY name COLLATE NOCASE ASC
-    `).all(groupId);
+      SELECT id, category_id, name, name_ar, position, visible, updated_at
+      FROM subcategories
+      WHERE category_id = ?
+      ORDER BY position ASC, name COLLATE NOCASE ASC
+    `).all(categoryId);
   }
   return db.prepare(`
-    SELECT id, group_id, name, name_ar, price, updated_at
-    FROM addons
-    ORDER BY name COLLATE NOCASE ASC
-    LIMIT 500
+    SELECT id, category_id, name, name_ar, position, visible, updated_at
+    FROM subcategories
+    ORDER BY category_id ASC, position ASC, name COLLATE NOCASE ASC
   `).all();
 });
 
+// --- ADDED: Handler for 'catalog:listPromos' ---
 ipcMain.handle('catalog:listPromos', async () => {
-  return db.prepare(`
-    SELECT id, code, type, value, min_total, start_at, end_at, active, updated_at
-    FROM promos
-    ORDER BY code COLLATE NOCASE ASC
-  `).all();
+    try {
+        // V_FIXED: Use correct columns from db.ts (code, value)
+        return db.prepare(`
+            SELECT id, code, type, value, min_total, max_discount, start_at, end_at
+            FROM promos
+            WHERE active = 1 AND end_at > ?
+            ORDER BY code ASC
+        `).all(nowMs());
+    } catch (e) {
+        console.error('Failed to list promos, table might be missing:', e.message);
+        return []; // Return empty array if table 'promos' doesn't exist
+    }
 });
+
+// --- ADDED: Handler for 'catalog:listAddonGroups' ---
+ipcMain.handle('catalog:listAddonGroups', async (_e, filter: { itemId?: string } | null = null) => {
+    try {
+        // V_FIXED: Use correct columns and join key from db.ts
+        if (filter?.itemId) {
+            // Get groups for a specific item
+            return db.prepare(`
+                SELECT ag.id, ag.name, ag.name_ar, iag.is_required, iag.max_select
+                FROM addon_groups ag
+                JOIN item_addon_groups iag ON iag.group_id = ag.id
+                WHERE iag.item_id = ?
+                ORDER BY ag.name ASC
+            `).all(filter.itemId);
+        }
+        // Get all groups (e.g., for a manager)
+        // V_FIXED: Use correct columns (no selection_type or position)
+        return db.prepare(`
+            SELECT id, name, name_ar, is_required, max_select
+            FROM addon_groups
+            ORDER BY name ASC
+        `).all();
+    } catch (e) {
+        console.error('Failed to list addon groups, tables might be missing:', e.message);
+        return [];
+    }
+});
+
+// --- ADDED: Handler for 'catalog:listAddons' ---
+ipcMain.handle('catalog:listAddons', async (_e, filter: { groupId?: string } | null = null) => {
+    try {
+        // V_FIXED: Use correct column 'group_id' (not addon_group_id)
+        if (filter?.groupId) {
+            return db.prepare(`
+                SELECT id, group_id, name, name_ar, price
+                FROM addons
+                WHERE group_id = ?
+                ORDER BY name ASC
+            `).all(filter.groupId);
+        }
+        // V_FIXED: Use correct column 'group_id' and no 'position'
+        return db.prepare(`
+            SELECT id, group_id, name, name_ar, price
+            FROM addons
+            ORDER BY group_id ASC, name ASC
+        `).all();
+    } catch (e) {
+        console.error('Failed to list addons, table might be missing:', e.message);
+        return [];
+    }
+});
+
 
 ipcMain.handle('payments:listMethods', async () => {
   return db.prepare(`
@@ -331,7 +498,6 @@ ipcMain.handle('payments:listMethods', async () => {
   `).all();
 });
 
-
 ipcMain.handle('geo:listStates', async () => {
   return db.prepare(`
     SELECT id, name, name_ar
@@ -341,7 +507,15 @@ ipcMain.handle('geo:listStates', async () => {
   `).all();
 });
 
-ipcMain.handle('geo:listCities', async () => {
+ipcMain.handle('geo:listCities', async (_e, stateId?: string | null) => {
+  if (stateId) {
+    return db.prepare(`
+      SELECT id, name, name_ar, min_order, delivery_fee
+      FROM cities
+      WHERE is_active = 1 AND state_id = ?
+      ORDER BY name_ar COLLATE NOCASE ASC
+    `).all(stateId);
+  }
   return db.prepare(`
     SELECT id, name, name_ar, min_order, delivery_fee
     FROM cities
@@ -366,205 +540,28 @@ ipcMain.handle('geo:getCity', async (_e, cityId: string) => {
   `).get(cityId);
 });
 
-
-ipcMain.handle('catalog:listSubcategories', async (_e, categoryId: string | null = null) => {
-  if (categoryId) {
-    return db.prepare(`
-      SELECT id, category_id, name, name_ar, position, visible, updated_at
-      FROM subcategories
-      WHERE category_id = ?
-      ORDER BY position ASC, name COLLATE NOCASE ASC
-    `).all(categoryId);
-  }
-  return db.prepare(`
-    SELECT id, category_id, name, name_ar, position, visible, updated_at
-    FROM subcategories
-    ORDER BY category_id ASC, position ASC, name COLLATE NOCASE ASC
-  `).all();
-});
-
-
-ipcMain.handle('orders:byMobile', async (_e, mobile: string) => {
-  const q = (mobile ?? '').trim();
-  if (!q) return [];
-  const digits = q.replace(/\D+/g,'');
-  return db.prepare(`
-    SELECT id, number, opened_at, created_at, order_type, status, mobile, full_name, grand_total
-    FROM orders
-    WHERE REPLACE(REPLACE(REPLACE(REPLACE(mobile,'-',''),' ',''),'+',''),'(','') LIKE ?
-      AND (order_type = 1 OR order_type = 2)
-    ORDER BY COALESCE(opened_at, strftime('%s', COALESCE(created_at,'now'))*1000) DESC
-    LIMIT 5
-  `).all(`%${digits}%`);
-});
-
-function currentSessionId() {
-  return getMeta('device_id') || 'local';
-}
-
-// list cart + totals
-ipcMain.handle('cart:list', async () => {
+ipcMain.handle('tables:list', async () => {
+  const branchId = Number(getMeta('branch_id') || 0);
   const rows = db.prepare(`
-    SELECT * FROM cart ORDER BY created_at ASC, rowid ASC
-  `).all();
-  return { rows, totals: cartTotals() };
-});
+    SELECT id, COALESCE(label, 'Table '||number) AS name, capacity, is_available
+    FROM tables
+    WHERE (branch_id = ? OR ? = 0)
+    ORDER BY number ASC, name COLLATE NOCASE ASC
+  `).all(branchId, branchId) as any[];
 
-// clear cart
-ipcMain.handle('cart:clear', async () => {
-  db.prepare(`DELETE FROM cart`).run();
-  return { ok: true, totals: cartTotals() };
-});
-
-// add/merge item into cart
-ipcMain.handle('cart:add', async (_e, payload: {
-  item_id: string;
-  item_name: string;
-  item_name_ar?: string;
-  item_image?: string;
-  price: number;
-  qty?: number;
-  // optional
-  variation_id?: string|null;
-  variation?: string|null;
-  variation_ar?: string|null;
-  variation_price?: number|null;
-  addons_id?: string|null;        // comma-separated ids or JSON array string
-  addons_name?: string|null;
-  addons_name_ar?: string|null;
-  addons_price?: string|null;     // CSV or JSON array of numbers
-  addons_qty?: string|null;       // CSV or JSON array of numbers
-  item_notes?: string|null;
-}) => {
-  const now = nowMs();
-  const sid = currentSessionId();
-  const q = Number(payload.qty ?? 1) || 1;
-
-  // Merge keys: item + variation + addons_id
-  const keyItem = String(payload.item_id);
-  const keyVar  = payload.variation_id ? String(payload.variation_id) : null;
-  const keyAdds = payload.addons_id ? String(payload.addons_id) : null;
-
-  const existing = db.prepare(`
-    SELECT * FROM cart
-    WHERE item_id = ? AND IFNULL(variation_id,'') = IFNULL(?, '') AND IFNULL(addons_id,'') = IFNULL(?, '')
-    LIMIT 1
-  `).get(keyItem, keyVar, keyAdds) as any;
-
-  if (existing) {
-    const newQty = (Number(existing.qty) || 0) + q;
-    db.prepare(`UPDATE cart SET qty = ?, updated_at = ? WHERE id = ?`)
-      .run(newQty, now, existing.id);
-  } else {
-    const id = crypto.randomUUID();
-    db.prepare(`
-      INSERT INTO cart (id,user_id,session_id,item_id,item_name,item_name_ar,item_image,
-                        addons_id,addons_name,addons_name_ar,addons_price,addons_qty,
-                        variation_id,variation,variation_ar,variation_price,
-                        price,qty,tax,item_notes,is_available,created_at,updated_at,branch_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      id, null, sid,
-      payload.item_id, payload.item_name, payload.item_name_ar ?? null, payload.item_image ?? null,
-      payload.addons_id ?? null, payload.addons_name ?? null, payload.addons_name_ar ?? null,
-      payload.addons_price ?? null, payload.addons_qty ?? null,
-      payload.variation_id ?? null, payload.variation ?? null, payload.variation_ar ?? null,
-      payload.variation_price ?? null,
-      payload.price, q, null, payload.item_notes ?? null, 1, now, now, Number(getMeta('branch_id') || 0)
-    );
-  }
-
-  return { ok: true, totals: cartTotals() };
-});
-
-// set quantity (absolute)
-ipcMain.handle('cart:setQty', async (_e, id: string, qty: number) => {
-  const q = Number(qty);
-  if (!Number.isFinite(q) || q <= 0) throw new Error('Invalid qty');
-  db.prepare(`UPDATE cart SET qty = ?, updated_at = ? WHERE id = ?`).run(q, nowMs(), id);
-  return { ok: true, totals: cartTotals() };
-});
-
-// increment or decrement by 1
-ipcMain.handle('cart:inc', async (_e, id: string) => {
-  db.prepare(`UPDATE cart SET qty = qty + 1, updated_at = ? WHERE id = ?`).run(nowMs(), id);
-  return { ok: true, totals: cartTotals() };
-});
-ipcMain.handle('cart:dec', async (_e, id: string) => {
-  const row = db.prepare(`SELECT qty FROM cart WHERE id = ?`).get(id) as any;
-  const q = Number(row?.qty || 0);
-  if (q <= 1) {
-    db.prepare(`DELETE FROM cart WHERE id = ?`).run(id);
-  } else {
-    db.prepare(`UPDATE cart SET qty = qty - 1, updated_at = ? WHERE id = ?`).run(nowMs(), id);
-  }
-  return { ok: true, totals: cartTotals() };
-});
-
-// remove line
-ipcMain.handle('cart:remove', async (_e, id: string) => {
-  db.prepare(`DELETE FROM cart WHERE id = ?`).run(id);
-  return { ok: true, totals: cartTotals() };
-});
-
-// notes
-ipcMain.handle('cart:setNotes', async (_e, id: string, note: string) => {
-  db.prepare(`UPDATE cart SET item_notes = ?, updated_at = ? WHERE id = ?`).run(note ?? null, nowMs(), id);
-  return { ok: true };
-});
-
-// cart context (order_type, city_id, void_delivery_fee)
-ipcMain.handle('cart:setContext', async (_e, ctx: { order_type?: number; city_id?: string|null; void_delivery_fee?: boolean }) => {
-  if (ctx.order_type != null) db.prepare(`INSERT INTO meta(key,value) VALUES('cart.order_type', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(ctx.order_type));
-  if (ctx.city_id !== undefined) db.prepare(`INSERT INTO meta(key,value) VALUES('cart.city_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(ctx.city_id ? String(ctx.city_id) : '');
-  if (ctx.void_delivery_fee != null) db.prepare(`INSERT INTO meta(key,value) VALUES('cart.void_delivery_fee', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(ctx.void_delivery_fee ? '1' : '0');
-  return { ok: true, totals: cartTotals() };
-});
-
-function readSettingRaw(key: string): string | null {
-  return db.prepare(`SELECT value FROM app_settings WHERE key = ?`).pluck().get(key) ?? null;
-}
-function readSettingBool(key: string, fallback = false): boolean {
-  const v = (readSettingRaw(key) ?? '').toString().trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
-}
-function readSettingNumber(key: string, fallback = 0): number {
-  const n = Number(readSettingRaw(key));
-  return Number.isFinite(n) ? n : fallback;
-}
-
-ipcMain.handle('settings:get', async (_e, key: string) => readSettingRaw(key));
-ipcMain.handle('settings:getBool', async (_e, key: string, fallback = false) => readSettingBool(key, fallback));
-ipcMain.handle('settings:getNumber', async (_e, key: string, fallback = 0) => readSettingNumber(key, fallback));
-ipcMain.handle('settings:all', async () => {
-  return db.prepare(`SELECT key, value FROM app_settings ORDER BY key ASC`).all();
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    seats: Number(r.capacity) || 0,
+    status: Number(r.is_available) === 1 ? 'available' : 'occupied',
+  }));
 });
 
 
-// ---------- Orders core (local) ----------
-function recalcOrderTotals(orderId: string) {
-  const sums = db.prepare(`
-    SELECT
-      COALESCE(SUM(qty * unit_price), 0) AS subtotal
-    FROM order_lines
-    WHERE order_id = ?
-  `).get(orderId) as { subtotal: number };
 
-  const row = db.prepare(`SELECT COALESCE(delivery_fee,0) AS delivery_fee FROM orders WHERE id = ?`).get(orderId) as any;
-  const delivery_fee   = Number(row?.delivery_fee || 0);
-  const subtotal       = Number(sums?.subtotal || 0);
-  const tax_total      = 0;                    // 🔕 no tax
-  const discount_total = 0;                    // (add promos later)
-  const grand_total    = subtotal + delivery_fee - discount_total;
-
-  db.prepare(`
-    UPDATE orders
-    SET subtotal = ?, tax_total = ?, discount_total = ?, grand_total = ?
-    WHERE id = ?
-  `).run(subtotal, tax_total, discount_total, grand_total, orderId);
-
-  return { subtotal, tax_total, discount_total, delivery_fee, grand_total };
-}
+/* ======================================================================
+    IPC: Orders (fast multi-order flow) + Cart
+    ====================================================================== */
 
 ipcMain.handle('orders:listOpen', async () => {
   return db.prepare(`
@@ -587,7 +584,6 @@ ipcMain.handle('orders:listActive', async () => {
 });
 
 ipcMain.handle('orders:listPrepared', async () => {
-  // Handler for orders that are prepared/ready for pickup/delivery
   return db.prepare(`
     SELECT id, number, status, subtotal, grand_total, opened_at
     FROM orders
@@ -611,23 +607,29 @@ ipcMain.handle('orders:start', async () => {
     VALUES (?, ?, ?, ?, 'open', 0, 0, 0, 0, ?)
   `).run(id, number, deviceId, branchId, now);
 
+  safeAddToActiveOrders(id);
   return { id, number, device_id: deviceId, branch_id: branchId, opened_at: now, status: 'open' };
 });
 
 ipcMain.handle('orders:setType', async (_e, orderId: string, type: 1 | 2 | 3) => {
   db.prepare(`UPDATE orders SET order_type = ? WHERE id = ?`).run(type, orderId);
-  // Return the updated order object
   const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
   return { ok: true, order };
 });
 
 ipcMain.handle('orders:get', async (_e, orderId: string) => {
-  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
   const lines = db.prepare(`
     SELECT id, order_id, item_id, name, qty, unit_price, tax_amount, line_total, temp_line_id
     FROM order_lines WHERE order_id = ?
     ORDER BY rowid ASC
   `).all(orderId);
+
+  if (order?.table_id) {
+    const tn = db.prepare(`SELECT COALESCE(label, 'Table '||number) AS name FROM tables WHERE id = ?`).get(order.table_id) as any;
+    order.table_name = tn?.name ?? null;
+  }
+
   return { order, lines };
 });
 
@@ -635,60 +637,312 @@ ipcMain.handle('orders:addLine', async (_e, orderId: string, itemId: string, qty
   const item = db.prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`).get(itemId) as any;
   if (!item) throw new Error('Item not found');
 
-  const existing = db.prepare(`
+  const row = db.prepare(`
     SELECT id, qty, unit_price FROM order_lines
-    WHERE order_id = ? AND item_id = ?
+    WHERE order_id = ? AND item_id = ? AND variation_id IS NULL AND addons_id IS NULL
   `).get(orderId, itemId) as any;
 
-  if (existing) {
-    const newQty = existing.qty + qty;
-    const newTotal = newQty * existing.unit_price;
-    db.prepare(`UPDATE order_lines SET qty = ?, line_total = ? WHERE id = ?`)
-      .run(newQty, newTotal, existing.id);
-  } else {
+  if (row) {
+    const newQty = Number(row.qty || 0) + Number(qty || 0);
+    if (newQty <= 0) {
+      db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(row.id);
+    } else {
+      const newTotal = +(newQty * Number(row.unit_price || 0)).toFixed(3);
+      db.prepare(`UPDATE order_lines SET qty = ?, line_total = ? WHERE id = ?`).run(newQty, newTotal, row.id);
+    }
+  } else if (qty > 0) {
     const id = crypto.randomUUID();
     const unit = Number(item.price || 0);
     db.prepare(`
-      INSERT INTO order_lines (id, order_id, item_id, name, qty, unit_price, tax_amount, line_total, temp_line_id)
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL)
-    `).run(id, orderId, item.id, item.name, qty, unit, qty * unit);
+      INSERT INTO order_lines (id, order_id, item_id, name, qty, unit_price, tax_amount, line_total, temp_line_id, name_ar)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?)
+    `).run(id, orderId, item.id, item.name, qty, unit, +(qty * unit).toFixed(3), item.name_ar ?? null);
   }
-
   const totals = recalcOrderTotals(orderId);
   const refreshed = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
   return { totals, lines: refreshed };
 });
 
+ipcMain.handle('orders:setLineQty', async (_e, lineId: string, qty: number) => {
+  const row = db.prepare(`SELECT order_id, unit_price FROM order_lines WHERE id = ?`).get(lineId) as any;
+  if (!row) throw new Error('Line not found');
+  const q = Math.max(0, Number(qty || 0));
+  if (q === 0) {
+    db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
+  } else {
+    const total = +(q * Number(row.unit_price || 0)).toFixed(3);
+    db.prepare(`UPDATE order_lines SET qty = ?, line_total = ? WHERE id = ?`).run(q, total, lineId);
+  }
+  const totals = recalcOrderTotals(row.order_id);
+  const refreshed = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(row.order_id);
+  return { ok: true, totals, lines: refreshed };
+});
+
+// Accept either (orderId, lineId) OR (lineId)
+ipcMain.handle('orders:removeLine', async (_e, a: string, b?: string) => {
+  let orderId: string | null = null;
+  let lineId: string;
+
+  if (b) { orderId = a; lineId = b; }
+  else { lineId = a; const r = db.prepare(`SELECT order_id FROM order_lines WHERE id = ?`).get(lineId) as any; orderId = r?.order_id ?? null; }
+
+  const info = db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
+  let totals = null, lines = null;
+  if (orderId) {
+    totals = recalcOrderTotals(orderId);
+    lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
+  }
+  return { ok: info.changes > 0, totals, lines };
+});
+
+ipcMain.handle('orders:removeLineByItem', async (_e, orderId: string, itemId: string) => {
+  db.prepare(`DELETE FROM order_lines WHERE order_id = ? AND item_id = ?`).run(orderId, itemId);
+  const totals = recalcOrderTotals(orderId);
+  const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
+  return { ok: true, totals, lines };
+});
+
+// Accept either (orderId, lineId) OR (lineId)
+ipcMain.handle('orders:removeLine', async (_e, a: string, b?: string) => {
+  let orderId: string | null = null;
+  let lineId: string;
+
+  if (b) { orderId = a; lineId = b; }
+  else { lineId = a; const r = db.prepare(`SELECT order_id FROM order_lines WHERE id = ?`).get(lineId) as any; orderId = r?.order_id ?? null; }
+
+  const info = db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
+  let totals = null, lines = null;
+  if (orderId) {
+    totals = recalcOrderTotals(orderId);
+    lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
+  }
+  return { ok: info.changes > 0, totals, lines };
+});
+
+ipcMain.handle('orders:removeLineByItem', async (_e, orderId: string, itemId: string) => {
+  db.prepare(`DELETE FROM order_lines WHERE order_id = ? AND item_id = ?`).run(orderId, itemId);
+  const totals = recalcOrderTotals(orderId);
+  const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
+  return { ok: true, totals, lines };
+});
+
+
+// --- ADDED: Handler for 'orders:removeLine' ---
+ipcMain.handle('orders:removeLine', async (_e, orderId: string, lineId: string) => {
+    const info = db.prepare(`DELETE FROM order_lines WHERE id = ? AND order_id = ?`).run(lineId, orderId);
+    
+    if (info.changes === 0) {
+        // Line might not have existed or orderId didn't match
+        console.warn(`orders:removeLine did not find line ${lineId} on order ${orderId}`);
+    }
+
+    const totals = recalcOrderTotals(orderId);
+    const refreshed = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
+    
+    return { ok: info.changes > 0, totals, lines: refreshed };
+});
+
+ipcMain.handle('orders:removePromo', async (_e, orderId: string) => {
+  db.prepare(`UPDATE orders SET promocode = NULL WHERE id = ?`).run(orderId);
+  const totals = recalcOrderTotals(orderId);
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  return { ok: true, order, totals };
+});
+
+
+ipcMain.handle('orders:setTable', async (_e, orderId: string, payload: { table_id: string; covers?: number }) => {
+  db.prepare(`UPDATE orders SET table_id = ?, covers = ? WHERE id = ?`)
+    .run(payload.table_id, Number(payload.covers ?? 1), orderId);
+
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
+  const t = db.prepare(`SELECT COALESCE(label, number) AS name FROM tables WHERE id = ?`).get(payload.table_id) as any;
+  const orderDto = { ...order, table_name: t?.name ?? null };
+  return { ok: true, order: orderDto };
+});
+
+ipcMain.handle('orders:clearTable', async (_e, orderId: string) => {
+  db.prepare(`UPDATE orders SET table_id = NULL, covers = NULL WHERE id = ?`).run(orderId);
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
+  const orderDto = { ...order, table_name: null };
+  return { ok: true, order: orderDto };
+});
+
+
+// --- ADDED: Handler for 'orders:applyPromo' ---
+ipcMain.handle('orders:applyPromo', async (_e, orderId: string, promoCode: string | null) => {
+    // V_TODO: Add logic to validate promo code and calculate discount
+    // For now, just stores the code and recalcs (which doesn't apply discount yet)
+    
+    const code = promoCode ? promoCode.trim().toUpperCase() : null;
+    
+    db.prepare(`UPDATE orders SET promocode = ? WHERE id = ?`).run(code, orderId);
+    
+    const totals = recalcOrderTotals(orderId);
+    const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+
+    console.log(`Applied promo '${code}' to order ${orderId}. Recalc needed.`);
+    
+    return { ok: true, order, totals };
+});
+
+
 ipcMain.handle('orders:close', async (_e, orderId: string) => {
   const now = Date.now();
   recalcOrderTotals(orderId);
-  db.prepare(`
-    UPDATE orders SET status = 'closed', closed_at = ? WHERE id = ?
-  `).run(now, orderId);
+  db.prepare(`UPDATE orders SET status = 'closed', closed_at = ? WHERE id = ?`).run(now, orderId);
   return { ok: true, closed_at: now };
 });
 
-// ---------- Settings (store simple KV now; wire server later) ----------
-ipcMain.handle('settings:getAll', async () => {
-  return db.prepare(`SELECT key, value FROM meta ORDER BY key ASC`).all();
+ipcMain.handle('orders:reopen', async (_e, orderId: string) => {
+  db.prepare(`UPDATE orders SET status = 'open', closed_at = NULL WHERE id = ?`).run(orderId);
+  safeAddToActiveOrders(orderId);
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  return { ok: true, order };
 });
 
-ipcMain.handle('settings:set', async (_e, key: string, value: string) => {
-  setMeta(key, value);
+ipcMain.handle('orders:cancel', async (_e, orderId: string) => {
+  db.prepare(`UPDATE orders SET status = 'cancelled' WHERE id = ?`).run(orderId);
   return { ok: true };
 });
 
-function getOrderWithLines(orderId: string) {
-  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
-  const lines = db.prepare(`
-    SELECT id, order_id, item_id, name, qty, unit_price, tax_amount, line_total, temp_line_id
-    FROM order_lines
-    WHERE order_id = ?
-    ORDER BY rowid ASC
-  `).all(orderId);
-  return { order, lines };
+/* ---------------- Cart (unchanged, relies on your cart table) --------------- */
+
+function parseNumList(input: any): number[] {
+  if (input == null) return [];
+  if (typeof input === 'number') return [input];
+  const s = String(input).trim();
+  if (!s) return [];
+  try {
+    const j = JSON.parse(s);
+    if (Array.isArray(j)) return j.map(n => Number(n) || 0);
+    const n = Number(j);
+    return Number.isFinite(n) ? [n] : [];
+  } catch {
+    return s.split(',').map(x => Number(x.trim()) || 0);
+  }
+}
+function addonsUnitTotal(addons_price: any, addons_qty: any): number {
+  const prices = parseNumList(addons_price);
+  const qtys = parseNumList(addons_qty);
+  if (!prices.length) return 0;
+  if (!qtys.length) return prices.reduce((a, b) => a + (Number(b) || 0), 0);
+  let sum = 0;
+  for (let i = 0; i < prices.length; i++) {
+    const p = Number(prices[i]) || 0;
+    const q = Number(qtys[i] ?? 1) || 1;
+    sum += p * q;
+  }
+  return sum;
+}
+function baseUnitPrice(row: any): number {
+  const varP = Number(row.variation_price);
+  const price = Number(row.price);
+  const unit = Number.isFinite(varP) && varP > 0 ? varP : (Number(price) || 0);
+  const addons = addonsUnitTotal(row.addons_price, row.addons_qty);
+  return unit + addons;
+}
+function calcLineTotal(row: any): number {
+  const unit = baseUnitPrice(row);
+  const qty = Number(row.qty) || 0;
+  return +(unit * qty).toFixed(3);
+}
+function cartTotals() {
+  const rows = db.prepare(`SELECT * FROM cart`).all() as any[];
+  const subtotal = rows.reduce((s, r) => s + calcLineTotal(r), 0);
+  const discount_total = 0;
+  const orderType = Number(getMeta('cart.order_type') || 0);
+  let delivery_fee = 0;
+  if (orderType === 1) {
+    const cityId = getMeta('cart.city_id');
+    if (cityId) {
+      const city = db.prepare(`SELECT delivery_fee FROM cities WHERE id = ?`).get(cityId) as any;
+      if (city && Number.isFinite(Number(city.delivery_fee))) delivery_fee = Number(city.delivery_fee);
+    }
+    if (getMeta('cart.void_delivery_fee') === '1') delivery_fee = 0;
+  }
+  const grand_total = +(subtotal - discount_total + delivery_fee).toFixed(3);
+  return { subtotal, discount_total, delivery_fee, grand_total };
 }
 
+ipcMain.handle('cart:list', async () => {
+  const rows = db.prepare(`SELECT * FROM cart ORDER BY created_at ASC, rowid ASC`).all();
+  return { rows, totals: cartTotals() };
+});
+ipcMain.handle('cart:clear', async () => {
+  db.prepare(`DELETE FROM cart`).run();
+  return { ok: true, totals: cartTotals() };
+});
+ipcMain.handle('cart:add', async (_e, payload: any) => {
+  const now = nowMs();
+  const sid = getMeta('device_id') || 'local';
+  const q = Number(payload.qty ?? 1) || 1;
+
+  const keyItem = String(payload.item_id);
+  const keyVar = payload.variation_id ? String(payload.variation_id) : null;
+  const keyAdds = payload.addons_id ? String(payload.addons_id) : null;
+
+  const existing = db.prepare(`
+    SELECT * FROM cart
+    WHERE item_id = ? AND IFNULL(variation_id,'') = IFNULL(?, '') AND IFNULL(addons_id,'') = IFNULL(?, '')
+    LIMIT 1
+  `).get(keyItem, keyVar, keyAdds) as any;
+
+  if (existing) {
+    const newQty = (Number(existing.qty) || 0) + q;
+    db.prepare(`UPDATE cart SET qty = ?, updated_at = ? WHERE id = ?`).run(newQty, now, existing.id);
+  } else {
+    const id = crypto.randomUUID();
+    db.prepare(`
+      INSERT INTO cart (id,user_id,session_id,item_id,item_name,item_name_ar,item_image,
+                      addons_id,addons_name,addons_name_ar,addons_price,addons_qty,
+                      variation_id,variation,variation_ar,variation_price,
+                      price,qty,tax,item_notes,is_available,created_at,updated_at,branch_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      id, null, sid,
+      payload.item_id, payload.item_name, payload.item_name_ar ?? null, payload.item_image ?? null,
+      payload.addons_id ?? null, payload.addons_name ?? null, payload.addons_name_ar ?? null,
+      payload.addons_price ?? null, payload.addons_qty ?? null,
+      payload.variation_id ?? null, payload.variation ?? null, payload.variation_ar ?? null,
+      payload.variation_price ?? null,
+      payload.price, q, null, payload.item_notes ?? null, 1, now, now, Number(getMeta('branch_id') || 0)
+    );
+  }
+  return { ok: true, totals: cartTotals() };
+});
+ipcMain.handle('cart:setQty', async (_e, id: string, qty: number) => {
+  const q = Number(qty);
+  if (!Number.isFinite(q) || q <= 0) throw new Error('Invalid qty');
+  db.prepare(`UPDATE cart SET qty = ?, updated_at = ? WHERE id = ?`).run(q, nowMs(), id);
+  return { ok: true, totals: cartTotals() };
+});
+ipcMain.handle('cart:inc', async (_e, id: string) => {
+  db.prepare(`UPDATE cart SET qty = qty + 1, updated_at = ? WHERE id = ?`).run(nowMs(), id);
+  return { ok: true, totals: cartTotals() };
+});
+ipcMain.handle('cart:dec', async (_e, id: string) => {
+  const row = db.prepare(`SELECT qty FROM cart WHERE id = ?`).get(id) as any;
+  const q = Number(row?.qty || 0);
+  if (q <= 1) db.prepare(`DELETE FROM cart WHERE id = ?`).run(id);
+  else db.prepare(`UPDATE cart SET qty = qty - 1, updated_at = ? WHERE id = ?`).run(nowMs(), id);
+  return { ok: true, totals: cartTotals() };
+});
+ipcMain.handle('cart:remove', async (_e, id: string) => {
+  db.prepare(`DELETE FROM cart WHERE id = ?`).run(id);
+  return { ok: true, totals: cartTotals() };
+});
+ipcMain.handle('cart:setNotes', async (_e, id: string, note: string) => {
+  db.prepare(`UPDATE cart SET item_notes = ?, updated_at = ? WHERE id = ?`).run(note ?? null, nowMs(), id);
+  return { ok: true };
+});
+ipcMain.handle('cart:setContext', async (_e, ctx: { order_type?: number; city_id?: string | null; void_delivery_fee?: boolean }) => {
+  if (ctx.order_type != null) db.prepare(`INSERT INTO meta(key,value) VALUES('cart.order_type', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(ctx.order_type));
+  if (ctx.city_id !== undefined) db.prepare(`INSERT INTO meta(key,value) VALUES('cart.city_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(ctx.city_id ? String(ctx.city_id) : '');
+  if (ctx.void_delivery_fee != null) db.prepare(`INSERT INTO meta(key,value) VALUES('cart.void_delivery_fee', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(ctx.void_delivery_fee ? '1' : '0');
+  return { ok: true, totals: cartTotals() };
+});
+
+/** Create completed order from cart and leave it for outbox push */
 ipcMain.handle('orders:createFromCart', async (_e, customerData: {
   full_name: string;
   mobile: string;
@@ -697,12 +951,9 @@ ipcMain.handle('orders:createFromCart', async (_e, customerData: {
   payment_method_id: string;
   payment_method_slug: string;
 }) => {
-  // DO NOT call another handler. Call the underlying functions directly.
   const rows = db.prepare(`SELECT * FROM cart ORDER BY created_at ASC, rowid ASC`).all();
   const totals = cartTotals();
-  if (!rows || rows.length === 0) {
-    throw new Error('Cannot create order from an empty cart.');
-  }
+  if (!rows || rows.length === 0) throw new Error('Cannot create order from an empty cart.');
 
   const deviceId = getMeta('device_id');
   const branchId = Number(getMeta('branch_id') ?? 0);
@@ -714,21 +965,251 @@ ipcMain.handle('orders:createFromCart', async (_e, customerData: {
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO orders (id, number, device_id, branch_id, order_type, status, full_name, mobile, address, note, payment_method_id, payment_method_slug, subtotal, discount_total, delivery_fee, grand_total, opened_at, created_at)
-      VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(orderId, orderNumber, deviceId, branchId, orderType, customerData.full_name, customerData.mobile, customerData.address, customerData.note, customerData.payment_method_id, customerData.payment_method_slug, totals.subtotal, totals.discount_total, totals.delivery_fee, totals.grand_total, now);
+      INSERT INTO orders (id, number, device_id, branch_id, order_type, status, full_name, mobile, address, note,
+                          payment_method_id, payment_method_slug, subtotal, discount_total, delivery_fee, grand_total,
+                          opened_at, created_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, NULL)
+    `).run(
+      orderId, orderNumber, deviceId, branchId, orderType,
+      customerData.full_name, customerData.mobile, customerData.address, customerData.note,
+      customerData.payment_method_id, customerData.payment_method_slug,
+      totals.subtotal, totals.discount_total, totals.delivery_fee, totals.grand_total,
+      now
+    );
 
     const lineInsert = db.prepare(`
-      INSERT INTO order_lines (id, order_id, item_id, name, name_ar, qty, unit_price, line_total, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO order_lines (id, order_id, item_id, name, name_ar, qty, unit_price, line_total, notes,
+                               variation_id, variation, variation_price, addons_id, addons_name, addons_price, addons_qty)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const item of rows) {
-      lineInsert.run(crypto.randomUUID(), orderId, item.item_id, item.item_name, item.item_name_ar, item.qty, item.price, calcLineTotal(item), item.item_notes);
+      const unitPrice = baseUnitPrice(item);
+      const lineTotal = calcLineTotal(item);
+      lineInsert.run(
+        crypto.randomUUID(), orderId, item.item_id, item.item_name, item.item_name_ar, item.qty,
+        unitPrice, lineTotal, item.item_notes ?? null,
+        item.variation_id ?? null, item.variation ?? null, item.variation_price ?? null,
+        item.addons_id ?? null, item.addons_name ?? null, item.addons_price ?? null, item.addons_qty ?? null
+      );
     }
 
     db.prepare('DELETE FROM cart').run();
   })();
 
-  return getOrderWithLines(orderId);
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
+  return { order, lines, queued_for_push: true };
 });
+
+/* ======================================================================
+    IPC: Outbox (push completed orders) — Sync button uses these
+    ====================================================================== */
+
+/** How many completed orders are waiting to be sent */
+ipcMain.handle('orders:unsyncedCount', async () => {
+  const n = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
+  return { count: n };
+});
+
+/** Push one by id (helpful to re-try a specific ticket) */
+ipcMain.handle('orders:pushOne', async (_e, orderId: string) => {
+  if ((getMeta('pos.mode') || 'live') !== 'live') throw new Error('Offline mode');
+  const payload = buildOrderPayload(orderId);
+  if (!payload) throw new Error('Order not found');
+
+  const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+  await pushOutbox(envelope, { orders: [payload] });
+  markOrdersSynced([orderId]);
+  return { ok: true, pushed: 1 };
+});
+
+ipcMain.handle('orders:complete', async (_e, orderId: string, customer: {
+  full_name: string;
+  mobile: string;
+  address?: string | null;
+  note?: string | null;
+  payment_method_id: string;
+  payment_method_slug: string;
+}) => {
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
+  if (!order) throw new Error('Order not found');
+
+  // Ensure totals are up to date
+  const totals = recalcOrderTotals(orderId);
+  const now = Date.now();
+
+  db.prepare(`
+    UPDATE orders
+    SET status='completed',
+        full_name=?,
+        mobile=?,
+        address=?,
+        note=?,
+        payment_method_id=?,
+        payment_method_slug=?,
+        subtotal=?,
+        discount_total=?,
+        delivery_fee=?,
+        grand_total=?,
+        closed_at=?,
+        synced_at=NULL
+    WHERE id = ?
+  `).run(
+    customer.full_name,
+    customer.mobile,
+    customer.address ?? null,
+    customer.note ?? null,
+    customer.payment_method_id,
+    customer.payment_method_slug,
+    totals.subtotal,
+    totals.discount_total,
+    totals.delivery_fee,
+    totals.grand_total,
+    now,
+    orderId
+  );
+
+  // If online, push immediately
+  let pushed = 0;
+  try {
+    if ((getMeta('pos.mode') || 'live') === 'live') {
+      const base = getMeta('server.base_url') || '';
+      const device_id = getMeta('device_id') || '';
+      const branch_id = Number(getMeta('branch_id') || 0);
+      const token = await loadSecret('device_token');
+      if (base && device_id && token) {
+        configureApi(base, { id: device_id, branch_id }, token);
+        const payload = buildOrderPayload(orderId);
+        if (payload) {
+          const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+          await pushOutbox(envelope, { orders: [payload] });
+          markOrdersSynced([orderId]);
+          pushed = 1;
+        }
+      }
+    }
+  } catch (e) {
+    // stay quiet—order remains queued for auto/background push
+    console.warn('[orders:complete] push failed, will retry via autosync:', (e as any)?.message);
+  }
+
+  const refreshed = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
+  return { ok: true, pushed, order: refreshed, lines };
+});
+
+/** Push a batch of unsynced completed orders */
+ipcMain.handle('sync:flushOrders', async (_e, limit = 20) => {
+  if ((getMeta('pos.mode') || 'live') !== 'live') throw new Error('Offline mode');
+
+  const toPush = collectUnsyncedOrders(limit);
+  if (!toPush.length) return { ok: true, pushed: 0 };
+
+  const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+  await pushOutbox(envelope, { orders: toPush });
+
+  markOrdersSynced(toPush.map(o => o.id));
+  return { ok: true, pushed: toPush.length };
+});
+
+// Assign a table to a dine-in order
+ipcMain.handle('orders:setTable', async (_e, orderId: string, payload: { table_id: string; covers?: number }) => {
+  const o = db.prepare(`SELECT id, order_type, table_id FROM orders WHERE id = ?`).get(orderId) as any;
+  if (!o) throw new Error('Order not found');
+  if (Number(o.order_type) !== 3) throw new Error('Order is not dine-in');
+
+  const t = db.prepare(`SELECT id, label, number, capacity, is_available FROM tables WHERE id = ?`).get(payload.table_id) as any;
+  if (!t) throw new Error('Table not found');
+  if (Number(t.is_available) !== 1 && t.id !== o.table_id) throw new Error('Table is not available');
+
+  const covers = Math.max(1, Number(payload.covers ?? 1));
+
+  db.transaction(() => {
+    if (o.table_id && o.table_id !== t.id) {
+      db.prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`).run(o.table_id);
+    }
+    db.prepare(`UPDATE orders SET table_id = ?, covers = ? WHERE id = ?`).run(t.id, covers, orderId);
+    db.prepare(`UPDATE tables SET is_available = 0 WHERE id = ?`).run(t.id);
+  })();
+
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
+  const tn = db.prepare(`SELECT COALESCE(label, 'Table '||number) AS name FROM tables WHERE id = ?`).get(order.table_id) as any;
+  order.table_name = tn?.name ?? null;
+
+  return { ok: true, order };
+});
+
+// Clear the table from an order
+ipcMain.handle('orders:clearTable', async (_e, orderId: string) => {
+  const o = db.prepare(`SELECT id, table_id FROM orders WHERE id = ?`).get(orderId) as any;
+  if (!o) throw new Error('Order not found');
+
+  db.transaction(() => {
+    if (o.table_id) db.prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`).run(o.table_id);
+    db.prepare(`UPDATE orders SET table_id = NULL, covers = NULL WHERE id = ?`).run(orderId);
+  })();
+
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  return { ok: true, order };
+});
+
+
+/* ======================================================================
+    Background Auto-Sync (pull + flush) with backoff
+    ====================================================================== */
+
+let autoTimer: NodeJS.Timeout | null = null;
+let backoffMs = 30000; // 30s; grows to 5min on failures
+
+async function autoSyncTick() {
+  try {
+    if ((getMeta('pos.mode') || 'live') !== 'live') return;
+
+    const base = getMeta('server.base_url') || '';
+    const device_id = getMeta('device_id') || '';
+    const branch_id = Number(getMeta('branch_id') || 0);
+    const token = await loadSecret('device_token');
+
+    if (!base || !device_id || !token) return;
+
+    // Ensure API is configured (idempotent)
+    configureApi(base, { id: device_id, branch_id }, token);
+
+    // Pull any changes (safe)
+    await pullChanges();
+
+    // Push outbox if any
+    const pending = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
+    if (pending > 0) {
+      const batch = collectUnsyncedOrders(25);
+      if (batch.length) {
+        const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+        await pushOutbox(envelope, { orders: batch });
+        markOrdersSynced(batch.map(o => o.id));
+      }
+    }
+
+    // success: reset backoff
+    backoffMs = 30000;
+    setMeta('sync.last_at', String(Date.now()));
+  } catch(err) {
+    console.error('[AutoSync] Tick failed:', err.message);
+    // exponential-ish backoff up to 5 min
+    backoffMs = Math.min(backoffMs * 2, 5 * 60 * 1000);
+  } finally {
+    scheduleNextAutoSync();
+  }
+}
+
+function scheduleNextAutoSync() {
+  if (autoTimer) clearTimeout(autoTimer);
+  autoTimer = setTimeout(autoSyncTick, backoffMs);
+}
+
+function startAutoSyncLoop() {
+  if (autoTimer) return;
+  scheduleNextAutoSync();
+}
+
+// ----------------------------------------------------------------------
