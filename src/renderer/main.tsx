@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { HeroUIProvider } from '@heroui/react';
 import App from './App.tsx';
 import './styles/tailwind.css';
+import { ThemeProvider } from '../context/ThemeContext';
 
 // --- FIX ---
 // The 'preload.ts' file you provided exposes 'window.electronAPI',
@@ -55,11 +56,13 @@ async function bootstrap() {
   await initTheme();
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
+      <ThemeProvider>
       <BrowserRouter>
         <HeroUIProvider>
           <App />
         </HeroUIProvider>
       </BrowserRouter>
+      </ThemeProvider>
     </React.StrictMode>
   );
 }

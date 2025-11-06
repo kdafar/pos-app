@@ -14,11 +14,6 @@ import { registerAuthHandlers } from './handlers/auth';
 // Optional socket server (kept from your file)
 import { createSocketServer } from './socket';
 
-// Squirrel
-if (require('electron-squirrel-startup')) {
-  app.quit();
-}
-
 process.env.APP_ROOT = path.join(__dirname, '../..');
 
 async function createWindow() {
@@ -51,7 +46,54 @@ async function createWindow() {
   }
 }
 
+// ----- order number helpers (unique, device-scoped) -----
+function deviceSuffix(): string {
+  const d = getMeta('device_id') || 'LOCAL';
+  return String(d).slice(-4).toUpperCase();        // last 4 chars
+}
+function genCandidateNumber(): string {
+  // up to milliseconds + device + 4-char random
+  const base = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 17); // YYYYMMDDHHmmssSSS
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `POS-${base}-${deviceSuffix()}${rand}`;
+}
+function allocUniqueOrderNumber(): string {
+  for (let i = 0; i < 6; i++) {
+    const n = genCandidateNumber();
+    const exists = db.prepare('SELECT 1 FROM orders WHERE number = ? LIMIT 1').get(n);
+    if (!exists) return n;
+  }
+  // ultra-rare fallback: add a high-res counter
+  const n = `POS-${Date.now()}-${process.hrtime.bigint().toString().slice(-6)}-${deviceSuffix()}`;
+  return n;
+}
+
+/** Before bootstrap, fix any duplicate local numbers to avoid UNIQUE(number) crashes */
+function normalizeDuplicateOrderNumbers(): void {
+  try {
+    const dups = db.prepare(`
+      SELECT number FROM orders
+      GROUP BY number HAVING COUNT(*) > 1
+    `).all() as Array<{ number: string }>;
+
+    for (const { number } of dups) {
+      const rows = db.prepare(`
+        SELECT id FROM orders WHERE number = ? ORDER BY created_at ASC, rowid ASC
+      `).all(number) as Array<{ id: string }>;
+      // keep the first row as-is, re-number the rest
+      for (let i = 1; i < rows.length; i++) {
+        const newNum = allocUniqueOrderNumber();
+        db.prepare(`UPDATE orders SET number = ? WHERE id = ?`).run(newNum, rows[i].id);
+      }
+    }
+  } catch { /* no-op */ }
+}
+
+
 app.on('ready', () => {
+  migrate();
+  ensureOrderNumberDedupeTriggers();  
+  normalizeDuplicateOrderNumbers();
   createWindow();
   createSocketServer();
   startAutoSyncLoop(); // 🔁 background pull+push
@@ -81,6 +123,38 @@ function readSettingBool(key: string, fallback = false): boolean {
 function readSettingNumber(key: string, fallback = 0): number {
   const n = Number(readSettingRaw(key));
   return Number.isFinite(n) ? n : fallback;
+}
+
+function ensureOrderNumberDedupeTriggers() {
+  try {
+    db.exec(`
+      -- If a new row arrives with a number already used locally, bump the existing one.
+      CREATE TRIGGER IF NOT EXISTS tr_orders_num_dedupe_ins
+      BEFORE INSERT ON orders
+      WHEN EXISTS (
+        SELECT 1 FROM orders WHERE number = NEW.number AND id <> NEW.id
+      )
+      BEGIN
+        UPDATE orders
+        SET number = 'L-' || NEW.number || '-' || LOWER(HEX(RANDOMBLOB(3)))
+        WHERE number = NEW.number AND id <> NEW.id;
+      END;
+
+      -- If any UPDATE tries to set a duplicate number, bump the other row first.
+      CREATE TRIGGER IF NOT EXISTS tr_orders_num_dedupe_upd
+      BEFORE UPDATE OF number ON orders
+      WHEN NEW.number IS NOT NULL AND EXISTS (
+        SELECT 1 FROM orders WHERE number = NEW.number AND id <> NEW.id
+      )
+      BEGIN
+        UPDATE orders
+        SET number = 'L-' || NEW.number || '-' || LOWER(HEX(RANDOMBLOB(3)))
+        WHERE number = NEW.number AND id <> NEW.id;
+      END;
+    `);
+  } catch (e: any) {
+    console.warn('ensureOrderNumberDedupeTriggers failed:', e?.message);
+  }
 }
 
 /** Multiple orders tabs helper (best effort; table may not exist on old DBs) */
@@ -277,6 +351,7 @@ ipcMain.handle('sync:pair', async (_e, baseUrl: string, pairCode: string, branch
 });
 
 ipcMain.handle('sync:bootstrap', async (_e, baseUrl?: string) => {
+  ensureOrderNumberDedupeTriggers();
   const url = baseUrl || getMeta('server.base_url') || '';
   if (!url) throw new Error('Missing base URL');
 
@@ -325,6 +400,8 @@ ipcMain.handle('sync:run', async () => {
     throw new Error('Not configured for sync (missing URL, device ID, or token)');
   }
 
+  ensureOrderNumberDedupeTriggers(); 
+   normalizeDuplicateOrderNumbers(); 
   // Make sure axios is configured
   configureApi(base, { id: device_id, branch_id }, token);
 
@@ -653,7 +730,7 @@ ipcMain.handle('orders:start', async () => {
   if (!deviceId) throw new Error('Device not paired');
 
   const id = crypto.randomUUID();
-  const number = `POS-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`;
+ const number = allocUniqueOrderNumber();
   const now = Date.now();
 
   db.prepare(`
@@ -957,7 +1034,7 @@ ipcMain.handle('orders:createFromCart', async (_e, customerData: {
   const orderType = Number(getMeta('cart.order_type') || 2);
 
   const orderId = crypto.randomUUID();
-  const orderNumber = `POS-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`;
+  const orderNumber = allocUniqueOrderNumber(); 
   const now = Date.now();
 
   db.transaction(() => {

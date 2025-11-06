@@ -344,6 +344,7 @@ export function migrate() {
   ensureColumn('orders', 'discount_amount REAL DEFAULT 0', 'discount_amount');
   ensureColumn('orders', 'discount_pr REAL DEFAULT 0', 'discount_pr');
   ensureColumn('orders', 'table_id TEXT', 'table_id');
+  ensureColumn('orders', 'covers INTEGER', 'covers');
 
   // Phase 3: indexes (only after columns are present)
   db.exec(`
@@ -359,6 +360,7 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS idx_orders_mobile ON orders(mobile);
     CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id);
     CREATE INDEX IF NOT EXISTS idx_pos_users_email ON pos_users(lower(email));
+    CREATE INDEX IF NOT EXISTS idx_orders_outbox ON orders(status, synced_at, created_at);
   `);
 
   // Column-dependent index on items(type) — guard it

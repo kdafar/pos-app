@@ -12,7 +12,7 @@ import { LogoutRoute } from './screens/LogoutRoute';
 import { AuthedGate } from './screens/AuthedGate';
 
 // pages
-import OrderProcessPage from './pages/OrderProcessPage';
+import  OrderProcessPage  from './pages/OrderProcessPage';
 import RecentOrdersPage from './pages/RecentOrdersPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { ItemsPage } from './pages/ItemsPage';
