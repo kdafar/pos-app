@@ -346,6 +346,15 @@ export function migrate() {
   ensureColumn('orders', 'table_id TEXT', 'table_id');
   ensureColumn('orders', 'covers INTEGER', 'covers');
 
+  ensureColumn('orders', 'printed_at INTEGER', 'printed_at');    // ms since epoch
+  ensureColumn('orders', 'is_locked INTEGER DEFAULT 0', 'is_locked');
+  ensureColumn('orders', 'user_id INTEGER', 'user_id');          // who completed/printed
+
+  // ---- image cache fields on items
+  ensureColumn('items', 'image_local TEXT', 'image_local');      // absolute local path
+  ensureColumn('items', 'image_etag TEXT', 'image_etag');        // optional: server ETag
+  ensureColumn('items', 'image_mtime INTEGER', 'image_mtime'); 
+
   // Phase 3: indexes (only after columns are present)
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_subcats_cat ON subcategories(category_id, position);

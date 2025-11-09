@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import db, { getMeta, setMeta } from './db';
 import { deleteSecret, loadSecret, saveSecret } from './secureStore';
+import { prefetchItemImages } from './imageCache';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { ipcMain } from 'electron';
 
@@ -30,11 +31,12 @@ export function configureApi(baseUrl: string, device: Device, token: string) {
   api.interceptors.response.use(
     (response) => response,
     async (error) => {
-      if (error?.response && (error.response.status === 401 || error.response.status === 403)) {
-        // Device revoked/expired
-        await deleteSecret('device_token');
-        setMeta('device_id', '');
-        throw new AuthError();
+      const st = error?.response?.status;
+      if (st === 401 || st === 403) {
+        await deleteSecret('device_token'); setMeta('device_id',''); throw new AuthError();
+      }
+      if (st === 423) { // server says device locked
+        setMeta('device.locked_at', String(error?.response?.data?.locked_at ?? Date.now()));
       }
       return Promise.reject(error);
     }
@@ -301,6 +303,17 @@ export async function bootstrap(baseUrl: string) {
   }
   if (data?.branch?.name) {
     setMeta('branch.name', String(data.branch.name));
+  }
+
+  if (data?.device) {
+    if (data.device.killswitch_after_days != null) {
+      setMeta('device.killswitch_after_days', String(data.device.killswitch_after_days));
+    }
+    if (data.device.locked_at) {
+      setMeta('device.locked_at', String(data.device.locked_at));
+    } else {
+      setMeta('device.locked_at', '');
+    }
   }
 
   const catalog = data.catalog ?? data;
@@ -574,6 +587,7 @@ for (const u of users) upUser.run(normUser(u));
 
   tx();
   markSyncedNow();
+  await prefetchItemImages(6);
 }
 
 /* ---------- Pull (incremental) ---------- */
@@ -582,6 +596,8 @@ export async function pullChanges() {
   const cursor = Number(cursorRow ?? 0);
 
   const { data } = await api.post('/pull', { cursor });
+
+  const changedItemIds: string[] = [];
 
   const apply = db.transaction((changes: any[]) => {
     const upItem = db.prepare(`
@@ -646,7 +662,6 @@ export async function pullChanges() {
       ON CONFLICT(id) DO UPDATE SET
         item_id=excluded.item_id,group_id=excluded.group_id,is_required=excluded.is_required,max_select=excluded.max_select,updated_at=excluded.updated_at
     `);
-
     const upUser = db.prepare(`
       INSERT INTO pos_users (id, name, username, email, role, password_hash, is_active, branch_id, updated_at)
       VALUES (@id, @name, @username, lower(@email), @role, @password_hash, @is_active, @branch_id, @updated_at)
@@ -656,16 +671,20 @@ export async function pullChanges() {
         is_active=excluded.is_active, branch_id=excluded.branch_id, updated_at=excluded.updated_at
     `);
 
+    const delBy = (table: string, pk: any) =>
+      db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(S(pk));
+
     for (const c of changes) {
-      const op = c.op;
+      const op  = c.op;
       const tbl = String(c.table || '').toLowerCase();
 
-      // helper delete by id (pk) with fallback composite handling for promo exclusions
-      const delBy = (table: string, pk: any) => db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(S(pk));
-
       if (tbl === 'item' || tbl === 'items') {
-        if (op === 'delete') delBy('items', c.pk);
-        else if (c.data) upItem.run(normItem(c.data));
+        if (op === 'delete') {
+          delBy('items', c.pk);
+        } else if (c.data) {
+          upItem.run(normItem(c.data));
+          changedItemIds.push(String(c.data.id));
+        }
       } else if (tbl === 'variation' || tbl === 'variations' || tbl === 'item_variations') {
         if (op === 'delete') delBy('variations', c.pk);
         else if (c.data) upVar.run(normVariation(c.data));
@@ -674,16 +693,26 @@ export async function pullChanges() {
         else if (c.data) upPromo.run(normPromo(c.data));
       } else if (tbl === 'item_promocode' || tbl === 'promo_item_exclusions') {
         if (op === 'delete') {
-          // expect pk to contain promo_id & item_id in data or in pk tuple
-          const row = c.data ?? {};
-          db.prepare(`DELETE FROM promo_item_exclusions WHERE promo_id = ? AND item_id = ?`)
-            .run(S(row.promo_id ?? row.promocode_id), S(row.item_id));
+          // support pk as [promo_id,item_id] OR object OR rely on data
+          let promoId: any, itemId: any;
+          if (Array.isArray(c.pk) && c.pk.length >= 2) {
+            [promoId, itemId] = c.pk;
+          } else if (c.pk && typeof c.pk === 'object') {
+            promoId = c.pk.promo_id ?? c.pk.promocode_id;
+            itemId  = c.pk.item_id;
+          } else if (c.data) {
+            promoId = c.data.promo_id ?? c.data.promocode_id;
+            itemId  = c.data.item_id;
+          }
+          if (promoId != null && itemId != null) {
+            db.prepare(`DELETE FROM promo_item_exclusions WHERE promo_id = ? AND item_id = ?`)
+              .run(S(promoId), S(itemId));
+          }
         } else if (c.data) {
-          const row = {
+          upPromoEx.run({
             promo_id: S(c.data.promo_id ?? c.data.promocode_id)!,
-            item_id: S(c.data.item_id)!,
-          };
-          upPromoEx.run(row);
+            item_id:  S(c.data.item_id)!,
+          });
         }
       } else if (tbl === 'addons_group' || tbl === 'addon_groups') {
         if (op === 'delete') delBy('addon_groups', c.pk);
@@ -698,8 +727,7 @@ export async function pullChanges() {
         if (op === 'delete') delBy('pos_users', c.pk);
         else if (c.data) upUser.run(normUser(c.data));
       }
-
-      // Extend here for categories, tables, states, cities, blocks, subcategories if your /pull returns them.
+      // (extend for other tables if your /pull adds them)
     }
 
     db.prepare(`
@@ -710,7 +738,12 @@ export async function pullChanges() {
 
   apply(data.changes ?? []);
   markSyncedNow();
+
+  if (changedItemIds.length) {
+    await prefetchItemImages([...new Set(changedItemIds)], 6);
+  }
 }
+
 
 /* ---------- Push (orders/payments) ---------- */
 export async function pushOutbox(

@@ -3,6 +3,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { readOrCreateMachineId } from './machineId';
 
+import { registerAppImgProtocol } from './protocols';
+
 // DB + meta
 import db, { getMeta, migrate, setMeta } from './db';
 import { saveSecret, loadSecret } from './secureStore';
@@ -47,16 +49,44 @@ async function createWindow() {
 }
 
 // ----- order number helpers (unique, device-scoped) -----
+type NumberStyle = 'short' | 'mini';
+function getOrderNumberStyle(): NumberStyle {
+  const raw = (readSettingRaw('orders.number_style') ?? 'short').toString().toLowerCase();
+  return raw === 'mini' ? 'mini' : 'short';
+}
+
+function getOrderNumberPrefix(): string {
+  const p = (readSettingRaw('orders.number_prefix') ?? 'POS').toString().trim();
+  return p || 'POS';
+}
+
+function randBase36(len: number): string {
+  let s = '';
+  while (s.length < len) s += Math.random().toString(36).slice(2).toUpperCase();
+  return s.slice(0, len);
+}
+
 function deviceSuffix(): string {
   const d = getMeta('device_id') || 'LOCAL';
-  return String(d).slice(-4).toUpperCase();        // last 4 chars
+  return String(d).slice(-4).toUpperCase();
 }
+
 function genCandidateNumber(): string {
-  // up to milliseconds + device + 4-char random
-  const base = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 17); // YYYYMMDDHHmmssSSS
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `POS-${base}-${deviceSuffix()}${rand}`;
+  const style = getOrderNumberStyle();           // 'short' | 'mini'
+  const prefix = getOrderNumberPrefix();         // default 'POS'
+  const dev = deviceSuffix();                    // last 4 of device id
+
+  if (style === 'mini') {
+    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+    // Example: POS-20251109QH
+    return `${prefix}-${ymd}${dev.slice(0, 2)}`;
+  }
+
+  // Default 'short' – Example: POS-QHHC3NTK
+  const rand = randBase36(4);
+  return `${prefix}-${dev}${rand}`;
 }
+
 function allocUniqueOrderNumber(): string {
   for (let i = 0; i < 6; i++) {
     const n = genCandidateNumber();
@@ -97,6 +127,7 @@ app.on('ready', () => {
   createWindow();
   createSocketServer();
   startAutoSyncLoop(); // 🔁 background pull+push
+  registerAppImgProtocol();
 });
 
 app.on('window-all-closed', () => {

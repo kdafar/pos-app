@@ -3,9 +3,11 @@ import {
   Search, Plus, Minus, Trash2, ShoppingCart, Clock, Package, X, Check, User, MapPin, CreditCard, 
   UtensilsCrossed, Table2, Moon, Sun, Percent, UserCheck, Zap, Phone, Mail
 } from 'lucide-react';
+import { fileUrl } from '../utils/fileUrl';
 
 /* ========= Types ========= */
-interface Item { id: string; name: string; name_ar: string; barcode: string; price: number; is_outofstock: number; category_id: string; subcategory_id: string; }
+interface Item { id: string; name: string; name_ar: string; barcode: string; price: number; is_outofstock: number; category_id: string; subcategory_id: string; image?: string | null;
+  image_local?: string | null;}
 interface Category { id: string; name: string; name_ar: string; category_id?: string; }
 interface OrderLine { id: string; order_id: string; item_id: string; name: string; qty: number; unit_price: number; line_total: number; }
 type OrderType = 1 | 2 | 3;
@@ -64,6 +66,11 @@ function OrderProcessPage() {
       setPromos(prms || []);
       await Promise.all([loadItems(), loadActiveOrders()]);
     } catch (e) { console.error(e); }
+  };
+
+  const imgSrcFor = (it: Pick<Item, 'image' | 'image_local' | 'name'>) => {
+    const local = it.image_local ? fileUrl(it.image_local) : null;
+    return local ?? it.image ?? null;
   };
 
   const loadItems = async () => {
@@ -393,11 +400,34 @@ function OrderProcessPage() {
                     }`}
                   >
                     <div className="mb-2">
-                      <div className={`w-full h-24 rounded-lg mb-2 flex items-center justify-center border ${
+                      <div className={`w-full h-24 rounded-lg mb-2 overflow-hidden border ${
                         theme === 'dark' ? 'bg-slate-900 border-white/5' : 'bg-gray-100 border-gray-200'
                       }`}>
-                        <Package size={30} className={theme === 'dark' ? 'text-slate-600' : 'text-gray-400'} />
+                        {(() => {
+                          const src = imgSrcFor(item);
+                          if (!src) {
+                            return (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Package size={30} className={theme === 'dark' ? 'text-slate-600' : 'text-gray-400'} />
+                              </div>
+                            );
+                          }
+                          return (
+                            <img
+                              src={src}
+                              alt={item.name}
+                              loading="lazy"
+                              className="w-full h-full object-cover object-center"
+                              onError={(e) => {
+                                // fallback to a local placeholder if remote/local image fails
+                                (e.currentTarget as HTMLImageElement).onerror = null;
+                                (e.currentTarget as HTMLImageElement).src = '/assets/placeholder.png';
+                              }}
+                            />
+                          );
+                        })()}
                       </div>
+
                       <h3 className={`font-semibold ${text} line-clamp-2 leading-snug`}>{item.name}</h3>
                       <p className={`text-xs ${textMuted} line-clamp-1`}>{item.name_ar}</p>
                     </div>
