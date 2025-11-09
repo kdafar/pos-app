@@ -27,7 +27,7 @@ interface Promo { id: string; code: string; type: string; value: number; min_tot
 
 
 function OrderProcessPage() {
- const theme = useRootTheme();
+  const theme = useRootTheme();
 
   // Data
   const [items, setItems] = useState<Item[]>([]);
@@ -151,15 +151,20 @@ function OrderProcessPage() {
     try { setTables(await window.api.invoke('tables:list') || []); }
     catch (e) { console.error(e); }
   };
-  const assignTable = async (t: TableInfo, covers: number) => {
+  const assignTable = async (t: TableInfo, _covers: number) => {
     if (!currentOrder) return;
     try {
-      await window.api.invoke('orders:setTable', currentOrder.id, { table_id: t.id, covers });
+      // ✅ FIX: The backend expects (orderId, payload: { table_id, covers })
+      await window.api.invoke('orders:setTable', currentOrder.id, { table_id: t.id, covers: _covers });
+
       const { order } = await window.api.invoke('orders:get', currentOrder.id);
       setCurrentOrder(order);
       setShowTablePicker(false);
       await loadTables();
-    } catch (e) { console.error(e); alert('Could not assign table'); }
+    } catch (e) {
+      console.error(e);
+      alert('Could not assign table');
+    }
   };
   const clearTable = async () => {
     if (!currentOrder) return;
@@ -207,12 +212,12 @@ function OrderProcessPage() {
                       onClick={() => selectOrder(order.id)}
                       className={`px-3 py-1.5 rounded-lg border transition text-xs ${
                         currentOrder?.id === order.id
-  ? (theme === 'dark'
-      ? 'bg-white/10 text-white border-white/20'
-      : 'bg-gray-100 text-gray-800 border-gray-300')
-  : (theme === 'dark'
-      ? 'bg-white/5 text-slate-300 hover:bg-white/10 border-white/10'
-      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-gray-300')
+                          ? (theme === 'dark'
+                            ? 'bg-white/10 text-white border-white/20'
+                            : 'bg-gray-100 text-gray-800 border-gray-300')
+                          : (theme === 'dark'
+                            ? 'bg-white/5 text-slate-300 hover:bg-white/10 border-white/10'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-gray-300')
                       }`}
                     >
                       <span className="opacity-70">{labelForType(order.order_type)}</span>
@@ -222,9 +227,9 @@ function OrderProcessPage() {
                   <button 
                     onClick={() => createNewOrder(2)} 
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
-                     theme === 'dark'
-  ? 'bg-white/10 hover:bg-white/20 text-white'
-  : 'bg-gray-900 hover:bg-black text-white'
+                      theme === 'dark'
+                        ? 'bg-white/10 hover:bg-white/20 text-white'
+                        : 'bg-gray-900 hover:bg-black text-white'
                     }`}
                   >
                     <Plus size={14} /> New
@@ -806,6 +811,12 @@ function CheckoutModal({ order, states, cities, blocks, theme, onClose, onComple
   const [customerLookup, setCustomerLookup] = useState<Customer | null>(null);
   const [isSearching, setIsSearching] = useState(false);
 
+  // --- ADDED: Derive selected geo objects from formData IDs ---
+  const selectedState = useMemo(() => states.find((s: State) => s.id === formData.state_id), [states, formData.state_id]);
+  const selectedCity = useMemo(() => cities.find((c: City) => c.id === formData.city_id), [cities, formData.city_id]);
+  const selectedBlock = useMemo(() => blocks.find((b: Block) => b.id === formData.block_id), [blocks, formData.block_id]);
+  // --- END ADDED ---
+
   useEffect(() => {
     (async () => {
       const methods = await window.api.invoke('payments:listMethods');
@@ -824,7 +835,8 @@ function CheckoutModal({ order, states, cities, blocks, theme, onClose, onComple
     if (mobile.length < 8) return;
     setIsSearching(true);
     try {
-      const customer = await window.api.invoke('customers:findByMobile', mobile);
+      // Added ?. for safety, in case handler doesn't exist
+      const customer = await window.api.invoke?.('customers:findByMobile', mobile);
       if (customer) {
         setCustomerLookup(customer);
         setFormData(p => ({
@@ -859,16 +871,88 @@ function CheckoutModal({ order, states, cities, blocks, theme, onClose, onComple
     }
   };
 
+  // --- MOVED: These functions must be INSIDE the component to access state/props ---
+  const makeAddress = () => {
+    if (order.order_type !== 1) return (formData.address || '').trim();
+    const parts = [
+      formData.address,
+      formData.street && `St: ${formData.street}`,
+      formData.building && `Bldg: ${formData.building}`,
+      formData.floor && `Floor: ${formData.floor}`
+    ].filter(Boolean);
+    return parts.join(', ');
+  };
+
+  const computeTotals = () => {
+    const subtotal = Number(order.subtotal || 0);
+    const discount = Number(order.discount_total || 0);
+    const delivery = Number(order.delivery_fee || 0);
+    const grand = Number(order.grand_total || 0);
+    // grand = subtotal - discount + delivery + tax  =>  tax = grand - (subtotal - discount + delivery)
+    const tax = Math.max(0, grand - (subtotal - discount + delivery));
+    return { subtotal, discount, tax, grand_total: grand };
+  };
+  // --- END MOVED ---
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await window.api.invoke('orders:complete', order.id, formData);
+      // If it's a delivery order, persist city context so delivery fee is picked up
+      if (order?.order_type === 1) {
+        await window.api.invoke('cart:setContext', {
+          order_type: 1,
+          // This will now work because selectedCity is defined above
+          city_id: selectedCity?.id ?? null,
+        });
+      }
+
+      // Shape must match the ipc handler's "customer" object
+      const payload = {
+        full_name: (formData.full_name || '').trim(),
+        mobile: (formData.mobile || '').trim(),
+        // This will now work because makeAddress is in scope
+        address: makeAddress(),
+        note: formData.note || null,
+
+        // REQUIRED by orders:complete
+        payment_method_id: String(formData.payment_method_id ?? ''),
+        payment_method_slug: String(formData.payment_method_slug ?? ''),
+
+        // NEW optional geo fields (used for delivery fee by city)
+        // This will now work because selectedState/City/Block are defined above
+        state_id: selectedState?.id ?? null,
+        city_id: selectedCity?.id ?? null,
+        block_id: selectedBlock?.id ?? null,
+      };
+
+      if (!payload.payment_method_id || !payload.payment_method_slug) {
+        throw new Error('Please select a payment method.');
+      }
+
+      // Complete order (server will recalc totals incl. promo + delivery)
+      const result = await window.api.invoke('orders:complete', order.id, payload);
+
+      // Optional: create payment link using server-recalculated total
+      if (payload.payment_method_slug === 'link' || payload.payment_method_slug === 'myfatoorah') {
+        try {
+          // This will now work because computeTotals is in scope
+          const amount = result?.order?.grand_total ?? computeTotals().grand_total;
+          const pay = await window.api.invoke?.('payments:createLink', order.id, amount);
+          const payUrl = pay?.url || pay?.payment_url || pay?.redirect_url;
+          if (payUrl) await window.api.invoke('orders:paymentLink:set', order.id, payUrl);
+        } catch { /* ignore */ }
+      }
+
+      // Optional: mark printed (handler may not exist; safely ignore)
+      try { await window.api.invoke('orders:markPrinted', order.id); } catch {}
+
       onComplete();
-    } catch (e) {
-      alert('Failed to complete order');
-      console.error(e);
+    } catch (err) {
+      console.error(err);
+      alert((err as Error).message || 'Failed to complete order');
     }
   };
+
 
   const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
   const border = theme === 'dark' ? 'border-white/10' : 'border-gray-200';
@@ -1384,6 +1468,10 @@ function labelForType(type: OrderType): string {
     case 3: return 'Dine-in';
     default: return 'Order';
   }
+}
+
+async function updatePaymentStatus(orderId: string, status: 'paid' | 'failed' | 'expired' | 'cancelled') {
+  try { await window.api.invoke('orders:paymentLink:status', orderId, status); } catch {}
 }
 
 /* ========== Global declarations ========== */

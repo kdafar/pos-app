@@ -18,6 +18,10 @@ import { createSocketServer } from './socket';
 
 process.env.APP_ROOT = path.join(__dirname, '../..');
 
+// --- FIX: Register protocols BEFORE the app 'ready' event ---
+// This resolves the "registerSchemesAsSecure should be run before app:ready" error.
+registerAppImgProtocol();
+
 async function createWindow() {
   migrate();
 
@@ -48,6 +52,36 @@ async function createWindow() {
   }
 }
 
+// ---- lightweight store wrapper for handlers ----
+const store = {
+  get: (k: string) => getMeta(k),
+  set: (k: string, v: any) => setMeta(k, v),
+  delete: (k: string) => setMeta(k, null), // your setMeta treats null as “unset”
+};
+
+/* ========== Settings helpers (unified) ========== */
+function readSettingRaw(key: string): string | null {
+  // 1) Try app_settings
+  const fromApp = db.prepare(`SELECT value FROM app_settings WHERE key = ?`).pluck().get(key);
+  if (fromApp !== undefined && fromApp !== null) return String(fromApp);
+
+  // 2) Fallbacks: meta (direct) then meta with settings.* prefix
+  const direct = getMeta(key);
+  if (direct !== undefined && direct !== null) return String(direct);
+
+  const prefixed = getMeta(`settings.${key}`);
+  return prefixed !== undefined && prefixed !== null ? String(prefixed) : null;
+}
+function readSettingBool(key: string, fallback = false): boolean {
+  const v = (readSettingRaw(key) ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || (v === '' ? fallback : false);
+}
+function readSettingNumber(key:string, fallback = 0): number {
+  const n = Number(readSettingRaw(key));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+
 // ----- order number helpers (unique, device-scoped) -----
 type NumberStyle = 'short' | 'mini';
 function getOrderNumberStyle(): NumberStyle {
@@ -72,14 +106,19 @@ function deviceSuffix(): string {
 }
 
 function genCandidateNumber(): string {
-  const style = getOrderNumberStyle();           // 'short' | 'mini'
-  const prefix = getOrderNumberPrefix();         // default 'POS'
-  const dev = deviceSuffix();                    // last 4 of device id
+  const style = getOrderNumberStyle();          // 'short' | 'mini'
+  const prefix = getOrderNumberPrefix();        // default 'POS'
+  const dev = deviceSuffix();                   // last 4 of device id
 
   if (style === 'mini') {
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
-    // Example: POS-20251109QH
-    return `${prefix}-${ymd}${dev.slice(0, 2)}`;
+    
+    // --- FIX: Original code (return `${prefix}-${ymd}${dev.slice(0, 2)}`;)
+    // --- caused collisions for devices with the same 2-char prefix on the same day.
+    // --- Adding 2 random chars to prevent this.
+    const rand = randBase36(2);
+    // Example: POS-20251109-QH-AB (where QH is dev, AB is random)
+    return `${prefix}-${ymd}${dev.slice(0, 2)}${rand}`;
   }
 
   // Default 'short' – Example: POS-QHHC3NTK
@@ -119,15 +158,24 @@ function normalizeDuplicateOrderNumbers(): void {
   } catch { /* no-op */ }
 }
 
-
 app.on('ready', () => {
   migrate();
-  ensureOrderNumberDedupeTriggers();  
+
+  if (getMeta('pos.mode') == null) setMeta('pos.mode', 'live');
+  if (getMeta('sync.disabled') == null) setMeta('sync.disabled', '0');
+  if (getMeta('pos.locked') == null) setMeta('pos.locked', '0');
+  if (getMeta('security.kill_after_days') == null) setMeta('security.kill_after_days', '14');
+
+  // Fix existing duplicates first
   normalizeDuplicateOrderNumbers();
+  // Then install dedupe guards
+  ensureOrderNumberDedupeTriggers();
+
   createWindow();
   createSocketServer();
-  startAutoSyncLoop(); // 🔁 background pull+push
-  registerAppImgProtocol();
+  startAutoSyncLoop();
+  // --- REMOVED: Moved this call to before the 'ready' event ---
+  // registerAppImgProtocol();
 });
 
 app.on('window-all-closed', () => {
@@ -144,22 +192,11 @@ app.on('activate', () => {
 
 const nowMs = () => Date.now();
 
-function readSettingRaw(key: string): string | null {
-  return db.prepare(`SELECT value FROM app_settings WHERE key = ?`).pluck().get(key) ?? null;
-}
-function readSettingBool(key: string, fallback = false): boolean {
-  const v = (readSettingRaw(key) ?? '').toString().trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
-}
-function readSettingNumber(key: string, fallback = 0): number {
-  const n = Number(readSettingRaw(key));
-  return Number.isFinite(n) ? n : fallback;
-}
-
 function ensureOrderNumberDedupeTriggers() {
   try {
+    // This (unusual) trigger pattern "kicks" existing rows off a number
+    // to allow the new insert to claim it.
     db.exec(`
-      -- If a new row arrives with a number already used locally, bump the existing one.
       CREATE TRIGGER IF NOT EXISTS tr_orders_num_dedupe_ins
       BEFORE INSERT ON orders
       WHEN EXISTS (
@@ -171,7 +208,6 @@ function ensureOrderNumberDedupeTriggers() {
         WHERE number = NEW.number AND id <> NEW.id;
       END;
 
-      -- If any UPDATE tries to set a duplicate number, bump the other row first.
       CREATE TRIGGER IF NOT EXISTS tr_orders_num_dedupe_upd
       BEFORE UPDATE OF number ON orders
       WHEN NEW.number IS NOT NULL AND EXISTS (
@@ -183,9 +219,102 @@ function ensureOrderNumberDedupeTriggers() {
         WHERE number = NEW.number AND id <> NEW.id;
       END;
     `);
+
+    // Hard guard (will succeed after normalizeDuplicateOrderNumbers)
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_number_unique ON orders(number)`);
   } catch (e: any) {
     console.warn('ensureOrderNumberDedupeTriggers failed:', e?.message);
   }
+}
+
+function hasColumn(table: string, column: string): boolean {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    return cols.some(c => c.name === column);
+  } catch { return false; }
+}
+
+function getOrderRow(orderId: string) {
+  return db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
+}
+
+function getOrderCityId(order: any): string | null {
+  // Prefer persisted city_id on the order; otherwise fall back to cart meta (useful for open orders)
+  const cid = order?.city_id ?? null;
+  if (cid != null && cid !== '') return String(cid);
+  const metaCid = getMeta('cart.city_id');
+  return metaCid ? String(metaCid) : null;
+}
+
+function getDeliveryFeeForCity(cityId: string | null): number {
+  if (!cityId) return 0;
+  const row = db.prepare(`SELECT delivery_fee FROM cities WHERE id = ?`).get(cityId) as any;
+  const fee = Number(row?.delivery_fee ?? 0);
+  return Number.isFinite(fee) ? fee : 0;
+}
+
+type PromoRow = {
+  id: string; code: string; type: 'percent'|'amount';
+  value: number; min_total?: number|null; max_discount?: number|null;
+  start_at?: string|null; end_at?: string|null; active?: number|null;
+};
+
+function resolvePromoByCode(code: string | null): PromoRow | null {
+  if (!code) return null;
+  const row = db.prepare(`
+    SELECT id, code, type, value, min_total, max_discount, start_at, end_at, active
+    FROM promos
+    WHERE UPPER(code) = UPPER(?) AND active = 1
+    LIMIT 1
+  `).get(code) as PromoRow | undefined;
+
+  if (!row) return null;
+
+  // Date window check (tolerant of nulls)
+  const now = Date.now();
+  const startsOk = !row.start_at || (new Date(row.start_at).getTime() <= now);
+  const endsOk   = !row.end_at   || (new Date(row.end_at).getTime()   >= now);
+  return (startsOk && endsOk) ? row : null;
+}
+
+function computePromoDiscount(subtotal: number, promo: PromoRow | null): number {
+  if (!promo) return 0;
+
+  const minTotal   = Number(promo.min_total ?? 0);
+  if (subtotal < minTotal) return 0;
+
+  let discount = 0;
+  if (promo.type === 'percent') {
+    discount = subtotal * (Number(promo.value || 0) / 100);
+  } else {
+    discount = Number(promo.value || 0);
+  }
+
+  const cap = Number(promo.max_discount ?? 0);
+  if (Number.isFinite(cap) && cap > 0) discount = Math.min(discount, cap);
+
+  // clamp and round to 3 decimals for KWD-like currencies
+  discount = Math.max(0, Math.min(discount, subtotal));
+  return +discount.toFixed(3);
+}
+
+function computeDeliveryFee(order: any): number {
+  // Only for delivery orders (order_type === 1)
+  if (Number(order?.order_type) !== 1) return 0;
+
+  // --- MODIFIED: Make this logic more robust ---
+  // 1. Check for a persisted flag on the order itself.
+  // This prevents completed orders from changing fee status later.
+  if (Number(order?.void_delivery_fee) === 1) return 0;
+
+  // 2. Fallback to 'cart' meta (for live cart/open order context)
+  // This is the original behavior, now as a fallback.
+  const voidFeeMeta = (getMeta('cart.void_delivery_fee') || '') === '1';
+  if (voidFeeMeta) return 0;
+  // --- End of modification ---
+
+  const cityId = getOrderCityId(order);
+  return getDeliveryFeeForCity(cityId);
 }
 
 /** Multiple orders tabs helper (best effort; table may not exist on old DBs) */
@@ -216,7 +345,7 @@ function buildOrderPayload(orderId: string) {
     device_id: o.device_id,
     branch_id: o.branch_id,
     status: o.status,
-    order_type: o.order_type,      // 1=delivery, 2=pickup, 3=dine-in
+    order_type: o.order_type,       // 1=delivery, 2=pickup, 3=dine-in
     customer: {
       full_name: o.full_name,
       mobile: o.mobile,
@@ -233,7 +362,7 @@ function buildOrderPayload(orderId: string) {
       floor: o.floor,
       house_no: o.house_no,
       landmark: o.landmark,
-      table_id: o.table_id,        // dine-in
+      table_id: o.table_id,       // dine-in
       delivery_date: o.delivery_date,
     },
     payment: {
@@ -298,25 +427,26 @@ function recalcOrderTotals(orderId: string) {
     WHERE order_id = ?
   `).get(orderId) as { subtotal: number };
 
-  const order = db.prepare(`
-    SELECT COALESCE(delivery_fee,0) AS delivery_fee, promocode
-    FROM orders WHERE id = ?
-  `).get(orderId) as any;
-  
-  const delivery_fee = Number(order?.delivery_fee || 0);
+  const order = getOrderRow(orderId);
   const subtotal = Number(sums?.subtotal || 0);
-  
-  // V_TODO: Implement real discount logic based on order.promocode
-  const discount_total = 0; 
-  
-  const tax_total = 0; // V_TODO: Implement tax logic if needed
-  const grand_total = subtotal + delivery_fee - discount_total;
+
+  // Promo applies to SUBTOTAL ONLY (not delivery fee)
+  const promo = resolvePromoByCode(order?.promocode ?? null);
+  const discount_total = computePromoDiscount(subtotal, promo);
+
+  // Delivery fee comes from order city if it's a delivery order
+  const delivery_fee = computeDeliveryFee(order);
+
+  // (Tax is 0 for now; add here later if you introduce settings.tax_rate_pr)
+  const tax_total = 0;
+
+  const grand_total = +(subtotal - discount_total + delivery_fee).toFixed(3);
 
   db.prepare(`
     UPDATE orders
-    SET subtotal = ?, tax_total = ?, discount_total = ?, grand_total = ?
+    SET subtotal = ?, tax_total = ?, discount_total = ?, delivery_fee = ?, grand_total = ?
     WHERE id = ?
-  `).run(subtotal, tax_total, discount_total, grand_total, orderId);
+  `).run(subtotal, tax_total, discount_total, delivery_fee, grand_total, orderId);
 
   return { subtotal, tax_total, discount_total, delivery_fee, grand_total };
 }
@@ -432,19 +562,19 @@ ipcMain.handle('sync:run', async () => {
   }
 
   ensureOrderNumberDedupeTriggers(); 
-   normalizeDuplicateOrderNumbers(); 
+  normalizeDuplicateOrderNumbers(); 
   // Make sure axios is configured
   configureApi(base, { id: device_id, branch_id }, token);
 
   // ← NEW: run bootstrap once if not done (or cursor is 0)
   const cursorRow = db.prepare('SELECT value FROM sync_state WHERE key=?')
-                      .pluck().get('cursor') as string | undefined;
+                        .pluck().get('cursor') as string | undefined;
   const cursor = Number(cursorRow ?? 0);
   const bootDone = getMeta('bootstrap.done') === '1';
 
   if (!bootDone || cursor === 0) {
     console.log('[Sync] First-time bootstrap…');
-    await bootstrap(base);                     // seeds items/categories/users/etc.
+    await bootstrap(base);                      // seeds items/categories/users/etc.
     setMeta('bootstrap.done', '1');
   }
 
@@ -585,20 +715,21 @@ ipcMain.handle('catalog:listSubcategories', async (_e, categoryId: string | null
 
 // --- ADDED: Handler for 'catalog:listPromos' ---
 ipcMain.handle('catalog:listPromos', async () => {
-    try {
-        // V_FIXED: Use correct columns from db.ts (code, value)
-        return db.prepare(`
-            SELECT id, code, type, value, min_total, max_discount, start_at, end_at
-            FROM promos
-            WHERE active = 1 AND end_at > ?
-            ORDER BY code ASC
-        `).all(nowMs());
-    } catch (e) {
-        console.error('Failed to list promos, table might be missing:', e.message);
-        return []; // Return empty array if table 'promos' doesn't exist
-    }
+  try {
+    const now = nowMs();
+    return db.prepare(`
+      SELECT id, code, type, value, min_total, max_discount, start_at, end_at
+      FROM promos
+      WHERE active = 1
+        AND (start_at IS NULL OR start_at <= ?)
+        AND (end_at   IS NULL OR end_at   >   ?)
+      ORDER BY code ASC
+    `).all(now, now);
+  } catch (e: any) {
+    console.error('Failed to list promos:', e.message);
+    return [];
+  }
 });
-
 // --- ADDED: Handler for 'catalog:listAddonGroups' ---
 ipcMain.handle('catalog:listAddonGroups', async (_e, filter: { itemId?: string } | null = null) => {
     try {
@@ -761,7 +892,7 @@ ipcMain.handle('orders:start', async () => {
   if (!deviceId) throw new Error('Device not paired');
 
   const id = crypto.randomUUID();
- const number = allocUniqueOrderNumber();
+  const number = allocUniqueOrderNumber();
   const now = Date.now();
 
   db.prepare(`
@@ -875,19 +1006,12 @@ ipcMain.handle('orders:removePromo', async (_e, orderId: string) => {
 
 // --- ADDED: Handler for 'orders:applyPromo' ---
 ipcMain.handle('orders:applyPromo', async (_e, orderId: string, promoCode: string | null) => {
-    // V_TODO: Add logic to validate promo code and calculate discount
-    // For now, just stores the code and recalcs (which doesn't apply discount yet)
-    
-    const code = promoCode ? promoCode.trim().toUpperCase() : null;
-    
-    db.prepare(`UPDATE orders SET promocode = ? WHERE id = ?`).run(code, orderId);
-    
-    const totals = recalcOrderTotals(orderId);
-    const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  const code = promoCode ? promoCode.trim().toUpperCase() : null;
+  db.prepare(`UPDATE orders SET promocode = ? WHERE id = ?`).run(code, orderId);
 
-    console.log(`Applied promo '${code}' to order ${orderId}. Recalc needed.`);
-    
-    return { ok: true, order, totals };
+  const totals = recalcOrderTotals(orderId);   // <— ensures delivery + promo interplay is live
+  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  return { ok: true, order, totals };
 });
 
 
@@ -954,7 +1078,7 @@ function calcLineTotal(row: any): number {
 function cartTotals() {
   const rows = db.prepare(`SELECT * FROM cart`).all() as any[];
   const subtotal = rows.reduce((s, r) => s + calcLineTotal(r), 0);
-  const discount_total = 0;
+  const discount_total = 0; // Note: Promos are not applied to cart, only to orders
   const orderType = Number(getMeta('cart.order_type') || 0);
   let delivery_fee = 0;
   if (orderType === 1) {
@@ -999,9 +1123,9 @@ ipcMain.handle('cart:add', async (_e, payload: any) => {
     const id = crypto.randomUUID();
     db.prepare(`
       INSERT INTO cart (id,user_id,session_id,item_id,item_name,item_name_ar,item_image,
-                      addons_id,addons_name,addons_name_ar,addons_price,addons_qty,
-                      variation_id,variation,variation_ar,variation_price,
-                      price,qty,tax,item_notes,is_available,created_at,updated_at,branch_id)
+                        addons_id,addons_name,addons_name_ar,addons_price,addons_qty,
+                        variation_id,variation,variation_ar,variation_price,
+                        price,qty,tax,item_notes,is_available,created_at,updated_at,branch_id)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       id, null, sid,
@@ -1063,6 +1187,8 @@ ipcMain.handle('orders:createFromCart', async (_e, customerData: {
   const deviceId = getMeta('device_id');
   const branchId = Number(getMeta('branch_id') ?? 0);
   const orderType = Number(getMeta('cart.order_type') || 2);
+  const cartCityId = getMeta('cart.city_id'); // --- FIX: Get city_id from meta
+  const voidFee = getMeta('cart.void_delivery_fee') === '1' ? 1 : 0; // --- ADDED: Get void_fee status
 
   const orderId = crypto.randomUUID();
   const orderNumber = allocUniqueOrderNumber(); 
@@ -1081,6 +1207,15 @@ ipcMain.handle('orders:createFromCart', async (_e, customerData: {
       totals.subtotal, totals.discount_total, totals.delivery_fee, totals.grand_total,
       now
     );
+
+    // --- MODIFIED: Persist context fields if columns exist ---
+    if (hasColumn('orders', 'city_id') && cartCityId) {
+      db.prepare(`UPDATE orders SET city_id = ? WHERE id = ?`).run(cartCityId, orderId);
+    }
+    if (hasColumn('orders', 'void_delivery_fee')) {
+      db.prepare(`UPDATE orders SET void_delivery_fee = ? WHERE id = ?`).run(voidFee, orderId);
+    }
+    // --- End modification ---
 
     const lineInsert = db.prepare(`
       INSERT INTO order_lines (id, order_id, item_id, name, name_ar, qty, unit_price, line_total, notes,
@@ -1101,6 +1236,9 @@ ipcMain.handle('orders:createFromCart', async (_e, customerData: {
 
     db.prepare('DELETE FROM cart').run();
   })();
+  
+  // Recalc totals *after* transaction to ensure all fields (like city_id) are set
+  const _re = recalcOrderTotals(orderId);
 
   const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
   const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
@@ -1129,6 +1267,7 @@ ipcMain.handle('orders:pushOne', async (_e, orderId: string) => {
   return { ok: true, pushed: 1 };
 });
 
+// replace the signature block with the extra fields
 ipcMain.handle('orders:complete', async (_e, orderId: string, customer: {
   full_name: string;
   mobile: string;
@@ -1136,11 +1275,28 @@ ipcMain.handle('orders:complete', async (_e, orderId: string, customer: {
   note?: string | null;
   payment_method_id: string;
   payment_method_slug: string;
+  // --- NEW optional geo fields from checkout form ---
+  state_id?: string | null;
+  city_id?: string | null;
+  block_id?: string | null;
 }) => {
   const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
   if (!order) throw new Error('Order not found');
 
-  // Ensure totals are up to date
+  // Persist geo IDs when columns exist (safe on older DBs)
+  if (hasColumn('orders', 'state_id')) db.prepare(`UPDATE orders SET state_id = ? WHERE id = ?`).run(customer.state_id ?? null, orderId);
+  if (hasColumn('orders', 'city_id'))  db.prepare(`UPDATE orders SET city_id  = ? WHERE id = ?`).run(customer.city_id  ?? null, orderId);
+  if (hasColumn('orders', 'block_id')) db.prepare(`UPDATE orders SET block_id = ? WHERE id = ?`).run(customer.block_id ?? null, orderId);
+
+  // --- ADDED: Persist void_delivery_fee context from 'cart' meta ---
+  // This ensures the setting is "locked in" before totals are calculated.
+  const voidFee = getMeta('cart.void_delivery_fee') === '1' ? 1 : 0;
+  if (hasColumn('orders', 'void_delivery_fee')) {
+      db.prepare(`UPDATE orders SET void_delivery_fee = ? WHERE id = ?`).run(voidFee, orderId);
+  }
+  // --- End addition ---
+
+  // Ensure totals are up to date (after saving geo so delivery_fee can derive from city)
   const totals = recalcOrderTotals(orderId);
   const now = Date.now();
 
@@ -1175,7 +1331,7 @@ ipcMain.handle('orders:complete', async (_e, orderId: string, customer: {
     orderId
   );
 
-  // If online, push immediately
+  // (push logic stays as in your file)
   let pushed = 0;
   try {
     if ((getMeta('pos.mode') || 'live') === 'live') {
@@ -1195,7 +1351,6 @@ ipcMain.handle('orders:complete', async (_e, orderId: string, customer: {
       }
     }
   } catch (e) {
-    // stay quiet—order remains queued for auto/background push
     console.warn('[orders:complete] push failed, will retry via autosync:', (e as any)?.message);
   }
 
@@ -1298,23 +1453,23 @@ const services = {
     // bootstrap(baseUrl, pairCode) => PAIR the device (uses your existing pairDevice)
     // NOTE: we read optional temp values (saved by the UI) for deviceName/branchId.
     bootstrap: async (baseUrl: string | null, pairCode: string) => {
-  const url = baseUrl || services.store.get('server.base_url') || '';
-  if (!url) throw new Error('Missing base URL');
+      const url = baseUrl || services.store.get('server.base_url') || '';
+      if (!url) throw new Error('Missing base URL');
 
-  const machineId = await readOrCreateMachineId();
+      const machineId = await readOrCreateMachineId();
 
-  const tmpBranch = services.store.get('tmp.branch_id');
-  const tmpDeviceName = services.store.get('tmp.device_name');
-  const branchId = String(tmpBranch ?? services.store.get('branch_id') ?? '');
-  const deviceName = tmpDeviceName || 'POS';
+      const tmpBranch = services.store.get('tmp.branch_id');
+      const tmpDeviceName = services.store.get('tmp.device_name');
+      const branchId = String(tmpBranch ?? services.store.get('branch_id') ?? '');
+      const deviceName = tmpDeviceName || 'POS';
 
-  await pairDevice(url, pairCode, branchId, deviceName, machineId);
+      await pairDevice(url, pairCode, branchId, deviceName, machineId);
 
-  services.store.set('tmp.branch_id', null);
-  services.store.set('tmp.device_name', null);
+      services.store.set('tmp.branch_id', null);
+      services.store.set('tmp.device_name', null);
 
-  return { device_id: services.store.get('device_id') || null };
-},
+      return { device_id: services.store.get('device_id') || null };
+    },
 
     // run() => pull + (optional) push unsynced, reusing your helpers
     run: async () => {
@@ -1350,7 +1505,7 @@ registerAuthHandlers(ipcMain, db, {
   sync: {
     pairDevice,   // <-- from your sync.ts
     bootstrap,    // <-- from your sync.ts
-    run: services.sync.run,          // use the async run helper from services
+    run: services.sync.run,       // use the async run helper from services
     configure: services.sync.configure, // use the async configure helper from services
   }
 });

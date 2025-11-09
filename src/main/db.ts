@@ -307,7 +307,18 @@ export function migrate() {
       is_active     INTEGER DEFAULT 1,
       branch_id     INTEGER,
       updated_at    TEXT
-    )
+    );
+
+    CREATE TABLE IF NOT EXISTS pos_action_log (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NULL,
+      user_id TEXT NULL,
+      action TEXT NOT NULL,          -- create|add_line|set_qty|remove_line|promo_apply|complete|print|lock|unlock|paylink_create|paylink_status|wipe
+      meta_json TEXT NULL,           -- JSON blob
+      created_at INTEGER             -- ms epoch
+    );
+    CREATE INDEX IF NOT EXISTS idx_actionlog_order ON pos_action_log(order_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_actionlog_action ON pos_action_log(action, created_at);
   `);
 
   // Phase 2: ensure columns exist on legacy installs (safe ALTER TABLE order matters)
@@ -343,6 +354,7 @@ export function migrate() {
   ensureColumn('orders', 'promocode TEXT', 'promocode');
   ensureColumn('orders', 'discount_amount REAL DEFAULT 0', 'discount_amount');
   ensureColumn('orders', 'discount_pr REAL DEFAULT 0', 'discount_pr');
+  ensureColumn('orders', 'void_delivery_fee INTEGER DEFAULT 0', 'void_delivery_fee');
   ensureColumn('orders', 'table_id TEXT', 'table_id');
   ensureColumn('orders', 'covers INTEGER', 'covers');
 
@@ -354,6 +366,14 @@ export function migrate() {
   ensureColumn('items', 'image_local TEXT', 'image_local');      // absolute local path
   ensureColumn('items', 'image_etag TEXT', 'image_etag');        // optional: server ETag
   ensureColumn('items', 'image_mtime INTEGER', 'image_mtime'); 
+
+  ensureColumn('orders', 'created_by_user_id TEXT', 'created_by_user_id');
+  ensureColumn('orders', 'completed_by_user_id TEXT', 'completed_by_user_id');
+  ensureColumn('orders', 'printed_by_user_id TEXT',  'printed_by_user_id');
+
+  ensureColumn('orders', 'payment_link_url TEXT',        'payment_link_url');
+  ensureColumn('orders', 'payment_link_status TEXT',     'payment_link_status');  // pending|paid|expired|failed
+  ensureColumn('orders', 'payment_verified_at INTEGER',  'payment_verified_at'); 
 
   // Phase 3: indexes (only after columns are present)
   db.exec(`
@@ -382,6 +402,13 @@ export function migrate() {
   // Helpful unique/covering indexes
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_exclusions ON promo_item_exclusions(promo_id, item_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_print_flags ON orders(is_locked, printed_at);
+    CREATE INDEX IF NOT EXISTS idx_orders_paylink     ON orders(payment_link_status, payment_verified_at);
+  `);
+
+  db.exec(`
+    INSERT OR IGNORE INTO meta(key, value) VALUES('pos.locked', '0');
+    INSERT OR IGNORE INTO meta(key, value) VALUES('security.kill_after_days', '14');
   `);
 }
 
@@ -398,6 +425,47 @@ export function setMeta(key: string, value: string | null) {
       'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
     ).run(key, value);
   }
+}
+
+export function nowMs() {
+  return Date.now();
+}
+
+export function isPosLocked(): boolean {
+  const v = getMeta('pos.locked');
+  return v === '1' || v === 1 || v === true || v === 'true';
+}
+
+export function getCurrentUserId(): string | null {
+  // set this in your login flow: setMeta('pos.current_user_id', user.id)
+  return (getMeta('pos.current_user_id') as string) || null;
+}
+
+export function logPosAction(action: string, orderId?: string | null, meta: any = {}): void {
+  const userId = getCurrentUserId();
+  const stmt = db.prepare(`
+    INSERT INTO pos_action_log (id, order_id, user_id, action, meta_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    crypto.randomUUID(),
+    orderId ?? null,
+    userId ?? null,
+    action,
+    meta ? JSON.stringify(meta) : null,
+    nowMs()
+  );
+}
+
+// Simple transaction helper (better-sqlite3)
+export function withTxn<T>(fn: () => T): T {
+  const txn = db.transaction(fn);
+  return txn();
+}
+
+// Convenience fetcher
+export function getOrderById(orderId: string) {
+  return db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
 }
 
 export default db;
