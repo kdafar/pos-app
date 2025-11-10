@@ -12,7 +12,8 @@ import { LogoutRoute } from './screens/LogoutRoute';
 import { AuthedGate } from './screens/AuthedGate';
 
 // pages
-import  OrderProcessPage  from './pages/OrderProcessPage';
+import ClosingReport from './pages/reports/ClosingReport';
+import OrderProcessPage from './pages/pos/OrderProcessPage';
 import RecentOrdersPage from './pages/RecentOrdersPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { ItemsPage } from './pages/ItemsPage';
@@ -37,6 +38,7 @@ function App() {
           {/* Orders */}
           <Route index element={<OrderProcessPage />} />
           <Route path="orders" element={<RecentOrdersPage />} />
+          <Route path="/reports/closing" element={<ClosingReport />} />
 
           {/* Catalog */}
           <Route path="categories" element={<CategoriesPage />} />

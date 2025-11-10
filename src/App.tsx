@@ -13,6 +13,7 @@ function Sidebar() {
         <div className="px-2 text-xs font-semibold text-gray-400 uppercase">Orders</div>
         <NavLink to="/" className="p-2 rounded-md hover:bg-gray-700">POS Terminal</NavLink>
         <NavLink to="/orders/recent" className="p-2 rounded-md hover:bg-gray-700">Recent Orders</NavLink>
+        <NavLink to="/reports/closing" className="p-2 rounded-md hover:bg-gray-700">Closing Report</NavLink>
 
         <div className="px-2 pt-4 text-xs font-semibold text-gray-400 uppercase">Catalog</div>
         <NavLink to="/catalog/categories" className="p-2 rounded-md hover:bg-gray-700">Categories</NavLink>
@@ -44,6 +45,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Placeholder title="POS Terminal" />} />
           <Route path="/orders/recent" element={<Placeholder title="Recent Orders" />} />
+           <Route path="/reports/closing" element={<Placeholder title="Closing Report" />} />
           <Route path="/catalog/categories" element={<Placeholder title="Categories" />} />
           <Route path="/catalog/items" element={<Placeholder title="Items" />} />
           <Route path="/catalog/addons" element={<Placeholder title="Addons" />} />

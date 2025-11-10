@@ -1,25 +1,13 @@
 <!doctype html>
 <html>
-<head>
-  <meta charset="UTF-8" />
-  <title>POS</title>
-<meta http-equiv="Content-Security-Policy" content="
-  default-src 'self';
-  script-src 'self';
-  style-src 'self' 'unsafe-inline';
-  font-src 'self' data:;
-  img-src 'self' data: blob: appimg:;
-  media-src 'self' data: blob: appimg:;
-  connect-src 'self' data: blob: appimg: http: https: ws: wss:;
-  worker-src 'self' blob:;
-  frame-src 'self';
-  base-uri 'self';
-  form-action 'self';
-">
-
-</head>
-<body>
-  <div id="root"></div>
-  <script type="module" src="./main.tsx"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>POS</title>
+    <base href="./" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- IMPORTANT: root-based path (leading slash). Vite will replace this with hashed assets on build -->
+    <script type="module" src="/main.tsx"></script>
+  </body>
 </html>

@@ -199,7 +199,7 @@ export function Layout() {
           <SectionLabel hidden={collapsed}>Orders</SectionLabel>
           <NavLink to="/" text="Order Process" icon="🧾" collapsed={collapsed} active={location.pathname === '/'} />
           <NavLink to="/orders" text="Recent Orders" icon="📜" collapsed={collapsed} active={location.pathname === '/orders'} />
-
+          <NavLink to="/reports/closing" text="Closing Report" icon="📜"  collapsed={collapsed} active={location.pathname === '/reports/closing'} />
           <SectionLabel hidden={collapsed}>Catalog</SectionLabel>
           <NavLink to="/categories" text="Categories" icon="🗂️" collapsed={collapsed} active={location.pathname === '/categories'} />
           <NavLink to="/items" text="Items" icon="📦" collapsed={collapsed} active={location.pathname === '/items'} />

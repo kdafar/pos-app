@@ -1,14 +1,15 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readOrCreateMachineId } from './machineId';
 
 import { registerAppImgProtocol } from './protocols';
+import type { Database as BetterSqliteDB } from 'better-sqlite3'
 
 // DB + meta
 import db, { getMeta, migrate, setMeta } from './db';
 import { saveSecret, loadSecret } from './secureStore';
-
+import { registerOperationalReportHandlers } from './handlers/reports_operational';
 // Sync core
 import { bootstrap, configureApi, pairDevice, pullChanges, pushOutbox } from './sync';
 import { registerAuthHandlers } from './handlers/auth';
@@ -21,7 +22,7 @@ process.env.APP_ROOT = path.join(__dirname, '../..');
 // --- FIX: Register protocols BEFORE the app 'ready' event ---
 // This resolves the "registerSchemesAsSecure should be run before app:ready" error.
 registerAppImgProtocol();
-
+registerOperationalReportHandlers();
 async function createWindow() {
   migrate();
 
@@ -31,25 +32,23 @@ async function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.mjs'),
+      preload: path.join(__dirname, '../preload/index.mjs'), // ← .js in build
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
     },
-  });
+  })
 
-  const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL'];
-
-  if (VITE_DEV_SERVER_URL) {
-    await win.loadURL(VITE_DEV_SERVER_URL);
-    // Only open if you explicitly ask for it
-    if (process.env.ELECTRON_OPEN_DEVTOOLS === '1') {
-      win.webContents.openDevTools({ mode: 'detach' });
-    }
+  const devUrl = process.env.ELECTRON_RENDERER_URL
+  if (devUrl) {
+    await win.loadURL(devUrl)
   } else {
-    await win.loadFile(path.join(__dirname, '../renderer/index.html'));
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+
+  win.once('ready-to-show', () => win.show())
 }
 
 // ---- lightweight store wrapper for handlers ----
@@ -106,9 +105,9 @@ function deviceSuffix(): string {
 }
 
 function genCandidateNumber(): string {
-  const style = getOrderNumberStyle();          // 'short' | 'mini'
+  const style = getOrderNumberStyle();        // 'short' | 'mini'
   const prefix = getOrderNumberPrefix();        // default 'POS'
-  const dev = deviceSuffix();                   // last 4 of device id
+  const dev = deviceSuffix();                  // last 4 of device id
 
   if (style === 'mini') {
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
@@ -362,7 +361,7 @@ function buildOrderPayload(orderId: string) {
       floor: o.floor,
       house_no: o.house_no,
       landmark: o.landmark,
-      table_id: o.table_id,       // dine-in
+      table_id: o.table_id,      // dine-in
       delivery_date: o.delivery_date,
     },
     payment: {
@@ -491,6 +490,102 @@ ipcMain.handle('settings:getPosUser', async () => {
     };
 });
 
+const qGetOrder = db.prepare(`
+    SELECT o.*
+    FROM orders o
+    WHERE o.id = ?
+    LIMIT 1
+  `)
+
+// ---
+// --- FIX: This was the source of the crash.
+// --- The `tables` table likely has `label` and `number` columns, not `name`.
+// --- This is based on the `tables:list` handler later in this file.
+// ---
+  const qTableName = db.prepare(`SELECT COALESCE(label, 'Table '||number) AS name FROM tables WHERE id = ? LIMIT 1`)
+
+// ---
+// --- FIX: This was also crashing for the same reason.
+// --- Changed `t.name` to `COALESCE(t.label, 'Table '||t.number) AS name`.
+// ---
+  const qListTables = db.prepare(`
+    SELECT t.id, COALESCE(t.label, 'Table '||t.number) AS name, t.capacity AS seats,
+      CASE
+        WHEN EXISTS (SELECT 1 FROM orders o WHERE o.table_id = t.id AND o.status IN ('open','hold')) THEN 'occupied'
+        ELSE 'available'
+      END AS status
+    FROM tables t
+    ORDER BY name COLLATE NOCASE
+  `)
+
+
+function getCurrentUserId(services: Services): number | null {
+  const id = services.store.get('auth.user_id')
+  return id != null ? Number(id) : null
+}
+
+type Services = {
+  store: { get(k: string): any; set(k: string, v: any): void; delete(k: string): void }
+}
+
+function now() { return Date.now() }
+
+function logAction(db: BetterSqliteDB, orderId: string, action: string, payload: any, userId: number | null) {
+  db.prepare(
+    `INSERT INTO pos_action_log (order_id, action, payload, performed_by_user_id, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(orderId, action, JSON.stringify(payload ?? null), userId, now())
+}
+
+  ipcMain.handle('orders:markPrinted', (_e, orderId: string) => {
+    const userId = getCurrentUserId(services)
+    const order = qGetOrder.get(orderId) as any
+    if (!order) throw new Error('Order not found')
+
+    const tx = db.transaction(() => {
+      db.prepare(`UPDATE orders SET printed_at=?, printed_by_user_id=?, is_locked=1, updated_at=? WHERE id=?`)
+        .run(now(), userId, now(), orderId)
+      logAction(db, orderId, 'orders:markPrinted', {}, userId)
+    })
+    tx()
+
+    return { ok: true }
+  })
+
+  ipcMain.handle('orders:paymentLink:set', (_e, orderId: string, url: string) => {
+    const userId = getCurrentUserId(services)
+    const order = qGetOrder.get(orderId) as any
+    if (!order) throw new Error('Order not found')
+
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE orders SET payment_link_url=?, payment_link_status=?, payment_link_verified_at=NULL, updated_at=?
+        WHERE id=?
+      `).run(url, 'pending', now(), orderId)
+      logAction(db, orderId, 'orders:paymentLink:set', { url }, userId)
+    })
+    tx()
+
+    return { ok: true, url }
+  })
+
+    ipcMain.handle('orders:paymentLink:status', (_e, orderId: string, status: string) => {
+    const userId = getCurrentUserId(services)
+    const order = qGetOrder.get(orderId) as any
+    if (!order) throw new Error('Order not found')
+
+    const isPaid = ['paid', 'captured', 'success'].includes((status || '').toLowerCase())
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE orders SET payment_link_status=?, payment_link_verified_at=?, updated_at=?
+        WHERE id=?
+      `).run(status, isPaid ? now() : null, now(), orderId)
+      logAction(db, orderId, 'orders:paymentLink:status', { status }, userId)
+    })
+    tx()
+
+    return { ok: true }
+  })
 /* ======================================================================
     IPC: Sync configure / pair / status / run / pull / push
     ====================================================================== */
@@ -568,7 +663,7 @@ ipcMain.handle('sync:run', async () => {
 
   // ← NEW: run bootstrap once if not done (or cursor is 0)
   const cursorRow = db.prepare('SELECT value FROM sync_state WHERE key=?')
-                        .pluck().get('cursor') as string | undefined;
+                      .pluck().get('cursor') as string | undefined;
   const cursor = Number(cursorRow ?? 0);
   const bootDone = getMeta('bootstrap.done') === '1';
 
@@ -1566,5 +1661,3 @@ function startAutoSyncLoop() {
   if (autoTimer) return;
   scheduleNextAutoSync();
 }
-
-// ----------------------------------------------------------------------

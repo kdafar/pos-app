@@ -70,7 +70,7 @@ function ensureSchema(db: BetterSqliteDB) {
 
 function logAction(db: BetterSqliteDB, orderId: string, action: string, payload: any, userId: number | null) {
   db.prepare(
-    `INSERT INTO pos_action_log (order_id, action, payload, performed_by_user_id, created_at)
+    `INSERT INTO pos_action_log (order_id, action, meta_json, performed_by_user_id, created_at)
      VALUES (?, ?, ?, ?, ?)`
   ).run(orderId, action, JSON.stringify(payload ?? null), userId, now())
 }

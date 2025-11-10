@@ -37,6 +37,7 @@ export default defineConfig({
   },
 
   renderer: {
+    base: './',
     // --- THIS IS THE CORRECT SECTION for VITE PLUGINS ---
     plugins: [
       tailwindcss(),
