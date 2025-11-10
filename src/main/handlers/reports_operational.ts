@@ -172,7 +172,7 @@ function previewOperational(fromMs: number, toMs: number) {
 
   // Pull minimal columns to classify and sum
   const rows = db.prepare(`
-    SELECT id, ${tsCol} as ts, grand_total, subtotal, discount_total, discount_amount, delivery_fee, status, paid_at, completed_at
+    SELECT id, ${tsCol} as ts, grand_total, subtotal, discount_total, discount_amount, delivery_fee, status, closed_at
     FROM orders
     WHERE ${tsCol} >= ? AND ${tsCol} < ?
   `).all(fromMs, toMs) as any[];

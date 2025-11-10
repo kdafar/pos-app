@@ -19,6 +19,17 @@ import { createSocketServer } from './socket';
 
 process.env.APP_ROOT = path.join(__dirname, '../..');
 
+async function boot() {
+  try {
+    migrate();
+    console.log('[db] migrate done');
+  } catch (e) {
+    console.error('[db] migrate failed', e);
+  }
+}
+
+app.whenReady().then(boot);
+
 // --- FIX: Register protocols BEFORE the app 'ready' event ---
 // This resolves the "registerSchemesAsSecure should be run before app:ready" error.
 registerAppImgProtocol();
