@@ -835,6 +835,10 @@ ipcMain.handle('dev:dumpPosUsers', () => {
     IPC: Catalog / Geo / Tables (unchanged)
     ====================================================================== */
 
+    function log(...args: any[]) {
+  console.log('[ipc:catalog]', ...args);
+}
+
 ipcMain.handle('catalog:search', async (_e, q: string) => {
   const stmt = db.prepare(`
     SELECT id, name, name_ar, barcode, price, is_outofstock
@@ -845,12 +849,19 @@ ipcMain.handle('catalog:search', async (_e, q: string) => {
   return stmt.all(`%${q}%`, `%${q}%`, q);
 });
 
-ipcMain.handle('catalog:listCategories', async () => {
-  return db.prepare(`
-    SELECT id, name, name_ar, position, visible, updated_at
-    FROM categories
-    ORDER BY position ASC, name COLLATE NOCASE ASC
-  `).all();
+ipcMain.handle('catalog:listCategories', () => {
+  try {
+    const rows = db.prepare(`
+      SELECT id, name, name_ar, position, visible
+      FROM categories
+      ORDER BY COALESCE(position,0) ASC, LOWER(COALESCE(name,'')) ASC
+    `).all();
+    log('listCategories ->', rows.length);
+    return rows;
+  } catch (e) {
+    log('listCategories ERROR', e);
+    return [];
+  }
 });
 
 ipcMain.handle('catalog:listItems', async (_e, filter: { q?: string | null; categoryId?: string | null; subcategoryId?: string | null } | null = null) => {
@@ -874,20 +885,26 @@ ipcMain.handle('catalog:listItems', async (_e, filter: { q?: string | null; cate
   return db.prepare(sql).all(...params);
 });
 
-ipcMain.handle('catalog:listSubcategories', async (_e, categoryId: string | null = null) => {
-  if (categoryId) {
-    return db.prepare(`
-      SELECT id, category_id, name, name_ar, position, visible, updated_at
-      FROM subcategories
-      WHERE category_id = ?
-      ORDER BY position ASC, name COLLATE NOCASE ASC
-    `).all(categoryId);
+ipcMain.handle('catalog:listSubcategories', (_e, categoryId?: string | null) => {
+  try {
+    const rows = categoryId
+      ? db.prepare(`
+          SELECT id, category_id, name, name_ar, position, visible
+          FROM subcategories
+          WHERE category_id = ?
+          ORDER BY COALESCE(position,0), LOWER(COALESCE(name,''))
+        `).all(String(categoryId))
+      : db.prepare(`
+          SELECT id, category_id, name, name_ar, position, visible
+          FROM subcategories
+          ORDER BY COALESCE(position,0), LOWER(COALESCE(name,''))
+        `).all();
+    log('listSubcategories ->', rows.length, 'cat:', categoryId ?? 'ALL');
+    return rows;
+  } catch (e) {
+    log('listSubcategories ERROR', e);
+    return [];
   }
-  return db.prepare(`
-    SELECT id, category_id, name, name_ar, position, visible, updated_at
-    FROM subcategories
-    ORDER BY category_id ASC, position ASC, name COLLATE NOCASE ASC
-  `).all();
 });
 
 // --- ADDED: Handler for 'catalog:listPromos' ---
@@ -1552,6 +1569,9 @@ ipcMain.handle('dev:stats', () => {
   }
 })
 
+ipcMain.handle('meta:list', () => {
+  return db.prepare('SELECT key, value FROM meta ORDER BY key').all();
+});
 
 /** Push a batch of unsynced completed orders */
 ipcMain.handle('sync:flushOrders', async (_e, limit = 20) => {

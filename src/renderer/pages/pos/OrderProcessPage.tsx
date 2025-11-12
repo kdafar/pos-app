@@ -44,6 +44,14 @@ function useRootTheme(): 'light' | 'dark' {
 export default function OrderProcessPage() {
   const theme = useRootTheme();
 
+   const [defaultOrderType, setDefaultOrderType] = useState<OrderType>(() => {
+    const s = Number(localStorage.getItem('pos.defaultOrderType') || 2);
+    return (s === 1 || s === 2 || s === 3) ? (s as OrderType) : 2;
+  });
+  useEffect(() => {
+    localStorage.setItem('pos.defaultOrderType', String(defaultOrderType));
+  }, [defaultOrderType]);
+
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   // Data
   const [items, setItems] = useState<Item[]>([]);
@@ -65,22 +73,17 @@ export default function OrderProcessPage() {
 
   // Boot
    useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
-        // preferred: from preload `window.pos.auth.status()`
-        const s = await window.pos?.auth?.status?.();
-        if (s) return setAuth(s);
-      } catch {}
-      try {
-        // fallback: IPC channel if you wired one
-        const s = await window.api.invoke('auth:status');
-        setAuth(s || null);
+        await loadInitialData();
       } catch (e) {
-        console.warn('Auth status unavailable', e);
-        setAuth(null);
+        console.error('[OrderProcessPage] loadInitialData error', e);
       }
     })();
-  }, []);
+    return () => { cancelled = true; };
+  // if you want it strictly once, use `[]`; if you want to reload per user, use auth?.current_user?.id
+  }, [auth?.current_user?.id]);
   const loadInitialData = async () => {
     try {
       const [cats, subs, sts, prms] = await Promise.all([
@@ -96,6 +99,19 @@ export default function OrderProcessPage() {
       await Promise.all([loadItems(), loadActiveOrders()]);
     } catch (e) { console.error(e); }
   };
+
+
+async function startOrder(type: OrderType = defaultOrderType) {
+  // Prefer starting with type in one call; fall back to two calls if your IPC needs it.
+  let newOrder = await window.api.invoke('orders:start', { orderType: type }).catch(() => null);
+  if (!newOrder?.id) {
+    newOrder = await window.api.invoke('orders:start');
+    await window.api.invoke('orders:setType', newOrder.id, type);
+  }
+  await loadActiveOrders();
+  await selectOrder(newOrder.id);
+  return newOrder;
+}
 
   const loadItems = async () => {
     try {
@@ -122,34 +138,41 @@ export default function OrderProcessPage() {
     } catch (e) { console.error(e); }
   };
 
-  const createNewOrder = async (orderType: OrderType = 2) => {
-    try {
-      const newOrder = await window.api.invoke('orders:start');
-      await window.api.invoke('orders:setType', newOrder.id, orderType);
-      await loadActiveOrders();
-      await selectOrder(newOrder.id);
-    } catch (e) { console.error(e); }
-  };
+const createNewOrder = async (orderType: OrderType = 2) => {
+  try {
+    const newOrder = await window.api.invoke('orders:start', { orderType }); // ← pass payload
+    await loadActiveOrders();
+    await selectOrder(newOrder.id);
+  } catch (e) { console.error(e); }
+};
 
-  const changeOrderType = async (type: OrderType) => {
-    if (!currentOrder) return;
-    try {
-      await window.api.invoke('orders:setType', currentOrder.id, type);
-      const updated = await window.api.invoke('orders:get', currentOrder.id);
-      setCurrentOrder(updated.order);
-      setOrderLines(updated.lines || []);
-      if (type === 3) await loadTables();
-    } catch (e) { console.error(e); }
-  };
+const changeOrderType = async (type: OrderType) => {
+  if (!currentOrder) return;
+  try {
+    await window.api.invoke('orders:setType', currentOrder.id, type);
+    const updated = await window.api.invoke('orders:get', currentOrder.id);
+    setCurrentOrder(updated.order);
+    setOrderLines(updated.lines || []);
+    if (type === 3) await loadTables();
+    setDefaultOrderType(type); // remember choice for next auto-start
+  } catch (e) { console.error(e); }
+};
 
-  const addItemToOrder = async (item: Item, qty = 1) => {
-    if (!currentOrder || item.is_outofstock) return;
-    try {
-      const { totals, lines } = await window.api.invoke('orders:addLine', currentOrder.id, item.id, qty);
-      setOrderLines(lines);
-      setCurrentOrder({ ...currentOrder, ...totals });
-    } catch (e) { console.error(e); }
-  };
+
+const addItemToOrder = async (item: Item, qty = 1) => {
+  if (item.is_outofstock) return;
+  try {
+    let order = currentOrder;
+    if (!order) {
+      order = await startOrder(defaultOrderType); // ⬅️ auto-start
+    }
+    const { totals, lines } = await window.api.invoke('orders:addLine', order.id, item.id, qty);
+    setOrderLines(lines);
+    setCurrentOrder({ ...order, ...totals });
+  } catch (e) {
+    console.error(e);
+  }
+};
 
   const applyPromoCode = async (code: string) => {
     if (!currentOrder) return;

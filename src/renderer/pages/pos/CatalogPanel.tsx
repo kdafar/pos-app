@@ -2,8 +2,11 @@ import React from 'react';
 import { Search, Package } from 'lucide-react';
 import { fileUrl } from '../../utils/fileUrl';
 
-interface Item { id: string; name: string; name_ar: string; barcode: string; price: number; is_outofstock: number; image?: string | null; image_local?: string | null; category_id: string; subcategory_id: string; }
-interface Category { id: string; name: string; name_ar: string; category_id?: string; }
+interface Item {
+  id: string; name: string; name_ar: string; barcode: string; price: number; is_outofstock: number;
+  image?: string | null; image_local?: string | null; category_id: string; subcategory_id: string;
+}
+interface Category { id: string | number; name: string; name_ar: string; category_id?: string | number; }
 
 export default function CatalogPanel({
   theme, items, categories, subcategories,
@@ -24,10 +27,49 @@ export default function CatalogPanel({
   setSelectedSubcategoryId: (id: string | null) => void;
   onAddItem: (it: Item) => void;
 }) {
-  const filteredSubcategories = React.useMemo(
-    () => subcategories.filter(sub => !selectedCategoryId || sub.category_id === selectedCategoryId),
-    [subcategories, selectedCategoryId]
+  /* ---------- Diagnostics & Normalization ---------- */
+  const safeCats = React.useMemo(
+    () => (categories ?? []).map(c => ({ ...c, id: String(c.id) })),
+    [categories]
   );
+  const safeSubs = React.useMemo(
+    () => (subcategories ?? []).map(s => ({ ...s, id: String(s.id), category_id: String(s.category_id) })),
+    [subcategories]
+  );
+  const selCat = selectedCategoryId == null ? null : String(selectedCategoryId);
+
+  // What categories are referenced by items?
+  const itemCatSet = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items || []) if (it.category_id != null) s.add(String(it.category_id));
+    return s;
+  }, [items]);
+
+  React.useEffect(() => {
+    console.groupCollapsed('%c[CatalogPanel] props snapshot', 'color:#60a5fa');
+    console.log('theme:', theme);
+    console.log('items:', { count: items?.length, sample: (items || []).slice(0, 3) });
+    console.log('categories(raw):', categories);
+    console.log('categories(safe):', { count: safeCats.length, sample: safeCats.slice(0, 10) });
+    console.log('subcategories(raw):', subcategories);
+    console.log('subcategories(safe):', { count: safeSubs.length, sample: safeSubs.slice(0, 10) });
+    console.log('selectedCategoryId:', selectedCategoryId, '->', selCat);
+    console.log('selectedSubcategoryId:', selectedSubcategoryId);
+    console.log('itemCatSet(from items):', Array.from(itemCatSet));
+    if (!safeCats.length && (items?.length ?? 0) > 0) {
+      console.warn('[CatalogPanel] items exist but categories array is empty. Check IPC: catalog:listCategories');
+    }
+    if (safeCats.length && !itemCatSet.size) {
+      console.warn('[CatalogPanel] categories loaded but no items reference a category_id.');
+    }
+    console.groupEnd();
+  }, [theme, items, categories, subcategories, selCat, selectedSubcategoryId, itemCatSet]);
+
+  const filteredSubcategories = React.useMemo(() => {
+    const out = safeSubs.filter(sub => !selCat || String(sub.category_id) === selCat);
+    console.debug('[CatalogPanel] filteredSubcategories:', { selCat, outCount: out.length, sample: out.slice(0, 6) });
+    return out;
+  }, [safeSubs, selCat]);
 
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
   const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
@@ -50,7 +92,10 @@ export default function CatalogPanel({
             <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${textMuted}`} size={18} />
             <input
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={e => {
+                console.debug('[CatalogPanel] setSearchQuery:', e.target.value);
+                setSearchQuery(e.target.value);
+              }}
               placeholder="Search items, barcode, or Arabic name…"
               className={`w-full pl-10 pr-3 py-2.5 ${inputBg} rounded-xl ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
                 theme === 'dark' ? 'focus:ring-blue-500/40' : 'focus:ring-blue-500'
@@ -63,9 +108,12 @@ export default function CatalogPanel({
         <div className="mb-3">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
             <button
-              onClick={() => setSelectedCategoryId(null)}
+              onClick={() => {
+                console.debug('[CatalogPanel] click All Categories');
+                setSelectedCategoryId(null);
+              }}
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                !selectedCategoryId
+                !selCat
                   ? theme === 'dark' ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
                                      : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
                   : theme === 'dark' ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
@@ -74,10 +122,18 @@ export default function CatalogPanel({
             >
               All Categories
             </button>
-            {categories.map(cat => (
-              <button key={cat.id} onClick={() => setSelectedCategoryId(cat.id)}
+
+            {(safeCats || []).map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  console.debug('[CatalogPanel] click category', { id: cat.id, name: cat.name });
+                  setSelectedCategoryId(String(cat.id));
+                  // reset subcategory when category changes
+                  setSelectedSubcategoryId(null);
+                }}
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                  selectedCategoryId === cat.id
+                  selCat === String(cat.id)
                     ? theme === 'dark' ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
                                        : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
                     : theme === 'dark' ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
@@ -94,7 +150,10 @@ export default function CatalogPanel({
         {filteredSubcategories.length > 0 && (
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
             <button
-              onClick={() => setSelectedSubcategoryId(null)}
+              onClick={() => {
+                console.debug('[CatalogPanel] click All subcategories');
+                setSelectedSubcategoryId(null);
+              }}
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                 !selectedSubcategoryId
                   ? theme === 'dark' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
@@ -106,9 +165,14 @@ export default function CatalogPanel({
               All
             </button>
             {filteredSubcategories.map(sub => (
-              <button key={sub.id} onClick={() => setSelectedSubcategoryId(sub.id)}
+              <button
+                key={sub.id}
+                onClick={() => {
+                  console.debug('[CatalogPanel] click subcategory', { id: sub.id, name: sub.name, category_id: sub.category_id });
+                  setSelectedSubcategoryId(String(sub.id));
+                }}
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                  selectedSubcategoryId === sub.id
+                  selectedSubcategoryId === String(sub.id)
                     ? theme === 'dark' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                                        : 'bg-blue-100 text-blue-700 border border-blue-300'
                     : theme === 'dark' ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
@@ -128,7 +192,10 @@ export default function CatalogPanel({
           {items.map(item => (
             <button
               key={item.id}
-              onClick={() => onAddItem(item)}
+              onClick={() => {
+                console.debug('[CatalogPanel] addItem', { id: item.id, name: item.name, category_id: item.category_id, subcategory_id: item.subcategory_id });
+                onAddItem(item);
+              }}
               disabled={item.is_outofstock === 1}
               className={`group relative p-3 rounded-xl border text-left transition ${
                 item.is_outofstock === 1

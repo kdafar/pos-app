@@ -9,7 +9,6 @@ import {
   SortingState,
 } from '@tanstack/react-table';
 
-// IPC typing (optional)
 declare global {
   interface Window {
     api: { invoke: (channel: string, ...args: any[]) => Promise<any> };
@@ -20,7 +19,7 @@ type StateRow = {
   id?: string | number;
   name: string;
   name_ar: string;
-  is_active?: boolean | number; // may be missing if backend filters by is_active=1
+  is_active?: boolean | number | string;
 };
 
 type CityRow = {
@@ -30,10 +29,27 @@ type CityRow = {
   state_id: string | number;
   min_order: number;
   delivery_fee: number;
-  is_active?: boolean | number;
+  is_active?: boolean | number | string;
 };
 
-const toBool = (v: any) => (typeof v === 'boolean' ? v : !!Number(v));
+/* ========== UI helpers ========== */
+const fieldCls =
+  'h-10 px-3 rounded-lg bg-white/5 border border-white/10 text-sm outline-none ' +
+  'focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
+const btnCls =
+  'h-10 px-3 rounded-lg border border-white/10 text-sm hover:bg-white/10 transition ' +
+  'disabled:opacity-50 disabled:cursor-not-allowed';
+
+function parseBool(v: any): boolean {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  const s = String(v ?? '').trim().toLowerCase();
+  if (['1','true','yes','y','on','enabled','enable','active'].includes(s)) return true;
+  if (['0','false','no','n','off','disabled','disable','inactive'].includes(s)) return false;
+  const n = Number(s);
+  return Number.isFinite(n) ? n !== 0 : false;
+}
+
 const money3 = (n?: number) =>
   Number.isFinite(Number(n)) ? Number(n).toFixed(3) : '0.000';
 
@@ -52,9 +68,7 @@ export default function LocationsPage() {
 
   // filters — Cities
   const [qCities, setQCities] = useState('');
-  const [selectedState, setSelectedState] = useState<string | number | 'all'>(
-    'all'
-  );
+  const [selectedState, setSelectedState] = useState<string | number | 'all'>('all');
   const [minOrder, setMinOrder] = useState<number | ''>('');
   const [maxDeliveryFee, setMaxDeliveryFee] = useState<number | ''>('');
   const [citySorting, setCitySorting] = useState<SortingState>([
@@ -76,28 +90,22 @@ export default function LocationsPage() {
     }
   };
 
-  useEffect(() => {
-    refresh();
-  }, []);
+  useEffect(() => { refresh(); }, []);
 
   const statesById = useMemo(() => {
     const m = new Map<string | number, StateRow>();
-    for (const s of states) {
-      if (s.id != null) m.set(s.id, s);
-    }
+    for (const s of states) if (s.id != null) m.set(s.id, s);
     return m;
   }, [states]);
 
-  // --- States filtered data
+  /* ===== filtered data ===== */
   const filteredStates = useMemo(() => {
     const q = qStates.trim().toLowerCase();
-    return (states || []).filter((s) => {
-      if (!q) return true;
-      return `${s.name}|${s.name_ar}`.toLowerCase().includes(q);
-    });
+    return (states || []).filter((s) =>
+      !q ? true : `${s.name}|${s.name_ar}`.toLowerCase().includes(q)
+    );
   }, [states, qStates]);
 
-  // --- Cities filtered data
   const filteredCities = useMemo(() => {
     const q = qCities.trim().toLowerCase();
     return (cities || []).filter((c) => {
@@ -110,7 +118,7 @@ export default function LocationsPage() {
     });
   }, [cities, qCities, selectedState, minOrder, maxDeliveryFee, statesById]);
 
-  // --- Columns: States
+  /* ===== columns ===== */
   const stateCols = useMemo<ColumnDef<StateRow>[]>(() => [
     {
       accessorKey: 'name',
@@ -137,17 +145,19 @@ export default function LocationsPage() {
       header: 'Active',
       enableSorting: false,
       cell: ({ row }) => (
-        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${toBool(row.original.is_active ?? 1)
-          ? 'border-emerald-400/40 text-emerald-300'
-          : 'border-white/10 text-slate-300'
-        }`}>
-          {toBool(row.original.is_active ?? 1) ? 'Yes' : 'No'}
+        <span
+          className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${
+            parseBool(row.original.is_active ?? 1)
+              ? 'border-emerald-400/40 text-emerald-300'
+              : 'border-white/10 text-slate-300'
+          }`}
+        >
+          {parseBool(row.original.is_active ?? 1) ? 'Yes' : 'No'}
         </span>
       ),
     },
   ], []);
 
-  // --- Columns: Cities
   const cityCols = useMemo<ColumnDef<CityRow>[]>(() => [
     {
       accessorKey: 'name',
@@ -207,17 +217,20 @@ export default function LocationsPage() {
       header: 'Active',
       enableSorting: false,
       cell: ({ row }) => (
-        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${toBool(row.original.is_active ?? 1)
-          ? 'border-emerald-400/40 text-emerald-300'
-          : 'border-white/10 text-slate-300'
-        }`}>
-          {toBool(row.original.is_active ?? 1) ? 'Yes' : 'No'}
+        <span
+          className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${
+            parseBool(row.original.is_active ?? 1)
+              ? 'border-emerald-400/40 text-emerald-300'
+              : 'border-white/10 text-slate-300'
+          }`}
+        >
+          {parseBool(row.original.is_active ?? 1) ? 'Yes' : 'No'}
         </span>
       ),
     },
   ], [statesById]);
 
-  // --- Tables
+  /* ===== tables ===== */
   const statesTable = useReactTable({
     data: filteredStates,
     columns: stateCols,
@@ -247,59 +260,56 @@ export default function LocationsPage() {
   useEffect(() => { citiesTable.setPageIndex(0); }, [qCities, selectedState, minOrder, maxDeliveryFee]);
 
   return (
-    <div className="p-4">
-      <div className="flex items-end justify-between mb-4 gap-3">
+    <div className="max-w-7xl mx-auto p-4">
+      {/* Header + Refresh */}
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Locations</h1>
           <div className="text-sm opacity-70">States & Cities</div>
         </div>
-        <button
-          className="p-2 border rounded bg-transparent disabled:opacity-50"
-          onClick={refresh}
-          disabled={loading}
-        >
+        <button className={btnCls} onClick={refresh} disabled={loading}>
           {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
       {/* STATES */}
       <section className="mb-8">
-        <div className="flex flex-wrap gap-2 items-center justify-between mb-3">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <h2 className="text-lg font-semibold">States</h2>
-          <div className="flex items-center gap-2">
+
+          <div className="w-full sm:w-auto grid grid-cols-1 sm:grid-cols-[minmax(220px,360px)_auto] gap-2">
             <input
               value={qStates}
               onChange={(e) => setQStates(e.target.value)}
               placeholder="Search states…"
-              className="p-2 border rounded bg-transparent min-w-[220px]"
+              className={fieldCls + ' w-full'}
             />
-            <label className="ml-3 text-sm opacity-70">Rows</label>
-            <select
-              className="ui-field"
-              value={statePageSize}
-              onChange={(e) => setStatePageSize(Number(e.target.value))}
-            >
-              {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <div className="flex items-center gap-2">
+              <label className="text-sm opacity-70">Rows</label>
+              <select
+                className={fieldCls}
+                value={statePageSize}
+                onChange={(e) => setStatePageSize(Number(e.target.value))}
+              >
+                {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
           </div>
         </div>
 
         <div className="overflow-auto rounded-xl border border-white/10">
-          <table className="w-full text-left">
-            <thead className="bg-white/5">
+          <table className="w-full text-left table-fixed">
+            <thead className="bg-white/5 sticky top-0 z-10">
               {statesTable.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
+                      className="p-2 border-b border-white/10 text-left select-none"
                       onClick={h.column.getToggleSortingHandler()}
-                      className="p-2 border-b border-white/10 cursor-pointer select-none"
                     >
                       {flexRender(h.column.columnDef.header, h.getContext())}
-                      {{
-                        asc: ' 🔼',
-                        desc: ' 🔽',
-                      }[h.column.getIsSorted() as string] ?? null}
+                      {({ asc: ' 🔼', desc: ' 🔽' } as any)[h.column.getIsSorted() as string] ?? null}
                     </th>
                   ))}
                 </tr>
@@ -307,69 +317,58 @@ export default function LocationsPage() {
             </thead>
             <tbody>
               {statesTable.getRowModel().rows.length === 0 ? (
-                <tr><td className="p-4 opacity-70" colSpan={stateCols.length}>No states found.</td></tr>
-              ) : statesTable.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-b border-white/10 hover:bg-white/5">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-2">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                <tr>
+                  <td className="p-6 opacity-70 text-center" colSpan={stateCols.length}>
+                    No states found.
+                  </td>
                 </tr>
-              ))}
+              ) : (
+                statesTable.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="border-b border-white/10 hover:bg-white/5">
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="p-2">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
 
-        <div className="mt-3 flex items-center justify-between text-sm">
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
           <div className="opacity-70">
             Page <strong>{statesTable.getState().pagination.pageIndex + 1}</strong> of{' '}
             <strong>{statesTable.getPageCount()}</strong> •{' '}
             <span>{filteredStates.length} states</span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-                    onClick={() => statesTable.setPageIndex(0)}
-                    disabled={!statesTable.getCanPreviousPage()}>
-              « First
-            </button>
-            <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-                    onClick={() => statesTable.previousPage()}
-                    disabled={!statesTable.getCanPreviousPage()}>
-              ‹ Prev
-            </button>
-            <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-                    onClick={() => statesTable.nextPage()}
-                    disabled={!statesTable.getCanNextPage()}>
-              Next ›
-            </button>
-            <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-                    onClick={() => statesTable.setPageIndex(statesTable.getPageCount() - 1)}
-                    disabled={!statesTable.getCanNextPage()}>
-              Last »
-            </button>
+            <button className={btnCls} onClick={() => statesTable.setPageIndex(0)} disabled={!statesTable.getCanPreviousPage()}>« First</button>
+            <button className={btnCls} onClick={() => statesTable.previousPage()} disabled={!statesTable.getCanPreviousPage()}>‹ Prev</button>
+            <button className={btnCls} onClick={() => statesTable.nextPage()} disabled={!statesTable.getCanNextPage()}>Next ›</button>
+            <button className={btnCls} onClick={() => statesTable.setPageIndex(statesTable.getPageCount() - 1)} disabled={!statesTable.getCanNextPage()}>Last »</button>
           </div>
         </div>
       </section>
 
       {/* CITIES */}
       <section>
-        <div className="flex flex-wrap gap-2 items-end justify-between mb-3">
+        <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
           <h2 className="text-lg font-semibold">Cities</h2>
-          <div className="flex flex-wrap items-center gap-2">
+
+          <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(220px,360px)_180px_140px_160px_auto] gap-2">
             <input
               value={qCities}
               onChange={(e) => setQCities(e.target.value)}
               placeholder="Search cities/state…"
-              className="p-2 border rounded bg-transparent min-w-[220px]"
+              className={fieldCls + ' w-full'}
             />
 
             <select
-              className="ui-field"
+              className={fieldCls}
               value={String(selectedState)}
-              onChange={(e) =>
-                setSelectedState(e.target.value === 'all' ? 'all' : e.target.value)
-              }
+              onChange={(e) => setSelectedState(e.target.value === 'all' ? 'all' : e.target.value)}
               title="Filter by state"
             >
               <option value="all">All states</option>
@@ -386,7 +385,7 @@ export default function LocationsPage() {
               value={minOrder}
               onChange={(e) => setMinOrder(e.target.value === '' ? '' : Number(e.target.value))}
               placeholder="Min order ≥"
-              className="p-2 border rounded bg-transparent w-[140px]"
+              className={fieldCls + ' w-full'}
             />
             <input
               type="number"
@@ -394,36 +393,35 @@ export default function LocationsPage() {
               value={maxDeliveryFee}
               onChange={(e) => setMaxDeliveryFee(e.target.value === '' ? '' : Number(e.target.value))}
               placeholder="Delivery fee ≤"
-              className="p-2 border rounded bg-transparent w-[160px]"
+              className={fieldCls + ' w-full'}
             />
 
-            <label className="ml-3 text-sm opacity-70">Rows</label>
-            <select
-              className="ui-field"
-              value={cityPageSize}
-              onChange={(e) => setCityPageSize(Number(e.target.value))}
-            >
-              {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <div className="flex items-center gap-2">
+              <label className="text-sm opacity-70">Rows</label>
+              <select
+                className={fieldCls}
+                value={cityPageSize}
+                onChange={(e) => setCityPageSize(Number(e.target.value))}
+              >
+                {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
           </div>
         </div>
 
         <div className="overflow-auto rounded-xl border border-white/10">
-          <table className="w-full text-left">
-            <thead className="bg-white/5">
+          <table className="w-full text-left table-fixed">
+            <thead className="bg-white/5 sticky top-0 z-10">
               {citiesTable.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
+                      className="p-2 border-b border-white/10 text-left select-none"
                       onClick={h.column.getToggleSortingHandler()}
-                      className="p-2 border-b border-white/10 cursor-pointer select-none"
                     >
                       {flexRender(h.column.columnDef.header, h.getContext())}
-                      {{
-                        asc: ' 🔼',
-                        desc: ' 🔽',
-                      }[h.column.getIsSorted() as string] ?? null}
+                      {({ asc: ' 🔼', desc: ' 🔽' } as any)[h.column.getIsSorted() as string] ?? null}
                     </th>
                   ))}
                 </tr>
@@ -431,47 +429,37 @@ export default function LocationsPage() {
             </thead>
             <tbody>
               {citiesTable.getRowModel().rows.length === 0 ? (
-                <tr><td className="p-4 opacity-70" colSpan={cityCols.length}>No cities match your filters.</td></tr>
-              ) : citiesTable.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-b border-white/10 hover:bg-white/5">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-2">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                <tr>
+                  <td className="p-6 opacity-70 text-center" colSpan={cityCols.length}>
+                    No cities match your filters.
+                  </td>
                 </tr>
-              ))}
+              ) : (
+                citiesTable.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="border-b border-white/10 hover:bg-white/5">
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="p-2">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
 
-        <div className="mt-3 flex items-center justify-between text-sm">
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
           <div className="opacity-70">
             Page <strong>{citiesTable.getState().pagination.pageIndex + 1}</strong> of{' '}
             <strong>{citiesTable.getPageCount()}</strong> •{' '}
             <span>{filteredCities.length} cities</span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-                    onClick={() => citiesTable.setPageIndex(0)}
-                    disabled={!citiesTable.getCanPreviousPage()}>
-              « First
-            </button>
-            <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-                    onClick={() => citiesTable.previousPage()}
-                    disabled={!citiesTable.getCanPreviousPage()}>
-              ‹ Prev
-            </button>
-            <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-                    onClick={() => citiesTable.nextPage()}
-                    disabled={!citiesTable.getCanNextPage()}>
-              Next ›
-            </button>
-            <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-                    onClick={() => citiesTable.setPageIndex(citiesTable.getPageCount() - 1)}
-                    disabled={!citiesTable.getCanNextPage()}>
-              Last »
-            </button>
+            <button className={btnCls} onClick={() => citiesTable.setPageIndex(0)} disabled={!citiesTable.getCanPreviousPage()}>« First</button>
+            <button className={btnCls} onClick={() => citiesTable.previousPage()} disabled={!citiesTable.getCanPreviousPage()}>‹ Prev</button>
+            <button className={btnCls} onClick={() => citiesTable.nextPage()} disabled={!citiesTable.getCanNextPage()}>Next ›</button>
+            <button className={btnCls} onClick={() => citiesTable.setPageIndex(citiesTable.getPageCount() - 1)} disabled={!citiesTable.getCanNextPage()}>Last »</button>
           </div>
         </div>
       </section>

@@ -61,7 +61,6 @@ const bestUpdatedMs = (row: Order) => {
   return 0;
 };
 
-// Local start/end of *today* in the machine timezone (Kuwait PCs are +03:00)
 function getTodayRangeMs() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
@@ -83,24 +82,29 @@ export default function TodayOrdersReport() {
   ]);
   const [pageSize, setPageSize] = useState(25);
 
+  // ---- tiny UI helpers so all fields/buttons look identical (dark & light) ----
+  const fieldCls =
+    'h-10 px-3 rounded-lg bg-white/5 dark:bg-white/5 border border-white/10 ' +
+    'text-sm outline-none focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
+  const btnCls =
+    'h-10 px-3 rounded-lg border border-white/10 text-sm hover:bg-white/10 transition ' +
+    'disabled:opacity-50 disabled:cursor-not-allowed';
+
   const refresh = async () => {
     setLoading(true);
     try {
       const { start_ms, end_ms } = getTodayRangeMs();
 
-      // Primary (by-date) channel
       let list: Order[] = [];
       try {
         list = await window.api.invoke('orders:listByDate', { start_ms, end_ms });
-      } catch (e) {
-        // Fallback: pull everything and filter in renderer if the handler isn't present yet
+      } catch {
         const all = await window.api.invoke('orders:listAll');
         list = (all || []).filter((o: Order) => {
           const ms = bestUpdatedMs(o);
           return ms >= start_ms && ms <= end_ms;
         });
       }
-
       setRows(list || []);
     } finally {
       setLoading(false);
@@ -123,29 +127,36 @@ export default function TodayOrdersReport() {
     {
       accessorKey: 'number',
       header: ({ column }) => (
-        <button className="font-medium inline-flex items-center gap-1"
-                onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+        <button
+          className="font-medium inline-flex items-center gap-1"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+        >
           Number <span className="opacity-60">↕</span>
         </button>
       ),
       cell: (info) => info.getValue() as string,
+      size: 150,
     },
     {
       accessorKey: 'status',
       header: 'Status',
       cell: ({ row }) => <StatusBadge s={row.original.status} />,
       enableSorting: false,
+      size: 120,
     },
     {
       accessorKey: 'order_type',
       header: ({ column }) => (
-        <button className="font-medium inline-flex items-center gap-1"
-                onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+        <button
+          className="font-medium inline-flex items-center gap-1"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+        >
           Type <span className="opacity-60">↕</span>
         </button>
       ),
       cell: ({ row }) => typeLabel(row.original.order_type),
       sortingFn: 'alphanumeric',
+      size: 120,
     },
     {
       id: 'customer',
@@ -157,23 +168,29 @@ export default function TodayOrdersReport() {
         </div>
       ),
       enableSorting: false,
+      size: 260,
     },
     {
       accessorKey: 'grand_total',
       header: ({ column }) => (
-        <button className="font-medium inline-flex items-center gap-1"
-                onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+        <button
+          className="font-medium inline-flex items-center gap-1"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+        >
           Total <span className="opacity-60">↕</span>
         </button>
       ),
       cell: (info) => <span className="font-semibold">{fmtMoney3(info.getValue() as number)}</span>,
       sortingFn: 'alphanumeric',
+      size: 120,
     },
     {
-      accessorKey: 'updated_at',
+      id: 'updated_at',
       header: ({ column }) => (
-        <button className="font-medium inline-flex items-center gap-1"
-                onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+        <button
+          className="font-medium inline-flex items-center gap-1"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+        >
           Updated <span className="opacity-60">↕</span>
         </button>
       ),
@@ -183,6 +200,7 @@ export default function TodayOrdersReport() {
         return ms ? new Date(ms).toLocaleString() : '—';
       },
       sortingFn: 'basic',
+      size: 200,
     },
   ], []);
 
@@ -201,22 +219,25 @@ export default function TodayOrdersReport() {
   useEffect(() => { table.setPageIndex(0); }, [q, type]);
 
   return (
-    <div className="p-4">
-      {/* Top bar */}
-      <div className="flex flex-wrap gap-3 items-end justify-between mb-4">
+    <div className="max-w-7xl mx-auto p-4">
+      {/* Header + Toolbar */}
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Today’s Orders</h1>
           <div className="text-sm opacity-70">All statuses for the current day</div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+
+        {/* Toolbar: always aligns; wraps gracefully on small screens */}
+        <div className="w-full md:w-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(260px,420px)_140px_110px_110px] gap-2">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search number / name / mobile / status…"
-            className="p-2 border rounded bg-transparent min-w-[260px]"
+            className={fieldCls + ' w-full'}
           />
+
           <select
-            className="ui-field"
+            className={fieldCls + ' w-full'}
             value={type}
             onChange={(e) => setType(e.target.value as any)}
             title="Order type"
@@ -228,7 +249,7 @@ export default function TodayOrdersReport() {
           </select>
 
           <button
-            className="p-2 border rounded bg-transparent disabled:opacity-50"
+            className={btnCls + ' w-full'}
             onClick={refresh}
             disabled={loading}
             title="Refresh"
@@ -236,36 +257,35 @@ export default function TodayOrdersReport() {
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
 
-          <label className="ml-3 text-sm opacity-70">Rows</label>
-          <select
-            className="ui-field"
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-          >
-            {[10, 25, 50, 100].map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2 w-full">
+            <label className="text-sm opacity-70">Rows</label>
+            <select
+              className={fieldCls + ' w-full'}
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              {[10, 25, 50, 100].map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Table */}
       <div className="overflow-auto rounded-xl border border-white/10">
-        <table className="w-full text-left">
-          <thead className="bg-white/5">
+        <table className="w-full text-left table-fixed">
+          <thead className="bg-white/5 sticky top-0 z-10">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
                   <th
                     key={h.id}
-                    onClick={h.column.getToggleSortingHandler()}
-                    className="p-2 border-b border-white/10 text-left cursor-pointer select-none"
+                    style={{ width: h.getSize() !== 150 ? undefined : 150 }}
+                    className="p-2 border-b border-white/10 text-left select-none"
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
-                    {{
-                      asc: ' 🔼',
-                      desc: ' 🔽',
-                    }[h.column.getIsSorted() as string] ?? null}
+                    {({ asc: ' 🔼', desc: ' 🔽' } as any)[h.column.getIsSorted() as string] ?? null}
                   </th>
                 ))}
               </tr>
@@ -274,7 +294,7 @@ export default function TodayOrdersReport() {
           <tbody>
             {table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td className="p-4 opacity-70" colSpan={columns.length}>
+                <td className="p-6 opacity-70 text-center" colSpan={columns.length}>
                   No orders {q !== '' || type !== 'all' ? 'match your filters.' : 'for today.'}
                 </td>
               </tr>
@@ -282,7 +302,7 @@ export default function TodayOrdersReport() {
               table.getRowModel().rows.map((row) => (
                 <tr key={row.id} className="border-b border-white/10 hover:bg-white/5">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-2">
+                    <td key={cell.id} className="p-2 align-top">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -294,29 +314,29 @@ export default function TodayOrdersReport() {
       </div>
 
       {/* Pagination */}
-      <div className="mt-3 flex items-center justify-between text-sm">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
         <div className="opacity-70">
           Page <strong>{table.getState().pagination.pageIndex + 1}</strong> of{' '}
           <strong>{table.getPageCount()}</strong> •{' '}
           <span>{filtered.length} orders</span>
         </div>
         <div className="flex items-center gap-2">
-          <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+          <button className={btnCls}
                   onClick={() => table.setPageIndex(0)}
                   disabled={!table.getCanPreviousPage()}>
             « First
           </button>
-          <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+          <button className={btnCls}
                   onClick={() => table.previousPage()}
                   disabled={!table.getCanPreviousPage()}>
             ‹ Prev
           </button>
-          <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+          <button className={btnCls}
                   onClick={() => table.nextPage()}
                   disabled={!table.getCanNextPage()}>
             Next ›
           </button>
-          <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+          <button className={btnCls}
                   onClick={() => table.setPageIndex(table.getPageCount() - 1)}
                   disabled={!table.getCanNextPage()}>
             Last »
