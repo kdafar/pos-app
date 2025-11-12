@@ -9,7 +9,6 @@ import {
   SortingState,
 } from '@tanstack/react-table';
 
-// IPC typing (optional)
 declare global {
   interface Window {
     api: { invoke: (channel: string, ...args: any[]) => Promise<any> };
@@ -24,9 +23,9 @@ type Order = {
   full_name?: string | null;
   mobile?: string | null;
   grand_total: number | null;
-  updated_at?: number | null; // ms epoch preferred
-  opened_at?: number | null;  // fallback (ms)
-  created_at?: string | null; // fallback (ISO)
+  updated_at?: number | null;  // ms
+  opened_at?: number | null;   // ms
+  created_at?: string | null;  // ISO
 };
 
 const typeLabel = (t?: number | null) =>
@@ -53,7 +52,6 @@ const fmtMoney3 = (n?: number | null) =>
   Number.isFinite(Number(n)) ? Number(n).toFixed(3) : '0.000';
 
 const bestUpdatedMs = (row: Order) => {
-  // Prefer updated_at (ms), else opened_at (ms), else created_at (ISO -> ms)
   if (row.updated_at && Number(row.updated_at) > 0) return Number(row.updated_at);
   if (row.opened_at && Number(row.opened_at) > 0) return Number(row.opened_at);
   if (row.created_at) {
@@ -63,7 +61,15 @@ const bestUpdatedMs = (row: Order) => {
   return 0;
 };
 
-export default function RecentOrdersPage() {
+// Local start/end of *today* in the machine timezone (Kuwait PCs are +03:00)
+function getTodayRangeMs() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+  const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59,999).getTime();
+  return { start_ms: start, end_ms: end };
+}
+
+export default function TodayOrdersReport() {
   const [rows, setRows] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -80,24 +86,35 @@ export default function RecentOrdersPage() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const list = await window.api.invoke('orders:listOpen');
+      const { start_ms, end_ms } = getTodayRangeMs();
+
+      // Primary (by-date) channel
+      let list: Order[] = [];
+      try {
+        list = await window.api.invoke('orders:listByDate', { start_ms, end_ms });
+      } catch (e) {
+        // Fallback: pull everything and filter in renderer if the handler isn't present yet
+        const all = await window.api.invoke('orders:listAll');
+        list = (all || []).filter((o: Order) => {
+          const ms = bestUpdatedMs(o);
+          return ms >= start_ms && ms <= end_ms;
+        });
+      }
+
       setRows(list || []);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    refresh();
-  }, []);
+  useEffect(() => { refresh(); }, []);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return (rows || []).filter((r) => {
       if (type !== 'all' && String(r.order_type ?? '') !== type) return false;
       if (!qq) return true;
-      const hay = `${r.number}|${r.status ?? ''}|${typeLabel(r.order_type)}|${r.full_name ?? ''}|${r.mobile ?? ''}`
-        .toLowerCase();
+      const hay = `${r.number}|${r.status ?? ''}|${typeLabel(r.order_type)}|${r.full_name ?? ''}|${r.mobile ?? ''}`.toLowerCase();
       return hay.includes(qq);
     });
   }, [rows, q, type]);
@@ -160,7 +177,6 @@ export default function RecentOrdersPage() {
           Updated <span className="opacity-60">↕</span>
         </button>
       ),
-      // For stable numeric sorting, provide a numeric accessor
       accessorFn: (row) => bestUpdatedMs(row),
       cell: ({ row }) => {
         const ms = bestUpdatedMs(row.original);
@@ -181,22 +197,16 @@ export default function RecentOrdersPage() {
     initialState: { pagination: { pageIndex: 0, pageSize } },
   });
 
-  useEffect(() => {
-    table.setPageSize(pageSize);
-  }, [pageSize]);
-
-  // reset to first page on filter changes
-  useEffect(() => {
-    table.setPageIndex(0);
-  }, [q, type]);
+  useEffect(() => { table.setPageSize(pageSize); }, [pageSize]);
+  useEffect(() => { table.setPageIndex(0); }, [q, type]);
 
   return (
     <div className="p-4">
       {/* Top bar */}
       <div className="flex flex-wrap gap-3 items-end justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold">Recent Orders</h1>
-          <div className="text-sm opacity-70">Open/active orders</div>
+          <h1 className="text-2xl font-bold">Today’s Orders</h1>
+          <div className="text-sm opacity-70">All statuses for the current day</div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -265,7 +275,7 @@ export default function RecentOrdersPage() {
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td className="p-4 opacity-70" colSpan={columns.length}>
-                  No orders {q !== '' || type !== 'all' ? 'match your filters.' : 'found.'}
+                  No orders {q !== '' || type !== 'all' ? 'match your filters.' : 'for today.'}
                 </td>
               </tr>
             ) : (
@@ -291,32 +301,24 @@ export default function RecentOrdersPage() {
           <span>{filtered.length} orders</span>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-            onClick={() => table.setPageIndex(0)}
-            disabled={!table.getCanPreviousPage()}
-          >
+          <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+                  onClick={() => table.setPageIndex(0)}
+                  disabled={!table.getCanPreviousPage()}>
             « First
           </button>
-          <button
-            className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
+          <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+                  onClick={() => table.previousPage()}
+                  disabled={!table.getCanPreviousPage()}>
             ‹ Prev
           </button>
-          <button
-            className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
+          <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+                  onClick={() => table.nextPage()}
+                  disabled={!table.getCanNextPage()}>
             Next ›
           </button>
-          <button
-            className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
-            onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-            disabled={!table.getCanNextPage()}
-          >
+          <button className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                  disabled={!table.getCanNextPage()}>
             Last »
           </button>
         </div>

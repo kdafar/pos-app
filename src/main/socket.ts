@@ -1,11 +1,16 @@
-import { WebSocketServer, WebSocket } from 'ws';
+// socket-server.ts (main process)
+import { createRequire as nodeCreateRequire } from 'node:module';
+import type { WebSocketServer as WebSocketServerType, WebSocket as WebSocketType } from 'ws';
 
-let wss: WebSocketServer;
+const cjsRequire = nodeCreateRequire(import.meta.url);
+const Ws = cjsRequire('ws') as typeof import('ws');
 
-export function createSocketServer() {
-  wss = new WebSocketServer({ port: 8080 });
+let wss: WebSocketServerType | undefined;
 
-  wss.on('connection', (ws) => {
+export function createSocketServer(port = 8080) {
+  wss = new Ws.WebSocketServer({ port }) as WebSocketServerType;
+
+  wss.on('connection', (ws: WebSocketType) => {
     console.log('Client connected');
 
     ws.on('close', () => {
@@ -14,14 +19,12 @@ export function createSocketServer() {
   });
 }
 
-export function broadcast(channel: string, data: any) {
-  if (!wss) {
-    return;
-  }
+export function broadcast(channel: string, data: unknown) {
+  if (!wss) return;
 
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
+  for (const client of wss.clients as Set<WebSocketType>) {
+    if (client.readyState === Ws.OPEN) {
       client.send(JSON.stringify({ channel, data }));
     }
-  });
+  }
 }

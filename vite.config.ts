@@ -19,6 +19,8 @@ const nativeExternal = [
   /node-gyp-build-optional-packages(?:\/.*)?/,
   /bindings(?:\/.*)?/,
   /keytar(?:\/.*)?/,
+  /bufferutil(?:\/.*)?/,
+  /utf-8-validate(?:\/.*)?/,
 ]
 
 export default defineConfig({

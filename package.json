@@ -1,7 +1,7 @@
 {
   "name": "pos-app",
   "productName": "POS App",
-  "version": "0.1.7",
+  "version": "0.2.2",
   "private": true,
   "main": "out/main/index.js",
   "author": "Majestic",
@@ -42,6 +42,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4.1.16",
     "@types/better-sqlite3": "^7.6.13",

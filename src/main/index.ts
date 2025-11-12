@@ -501,12 +501,83 @@ ipcMain.handle('settings:getPosUser', async () => {
     };
 });
 
-const qGetOrder = db.prepare(`
-    SELECT o.*
+// ---- TODAY/LIST BY DATE (safe across schemas) ----
+type ListByDateArgs = { start_ms: number; end_ms: number; branch_id?: string | number };
+
+ipcMain.handle('orders:listByDate', (_evt, args: ListByDateArgs) => {
+  const { start_ms, end_ms, branch_id } = args || {};
+
+  // Only reference columns that exist to avoid "no such column" errors
+  const hasUpd = hasColumn('orders', 'updated_at');
+  const hasOpen = hasColumn('orders', 'opened_at');
+
+  // COALESCE order for sorting/filtering by “most relevant timestamp”
+  // 1) updated_at (if present, ms)
+  // 2) opened_at  (if present, ms)
+  // 3) created_at (TEXT -> ms)
+  const sortExpr = [
+    hasUpd ? 'o.updated_at' : 'NULL',
+    hasOpen ? 'o.opened_at' : 'NULL',
+    "CAST(STRFTIME('%s', o.created_at) AS INTEGER) * 1000",
+  ].join(', ');
+
+  // Optional branch filter if you store branch_id
+  const andBranch = typeof branch_id !== 'undefined' ? ' AND o.branch_id = @branch_id ' : '';
+
+  const sql = `
+    SELECT * FROM (
+      SELECT
+        o.id,
+        o.number,
+        o.status,
+        o.order_type,
+        o.full_name,
+        o.mobile,
+        o.grand_total,
+        COALESCE(${sortExpr}) AS sort_ms,
+        ${hasUpd ? 'o.updated_at' : 'NULL'} AS updated_at,
+        ${hasOpen ? 'o.opened_at' : 'NULL'} AS opened_at,
+        o.created_at
+      FROM orders o
+      WHERE 1=1 ${andBranch}
+    ) t
+    WHERE t.sort_ms BETWEEN @start_ms AND @end_ms
+    ORDER BY t.sort_ms DESC
+  `;
+
+  return db.prepare(sql).all({ start_ms, end_ms, branch_id });
+});
+
+// ---- LIST ALL (fallback used by renderer if listByDate fails) ----
+ipcMain.handle('orders:listAll', () => {
+  const hasUpd = hasColumn('orders', 'updated_at');
+  const hasOpen = hasColumn('orders', 'opened_at');
+  const sortExpr = [
+    hasUpd ? 'o.updated_at' : 'NULL',
+    hasOpen ? 'o.opened_at' : 'NULL',
+    "CAST(STRFTIME('%s', o.created_at) AS INTEGER) * 1000",
+  ].join(', ');
+
+  const sql = `
+    SELECT
+      o.id,
+      o.number,
+      o.status,
+      o.order_type,
+      o.full_name,
+      o.mobile,
+      o.grand_total,
+      COALESCE(${sortExpr}) AS sort_ms,
+      ${hasUpd ? 'o.updated_at' : 'NULL'} AS updated_at,
+      ${hasOpen ? 'o.opened_at' : 'NULL'} AS opened_at,
+      o.created_at
     FROM orders o
-    WHERE o.id = ?
-    LIMIT 1
-  `)
+    ORDER BY sort_ms DESC
+    LIMIT 500
+  `;
+  return db.prepare(sql).all();
+});
+
 
 // ---
 // --- FIX: This was the source of the crash.
@@ -1605,17 +1676,14 @@ const services = {
   },
 };
 
-// ✅ Register the new handlers (pass your existing db instance)
 registerAuthHandlers(ipcMain, db, {
   store: services.store,
   sync: {
-    pairDevice,   // <-- from your sync.ts
-    bootstrap,    // <-- from your sync.ts
-    run: services.sync.run,       // use the async run helper from services
-    configure: services.sync.configure, // use the async configure helper from services
+    configure: services.sync.configure,   // wrapper
+    bootstrap: services.sync.bootstrap,   // wrapper that does pairDevice(...) internally
+    run: services.sync.run,               // wrapper
   }
-});
-
+})
 /* ======================================================================
     Background Auto-Sync (pull + flush) with backoff
     ====================================================================== */

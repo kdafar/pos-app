@@ -185,7 +185,7 @@ function previewOperational(fromMs: number, toMs: number) {
 
   let gross_sales_total = 0;      // sum(order_total) for sold → we use subtotal as “pre-discount” proxy if present
   let discounts = 0;              // discount_total or discount_amount
-  let delivery_fees = 0;          // delivery_fee or delivery_charge
+  let delivery_fees = 0;          // delivery_fee or delivery_fee
   let grand_total_sum = 0;        // sum(grand_total)
   let outside_hours_total = 0;
   let cancelled_total = 0;
@@ -197,7 +197,7 @@ function previewOperational(fromMs: number, toMs: number) {
     if (inside) inside_hours_count += 1; else outside_hours_count += 1;
 
     const disc = Number(r.discount_total ?? r.discount_amount ?? 0);
-    const delv = Number(r.delivery_fee ?? r.delivery_charge ?? 0);
+    const delv = Number(r.delivery_fee ?? r.delivery_fee ?? 0);
     const gtot = Number(r.grand_total ?? 0);
     const pre  = Number(r.subtotal ?? 0);
 
@@ -317,15 +317,244 @@ function previewOperational(fromMs: number, toMs: number) {
 
   return { fromMs, toMs, footer, payments: byPayment, orderTypes, categories };
 }
+/* ---- helper: turn any date column to ms safely (supports INTEGER ms or TEXT datetime) ---- */
+function msExpr(col: string, alias = 'o') {
+  // typeof(..)='integer' → already ms; else STRFTIME('%s')*1000
+  return `(CASE WHEN typeof(${alias}.${col})='integer'
+           THEN ${alias}.${col}
+           ELSE CAST(STRFTIME('%s', ${alias}.${col}) AS INTEGER) * 1000
+         END)`;
+}
 
-/* ========== IPC ========== */
+/* ---- main IPC ---- */
 export function registerOperationalReportHandlers() {
-  ipcMain.handle('report:sales:preview', async (_e, range?: { from?: number; to?: number }) => {
-    // default to operational window if not provided
-    const now = new Date();
-    const base = (range?.from && range?.to)
-      ? { fromMs: Number(range.from), toMs: Number(range.to) }
-      : defaultOperationalWindow(now);
-    return previewOperational(base.fromMs, base.toMs);
+  ipcMain.handle('report:sales:preview', (_evt, opts?: { from?: number; to?: number }) => {
+    // Default to the operational window you already implemented
+    const def = defaultOperationalWindow(new Date());
+    const fromMs = Number.isFinite(opts?.from) ? Number(opts!.from) : def.fromMs;
+    const toMs   = Number.isFinite(opts?.to)   ? Number(opts!.to)   : def.toMs;
+
+    // Pick the “best” timestamp column and a safe ms expression for WHERE/SELECT
+    const tsCol     = pickOrderTsColumn();           // e.g., completed_at | paid_at | created_at_ms | opened_at
+    const tsMs      = msExpr(tsCol, 'o');            // ms expression for SQL
+    const branchId  = Number(getMeta('branch_id') ?? 0) || 0;
+    const hasBranch = tableHasColumn('orders', 'branch_id');
+    const andBranch = hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : '';
+
+    // Pull minimal order fields (all orders in range); we’ll classify in JS using your helpers
+    type Row = {
+      id: string;
+      status?: string | null;
+      order_type?: number | null;
+      subtotal?: number | null;
+      discount_total?: number | null;
+      discount_amount?: number | null;
+      delivery_fee?: number | null;
+      delivery_fee?: number | null;
+      grand_total?: number | null;
+      ts_ms: number;
+      payment_method_slug?: string | null;
+      payment_method_id?: string | null;
+    };
+
+    const orders = db.prepare(`
+      SELECT
+        o.id, o.status, o.order_type,
+        o.subtotal, o.discount_total, o.discount_amount,
+        o.delivery_fee, o.delivery_fee, o.grand_total,
+        ${tsMs} AS ts_ms,
+        ${tableHasColumn('orders','payment_method_slug') ? 'o.payment_method_slug' : 'NULL'} AS payment_method_slug,
+        ${tableHasColumn('orders','payment_method_id')   ? 'o.payment_method_id'   : 'NULL'} AS payment_method_id
+      FROM orders o
+      WHERE ${tsMs} >= @fromMs AND ${tsMs} < @toMs
+      ${andBranch}
+    `).all({ fromMs, toMs, branch_id: branchId }) as Row[];
+
+    // ------- Footer tallies (like PHP) -------
+    let total_order = 0;
+    let inside_hours_count = 0;
+    let outside_hours_count = 0;
+    let canceled_order_count = 0;
+
+    let gross_sales_total = 0;    // sum(subtotal) for sold
+    let discounts = 0;            // sum(discount_total or discount_amount)
+    let delivery_fees = 0;        // sum(delivery_fee or delivery_fee)
+    let grand_total = 0;          // sum(grand_total) for sold
+    let outside_hours_total = 0;  // sum(grand_total) for sold outside op hours
+    let cancelled_total = 0;      // sum(grand_total or subtotal) for cancelled
+
+    for (const r of orders) {
+      const ts = Number(r.ts_ms || 0);
+      const inside = insideOperational(ts);
+
+      if (isCancelled(r)) {
+        canceled_order_count += 1;
+        cancelled_total += Number(r.grand_total ?? r.subtotal ?? 0);
+        continue;
+      }
+
+      if (isSold(r)) {
+        total_order += 1;
+        if (inside) inside_hours_count += 1; else outside_hours_count += 1;
+
+        const pre  = Number(r.subtotal ?? 0);
+        const disc = Number(r.discount_total ?? r.discount_amount ?? 0);
+        const delv = Number(r.delivery_fee ?? r.delivery_fee ?? 0);
+        const gtot = Number(r.grand_total ?? 0);
+
+        gross_sales_total += pre;
+        discounts         += disc;
+        delivery_fees     += delv;
+        grand_total       += gtot;
+        if (!inside) outside_hours_total += gtot;
+      }
+    }
+
+    // ------- Payments breakdown (sold only) -------
+    const payments = (() => {
+      const rows: Array<{ id: string; name: string; total: number }> = [];
+
+      // Prefer grouping by slug if present on orders + payment_methods table exists
+      const hasPmTable = tableExists('payment_methods');
+      if (tableHasColumn('orders','payment_method_slug')) {
+        const q = db.prepare(`
+          SELECT
+            COALESCE(pm.slug, s.payment_method_slug, 'unknown') AS id,
+            COALESCE(pm.name_en, pm.name_ar, s.payment_method_slug, 'Unknown') AS name,
+            ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
+          FROM orders s
+          ${hasPmTable ? 'LEFT JOIN payment_methods pm ON pm.slug = s.payment_method_slug' : ''}
+          WHERE ${msExpr(tsCol,'s')} >= @fromMs AND ${msExpr(tsCol,'s')} < @toMs
+            ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
+            AND COALESCE(s.grand_total,0) > 0
+          GROUP BY id, name
+          ORDER BY total DESC
+        `).all({ fromMs, toMs, branch_id: branchId }) as Array<{ id: string; name: string; total: number }>;
+        rows.push(...q);
+      } else if (tableHasColumn('orders','payment_method_id')) {
+        const q = db.prepare(`
+          SELECT
+            CAST(COALESCE(s.payment_method_id, 0) AS TEXT) AS id,
+            COALESCE(pm.name_en, pm.name_ar, CAST(s.payment_method_id AS TEXT), 'Unknown') AS name,
+            ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
+          FROM orders s
+          ${hasPmTable ? 'LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id' : ''}
+          WHERE ${msExpr(tsCol,'s')} >= @fromMs AND ${msExpr(tsCol,'s')} < @toMs
+            ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
+            AND COALESCE(s.grand_total,0) > 0
+          GROUP BY id, name
+          ORDER BY total DESC
+        `).all({ fromMs, toMs, branch_id: branchId }) as Array<{ id: string; name: string; total: number }>;
+        rows.push(...q);
+      } else {
+        // Fallback: payments table (order_payments or payments)
+        const payTbl = firstExistingTable(['order_payments','payments']);
+        if (payTbl && tableHasColumn(payTbl,'order_id') && tableHasColumn(payTbl,'amount')) {
+          const byId = db.prepare(`
+            SELECT
+              CAST(COALESCE(p.payment_method_id, 0) AS TEXT) AS id,
+              ROUND(SUM(COALESCE(p.amount,0)), 3) AS total
+            FROM ${payTbl} p
+            JOIN orders o ON o.id = p.order_id
+            WHERE ${msExpr(tsCol,'o')} >= @fromMs AND ${msExpr(tsCol,'o')} < @toMs
+              ${hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : ''}
+            GROUP BY p.payment_method_id
+            ORDER BY total DESC
+          `).all({ fromMs, toMs, branch_id: branchId }) as Array<{ id: string; total: number }>;
+          for (const r of byId) {
+            let name = r.id;
+            if (hasPmTable) {
+              try {
+                const nm = db.prepare(`SELECT COALESCE(name_en, name_ar, name, slug) FROM payment_methods WHERE id = ?`).pluck().get(r.id);
+                if (nm) name = String(nm);
+              } catch {}
+            }
+            rows.push({ id: r.id, name, total: Number(r.total || 0) });
+          }
+        }
+      }
+      return rows;
+    })();
+
+    // ------- Order type breakdown (sold only) -------
+    const orderTypes = (() => {
+      if (!tableHasColumn('orders','order_type')) return [] as Array<{ order_type: number; label: string; count: number; total: number }>;
+      const rows = db.prepare(`
+        SELECT
+          o.order_type AS k,
+          COUNT(*) AS count,
+          ROUND(SUM(COALESCE(o.grand_total,0)), 3) AS total
+        FROM orders o
+        WHERE ${tsMs} >= @fromMs AND ${tsMs} < @toMs
+          ${andBranch}
+          AND COALESCE(o.grand_total,0) > 0
+        GROUP BY o.order_type
+        ORDER BY total DESC, count DESC
+      `).all({ fromMs, toMs, branch_id: branchId }) as Array<{ k: number; count: number; total: number }>;
+      const label = (k: number) => (k === 1 ? 'Delivery' : k === 3 ? 'Dine-in' : 'Pickup');
+      return rows.map(r => ({ order_type: r.k, label: label(r.k), count: r.count ?? 0, total: Number(r.total ?? 0) }));
+    })();
+
+    // ------- Categories (sold only) -------
+    const categories = (() => {
+      const linesTable = firstExistingTable(['order_lines','order_details','order_items']);
+      if (!linesTable) return [] as Array<{ item: string; sold: number; total: number }>;
+
+      const qtyExpr   = `COALESCE(l.qty, l.quantity, 0)`;
+      const priceExpr = `COALESCE(l.line_total,
+                        (COALESCE(l.qty, l.quantity, 0) * COALESCE(l.unit_price, l.price, 0)))`;
+
+      const itemTbl = firstExistingTable(['items','item']);
+      if (!itemTbl) return [] as Array<{ item: string; sold: number; total: number }>;
+
+      const catCol =
+        tableHasColumn(itemTbl, 'category_id') ? 'category_id' :
+        tableHasColumn(itemTbl, 'cat_id')      ? 'cat_id'      :
+        tableHasColumn(itemTbl, 'category')    ? 'category'    :
+        null;
+      if (!catCol) return [] as Array<{ item: string; sold: number; total: number }>;
+
+      const nameExpr =
+        `COALESCE(c.name_en, c.name_ar, c.category_name_en, c.category_name_ar, c.category_name, c.name, 'Uncategorized')`;
+
+      // We’ll try to join a categories table only if it exists
+      const hasCats = tableExists('categories');
+      const joinCat = hasCats ? `LEFT JOIN categories c ON c.id = it.${catCol}` : '';
+      const itemNameSelect = hasCats ? `${nameExpr} AS item` : `CAST(it.${catCol} AS TEXT) AS item`;
+
+      const sql = `
+        SELECT
+          ${itemNameSelect},
+          SUM(${qtyExpr}) AS sold,
+          ROUND(SUM(COALESCE(${priceExpr}, 0)), 3) AS total
+        FROM ${linesTable} l
+        JOIN orders o ON o.id = l.order_id
+        JOIN ${itemTbl} it ON it.id = l.item_id
+        ${joinCat}
+        WHERE ${msExpr(tsCol,'o')} >= @fromMs AND ${msExpr(tsCol,'o')} < @toMs
+          ${hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : ''}
+          AND COALESCE(o.grand_total,0) > 0
+        GROUP BY item
+        ORDER BY total DESC, sold DESC
+        LIMIT 50
+      `;
+      return db.prepare(sql).all({ fromMs, toMs, branch_id: branchId }) as Array<{ item: string; sold: number; total: number }>;
+    })();
+
+    const footer = {
+      date: `${new Date(fromMs).toLocaleString()} to ${new Date(toMs).toLocaleString()}`,
+      total_order,
+      inside_hours_count,
+      outside_hours_count,
+      canceled_order_count,
+      gross_sales_total: +gross_sales_total.toFixed(3),
+      grand_total:       +grand_total.toFixed(3),
+      discounts:         +discounts.toFixed(3),
+      delivery_fees:     +delivery_fees.toFixed(3),
+      outside_hours_total: +outside_hours_total.toFixed(3),
+      cancelled_total:     +cancelled_total.toFixed(3),
+    };
+
+    return { fromMs, toMs, footer, payments, orderTypes, categories } as const;
   });
 }
