@@ -165,6 +165,37 @@ export default function OrderSide({
     } catch { /* no-op */ }
   };
 
+const handleClose = async () => {
+  if (!currentOrder) return;
+  
+  // NEW: Explicitly clear the table if it's a dine-in order being closed
+  if (currentOrder.order_type === 3 && currentOrder.table_id) {
+    try {
+      await window.api.invoke('orders:clearTable', currentOrder.id);
+      console.log(`[handleClose] Explicitly cleared table for order ${currentOrder.id}`);
+    } catch (e) {
+      console.warn(`[handleClose] Failed to clear table for order ${currentOrder.id}`, e);
+    }
+  }
+  
+  // Existing logic to cancel or delete the order
+  try {
+    if (orderLines.length > 0) {
+      // If it has items, "close" means "cancel"
+      await window.api.invoke('orders:cancel', currentOrder.id);
+    } else {
+      // If it's empty, "close" means "delete"
+      await window.api.invoke('orders:delete', currentOrder.id);
+    }
+  } catch (e) {
+    console.error('Failed to close/cancel/delete order:', e);
+    // As a final fallback, try to just close it
+    try { await window.api.invoke('orders:close', currentOrder.id); } catch {}
+  }
+
+  await focusNextActive(); // Reloads active list and selects the next order
+  try { await onRefreshTables(); } catch {} // Refresh table status
+};
   return (
     <div className={`${bg} backdrop-blur border-l ${border} flex flex-col h-full overflow-hidden`}>
       {/* Header */}
@@ -276,8 +307,8 @@ export default function OrderSide({
         <>
           <div className="grow overflow-y-auto p-4">
             {orderLines.length === 0 ? (
-              <div className={`flex flex-col items-center justify-center h-full ${textMuted}`}>
-                <ShoppingCart size={40} className="mb-3 opacity-50" />
+              <div className={`flex flex-col items-center justify-center min-h-[200px] ${textMuted} opacity-70`}>
+                <ShoppingCart size={40} className="mb-3" />
                 <p className="text-center">Cart is empty<br />Add items to get started</p>
               </div>
             ) : (
@@ -316,28 +347,33 @@ export default function OrderSide({
             </div>
 
             {/* Removed Hold. Only Print + Checkout */}
-            <div className="grid grid-cols-2 gap-2">
+             <div className="grid grid-cols-2 gap-2">
+              {/* Close order (discard / clear) */}
               <button
-                onClick={async () => { await handlePrint(currentOrder.id); }}
-                disabled={orderLines.length === 0}
-                className={`px-3.5 py-2 rounded-lg text-sm border transition ${
-                  theme === 'dark' ? 'border-white/10 bg-white/5 text-white hover:bg-white/10'
-                                   : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                type="button"
+                onClick={handleClose}
+                className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
+                  theme === 'dark'
+                    ? 'bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30'
+                    : 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
                 }`}
+                title={orderLines.length > 0 ? "Cancel this order" : "Delete this empty order"}
               >
-                Print
+                <X size={16} /> Close
               </button>
 
+              {/* Place order (open checkout modal) */}
               <button
+                type="button"
                 onClick={() => setShowCheckout(true)}
                 disabled={orderLines.length === 0}
                 className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
                   theme === 'dark'
-                    ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed'
-                    : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white disabled:opacity-50 disabled:cursor-not-allowed'
+                    ? 'bg-gray-900 hover:bg-black text-white disabled:opacity-50 disabled:cursor-not-allowed'
+                    : 'bg-gray-900 hover:bg-black text-white disabled:opacity-50 disabled:cursor-not-allowed'
                 }`}
               >
-                <Check size={18} /> Checkout
+                <Check size={18} /> Place Order
               </button>
             </div>
           </div>
@@ -356,6 +392,7 @@ export default function OrderSide({
           onAfterComplete={async () => {
             setShowCheckout(false);
             await focusNextActive(); // reload + focus next
+            try { await onRefreshTables(); } catch {}
           }}
           onLoadCities={onLoadCities}
           onLoadBlocks={onLoadBlocks}
@@ -477,10 +514,32 @@ function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo[]; the
   const textMuted = theme === 'dark' ? 'text-slate-300' : 'text-gray-600';
   const inputBg = theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-white border-gray-300';
 
+    const isPromoActive = (p: Promo) => {
+    // No flag at all? Assume active.
+    if (p.active === undefined || p.active === null) return true;
+
+    if (typeof p.active === 'boolean') return p.active;
+
+    const n = Number(p.active);
+    if (!Number.isNaN(n)) {
+      return n === 1; // 1 / 0 style
+    }
+
+    const s = String(p.active).toLowerCase();
+    if (['inactive', 'disabled', 'false', 'no', '0'].includes(s)) return false;
+    return true; // anything else counts as active
+  };
+
   const isValidLocal = (c: string) => {
     const normalized = c.trim().toUpperCase();
-    return promos.some(p => (p.active === true || p.active === 1) && p.code.toUpperCase() === normalized);
+    if (!normalized) return false;
+
+    return promos.some(p =>
+      isPromoActive(p) &&
+      (p.code || '').toUpperCase() === normalized
+    );
   };
+
 
   const apply = async (c: string) => {
     const normalized = (c || code).trim().toUpperCase();
@@ -536,7 +595,7 @@ function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo[]; the
             <div>
               <div className={`text-xs font-medium ${textMuted} mb-2 mt-4`}>Available Promo Codes:</div>
               <div className="space-y-2 max-h-48 overflow-y-auto">
-                {promos.filter((p: Promo) => !!p.active).map((promo: Promo) => (
+                {promos.filter(isPromoActive).map((promo: Promo) => (
                   <button key={promo.id} onClick={() => apply(promo.code)}
                     className={`w-full p-2.5 rounded-lg border text-left transition ${
                       theme === 'dark' ? 'bg-white/5 border-white/10 hover:bg-white/10'
@@ -758,6 +817,15 @@ function CheckoutModal({
           const payUrl = pay?.url || pay?.payment_url || pay?.redirect_url;
           if (payUrl) await window.api.invoke('orders:paymentLink:set', order.id, payUrl);
         } catch {}
+      }
+
+      if (order.order_type === 3 && order.table_id) {
+        try {
+          await window.api.invoke('orders:clearTable', order.id);
+          console.log(`[CheckoutModal] Explicitly cleared table for completed order ${order.id}`);
+        } catch (e) {
+          console.warn(`[CheckoutModal] Failed to clear table for completed order ${order.id}`, e);
+        }
       }
 
       // Close modal + remove order from view (reload + focus next)
@@ -985,7 +1053,7 @@ function CheckoutModal({
             <button type="submit"
               className={`flex-1 px-4 py-2.5 rounded-lg font-medium ${theme === 'dark' ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
                                                                                          : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white'}`}>
-              Complete Order
+              Place Order
             </button>
           </div>
         </form>

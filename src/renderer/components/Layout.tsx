@@ -1,6 +1,14 @@
 import { Outlet, useLocation, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../src/store';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  GitBranch,
+  Timer,
+  AlertTriangle,
+} from 'lucide-react';
 
 type SyncStatus = {
   mode: 'live' | 'offline';
@@ -12,6 +20,15 @@ type SyncStatus = {
   device_id: string | null;
   branch_name: string;
   branch_id: number;
+};
+
+// 👇 flexible user type (covers is_admin, role, type)
+type PosUser = {
+  id: string | number;
+  name?: string;
+  role?: string;
+  type?: string;
+  is_admin?: boolean | number;
 };
 
 export function Layout() {
@@ -43,6 +60,31 @@ export function Layout() {
     document.documentElement.classList.toggle('dark', next === 'dark');
     await window.api.invoke('store:set', 'ui.theme', next);
   };
+
+  /* ---------------- Auth: who am I? (for RBAC) ---------------- */
+  const [user, setUser] = useState<PosUser | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await window.api.invoke('auth:whoami');
+        setUser(u || null);
+      } catch {
+        // In dev or unpaired state, treat as null → default admin
+        setUser(null);
+      }
+    })();
+  }, []);
+
+  const isAdmin = useMemo(() => {
+    if (!user) return true; // default to admin if unknown (safe for dev)
+    if (user.is_admin === true || user.is_admin === 1) return true;
+
+    const role = String(user.role ?? user.type ?? '').toLowerCase();
+    if (role === 'admin' || role === 'manager' || role === 'owner') return true;
+
+    return false;
+  }, [user]);
 
   /* ---------------- Sync status + controls ---------------- */
   const [sync, setSync] = useState<SyncStatus | null>(null);
@@ -149,68 +191,176 @@ export function Layout() {
           </div>
         </div>
 
-        {/* Sync mini-panel (only visible expanded) */}
+        {/* Sync summary card */}
         {!collapsed && (
-          <div className="mx-1 mb-2 p-2 rounded-lg border bg-background/40">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">{statusPill}</div>
-              <div className="flex items-center gap-1">
+          <section
+            className="mx-1 mb-2 rounded-xl border bg-card/80 px-2 py-1.5 text-[11px] shadow-sm"
+            title={sync?.base_url || ''}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                {statusPill}
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                    <span className="font-semibold text-foreground">POS</span>
+                    <span>sync</span>
+                    <span className="text-xs">•</span>
+                    <span>{sync?.mode === 'live' ? 'Live' : 'Offline'}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+                    <span className="inline-flex items-center gap-1 max-w-[110px]">
+                      <GitBranch size={11} />
+                      <span className="truncate">
+                        {sync?.branch_name || 'No branch'}
+                      </span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 max-w-[90px]">
+                      <Timer size={11} />
+                      <span className="truncate">{lastSyncText}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex shrink-0 flex-col gap-1">
                 <button
                   onClick={toggleMode}
-                  className="px-2 py-1 rounded-md text-[11px] border bg-white/5 hover:bg-white/10"
-                  title="Toggle live/offline"
+                  className={[
+                    'inline-flex h-7 w-7 items-center justify-center rounded-md border text-[10px]',
+                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    sync?.mode === 'live'
+                      ? 'bg-emerald-600 text-emerald-50 border-emerald-700 hover:bg-emerald-500'
+                      : 'bg-muted text-foreground border-border hover:bg-muted/80',
+                  ].join(' ')}
+                  title={sync?.mode === 'live' ? 'Go offline' : 'Go live'}
                 >
-                  {sync?.mode === 'live' ? 'Go Offline' : 'Go Live'}
+                  {sync?.mode === 'live' ? <Cloud size={13} /> : <CloudOff size={13} />}
                 </button>
+
                 <button
                   onClick={runSync}
                   disabled={sync?.mode !== 'live' || syncing}
-                  className="px-2 py-1 rounded-md text-[11px] border bg-primary/20 text-primary-foreground/90 disabled:opacity-50"
-                  title="Run sync now"
+                  className={[
+                    'inline-flex h-7 w-7 items-center justify-center rounded-md border text-[10px]',
+                    'bg-foreground text-background border-border hover:bg-foreground/90',
+                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    'disabled:cursor-not-allowed disabled:opacity-60',
+                  ].join(' ')}
+                  title="Sync now"
                 >
-                  {syncing ? 'Syncing…' : 'Sync now'}
+                  <RefreshCw
+                    size={13}
+                    className={syncing ? 'animate-spin' : ''}
+                  />
                 </button>
               </div>
             </div>
 
-            <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-              <div><span className="opacity-70">Branch:</span> <span className="text-foreground">{sync?.branch_name || '-'}</span></div>
-              <div><span className="opacity-70">Last:</span> <span className="text-foreground">{lastSyncText}</span></div>
-              <div className="col-span-2 truncate">
-                <span className="opacity-70">Server:</span>{' '}
-                <span className="text-foreground">{sync?.base_url || '—'}</span>
-              </div>
-              {!sync?.paired && (
-                <div className="col-span-2">
-                  <button
-                    onClick={() => navigate('/settings')}
-                    className="mt-1 w-full px-2 py-1 rounded-md border bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
-                  >
-                    Pair device in Settings
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+            {!sync?.paired && (
+              <button
+                onClick={() => navigate('/settings')}
+                className="mt-1.5 flex h-6 w-full items-center justify-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 text-[10px] font-medium text-amber-900 hover:bg-amber-500/20 dark:text-amber-200"
+              >
+                <AlertTriangle size={11} />
+                <span className="truncate">Device not paired – open Settings</span>
+              </button>
+            )}
+          </section>
         )}
 
-        {/* Nav */}
+        {/* Nav (RBAC) */}
         <nav className="mt-4 space-y-1 flex-grow overflow-y-auto nice-scroll min-h-0">
+          {/* Orders section – visible to everyone */}
           <SectionLabel hidden={collapsed}>Orders</SectionLabel>
-          <NavLink to="/" text="Order Process" icon="🧾" collapsed={collapsed} active={location.pathname === '/'} />
-          <NavLink to="/orders" text="Recent Orders" icon="📜" collapsed={collapsed} active={location.pathname === '/orders'} />
-          <NavLink to="/reports/closing" text="Closing Report" icon="📜"  collapsed={collapsed} active={location.pathname === '/reports/closing'} />
-          <SectionLabel hidden={collapsed}>Catalog</SectionLabel>
-          <NavLink to="/categories" text="Categories" icon="🗂️" collapsed={collapsed} active={location.pathname === '/categories'} />
-          <NavLink to="/items" text="Items" icon="📦" collapsed={collapsed} active={location.pathname === '/items'} />
-          <NavLink to="/addons" text="Addons" icon="➕" collapsed={collapsed} active={location.pathname === '/addons'} />
-          <NavLink to="/promos" text="Promocodes" icon="🏷️" collapsed={collapsed} active={location.pathname === '/promos'} />
+          <NavLink
+            to="/"
+            text="Order Process"
+            icon="🧾"
+            collapsed={collapsed}
+            active={location.pathname === '/'}
+          />
+          <NavLink
+            to="/orders"
+            text="Recent Orders"
+            icon="📜"
+            collapsed={collapsed}
+            active={location.pathname === '/orders'}
+          />
+          {/* Closing Report → admin only */}
+          {isAdmin && (
+            <NavLink
+              to="/reports/closing"
+              text="Closing Report"
+              icon="📜"
+              collapsed={collapsed}
+              active={location.pathname === '/reports/closing'}
+            />
+          )}
 
-          <SectionLabel hidden={collapsed}>System</SectionLabel>
-          <NavLink to="/payment-methods" text="Payment Methods" icon="💳" collapsed={collapsed} active={location.pathname === '/payment-methods'} />
-          <NavLink to="/locations" text="Locations" icon="📍" collapsed={collapsed} active={location.pathname === '/locations'} />
-          <NavLink to="/tables" text="Tables" icon="🪑" collapsed={collapsed} active={location.pathname === '/tables'} />
-          <NavLink to="/settings" text="Settings" icon="⚙️" collapsed={collapsed} active={location.pathname === '/settings'} />
+          {/* Catalog + System → admin only */}
+          {isAdmin && (
+            <>
+              <SectionLabel hidden={collapsed}>Catalog</SectionLabel>
+              <NavLink
+                to="/categories"
+                text="Categories"
+                icon="🗂️"
+                collapsed={collapsed}
+                active={location.pathname === '/categories'}
+              />
+              <NavLink
+                to="/items"
+                text="Items"
+                icon="📦"
+                collapsed={collapsed}
+                active={location.pathname === '/items'}
+              />
+              <NavLink
+                to="/addons"
+                text="Addons"
+                icon="➕"
+                collapsed={collapsed}
+                active={location.pathname === '/addons'}
+              />
+              <NavLink
+                to="/promos"
+                text="Promocodes"
+                icon="🏷️"
+                collapsed={collapsed}
+                active={location.pathname === '/promos'}
+              />
+
+              <SectionLabel hidden={collapsed}>System</SectionLabel>
+              <NavLink
+                to="/payment-methods"
+                text="Payment Methods"
+                icon="💳"
+                collapsed={collapsed}
+                active={location.pathname === '/payment-methods'}
+              />
+              <NavLink
+                to="/locations"
+                text="Locations"
+                icon="📍"
+                collapsed={collapsed}
+                active={location.pathname === '/locations'}
+              />
+              <NavLink
+                to="/tables"
+                text="Tables"
+                icon="🪑"
+                collapsed={collapsed}
+                active={location.pathname === '/tables'}
+              />
+              <NavLink
+                to="/settings"
+                text="Settings"
+                icon="⚙️"
+                collapsed={collapsed}
+                active={location.pathname === '/settings'}
+              />
+            </>
+          )}
         </nav>
 
         <div className="mt-auto pt-2">
@@ -283,3 +433,10 @@ const IconSun = ({ className }: { className?: string }) => (
     <path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />
   </svg>
 );
+
+// Optional TS typing for window.api (if you don't already have it elsewhere)
+declare global {
+  interface Window {
+    api: { invoke: (channel: string, ...args: any[]) => Promise<any> };
+  }
+}

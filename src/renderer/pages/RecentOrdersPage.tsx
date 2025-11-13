@@ -8,6 +8,7 @@ import {
   ColumnDef,
   SortingState,
 } from '@tanstack/react-table';
+import { Printer } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -90,6 +91,11 @@ export default function TodayOrdersReport() {
     'h-10 px-3 rounded-lg border border-white/10 text-sm hover:bg-white/10 transition ' +
     'disabled:opacity-50 disabled:cursor-not-allowed';
 
+  // small button style for row actions
+  const rowBtnCls =
+    'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-white/15 ' +
+    'text-xs hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed';
+
   const refresh = async () => {
     setLoading(true);
     try {
@@ -122,6 +128,19 @@ export default function TodayOrdersReport() {
       return hay.includes(qq);
     });
   }, [rows, q, type]);
+
+  const handlePrint = async (orderId?: string) => {
+    try {
+      if (!orderId) {
+        alert('Cannot print: order ID is missing.');
+        return;
+      }
+      await window.api.invoke('orders:print', orderId);
+    } catch (e) {
+      console.error('orders:print failed', e);
+      alert('Failed to print this order.');
+    }
+  };
 
   const columns = useMemo<ColumnDef<Order>[]>(() => [
     {
@@ -202,7 +221,23 @@ export default function TodayOrdersReport() {
       sortingFn: 'basic',
       size: 200,
     },
-  ], []);
+    {
+      id: 'actions',
+      header: 'Actions',
+      enableSorting: false,
+      size: 120,
+      cell: ({ row }) => (
+        <button
+          className={rowBtnCls}
+          onClick={() => handlePrint(row.original.id)}
+          title="Print receipt"
+        >
+          <Printer size={14} />
+          <span>Print</span>
+        </button>
+      ),
+    },
+  ], []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const table = useReactTable({
     data: filtered,

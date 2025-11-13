@@ -7,8 +7,7 @@ import bwipjs from 'bwip-js';
 
 // ⬇️ Replace these with your real DB accessors
 // If you already have repositories, import them instead.
-import Database from 'better-sqlite3';
-const db = new Database(path.join(app.getPath('userData'), 'pos.db')); // adjust
+import db from './db';
 
 type OrderType = 1 | 2 | 3;
 type OrderRow = {
@@ -47,40 +46,51 @@ type LineRow = {
 
 function sleep(ms: number) { return new Promise(res => setTimeout(res, ms)); }
 
+// REPLACE this function
 function getOrder(orderId: string): OrderRow | undefined {
   // ⚠️ Adjust table/column names to your schema
   const row = db.prepare(`
     SELECT
       o.id, o.number, o.order_type, o.payment_method_slug,
-      o.delivery_fee, o.discount_amount, o.grand_total, o.subtotal,
+      o.delivery_fee, o.discount_total AS discount_amount, o.grand_total, o.subtotal,
       o.delivery_date, o.created_at,
       o.full_name, o.mobile, o.address, o.landmark,
-      o.table_name, o.branch_name, o.branch_phone,
-      o.order_number
+      t.label AS table_name, -- FIX: Get label from tables table
+      NULL AS branch_name,  -- NOTE: branch_name is not in your orders schema
+      NULL AS branch_phone, -- NOTE: branch_phone is not in your orders schema
+      o.number AS order_number -- Use 'number' for QR
     FROM orders o
+    LEFT JOIN tables t ON o.table_id = t.id -- FIX: JOIN tables to get the name
     WHERE o.id = ?
   `).get(orderId) as OrderRow | undefined;
   return row;
 }
 
+// REPLACE this function
 function getLines(orderId: string): LineRow[] {
   // ⚠️ Adjust to your schema (order_details)
   const rows = db.prepare(`
     SELECT
-      od.id,
-      COALESCE(od.item_name, i.name_en)      AS item_name,
-      COALESCE(od.item_name_ar, i.name_ar)   AS item_name_ar,
-      od.variation, od.size, od.item_notes,
-      od.qty, od.unit_price AS price,
-      od.addons_json
-    FROM order_details od
-    LEFT JOIN items i ON i.id = od.item_id
-    WHERE od.order_id = ?
-    ORDER BY od.id ASC
+      ol.id,
+      ol.name AS item_name,     -- FIX: Use 'name' from order_lines
+      ol.name_ar AS item_name_ar, -- FIX: Use 'name_ar' from order_lines
+      ol.variation,             -- FIX: Use 'variation'
+      i.size,                   -- FIX: Get 'size' from joined items table
+      ol.notes AS item_notes,   -- FIX: Use 'notes' from order_lines
+      ol.qty,
+      ol.unit_price AS price,
+      -- NOTE: Your schema stores addons in separate columns, not JSON.
+      -- This will pass NULL, so addons won't print, but it avoids a crash.
+      -- To fix, you would need to build a JSON string here,
+      -- or change the render function.
+      NULL AS addons_json
+    FROM order_lines ol         -- FIX: Table is 'order_lines', not 'order_details'
+    LEFT JOIN items i ON i.id = ol.item_id
+    WHERE ol.order_id = ?
+    ORDER BY ol.id ASC
   `).all(orderId) as LineRow[];
   return rows;
 }
-
 async function toDataUrl(filePath: string | null | undefined): Promise<string | null> {
   try {
     if (!filePath) return null;

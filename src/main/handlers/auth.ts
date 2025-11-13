@@ -20,6 +20,12 @@ function normalizeLaravelHash(h?: string | null) {
   return (h || '').replace(/^\$2y\$/, '$2b$')
 }
 
+// helper to decide "admin" style roles
+function isAdminRole(role: string | null | undefined): boolean {
+  const r = String(role || '').toLowerCase()
+  return ['admin', 'owner', 'manager', 'super_admin', 'superadmin'].includes(r)
+}
+
 export function registerAuthHandlers(
   ipcMain: IpcMain,
   db: BetterSqliteDB,
@@ -55,8 +61,13 @@ export function registerAuthHandlers(
     );
   `)
 
-  const qActiveSession = db.prepare(`SELECT * FROM auth_sessions WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1`)
-  // 🔥 removed qUserByPin
+  const qActiveSession = db.prepare(`
+    SELECT * FROM auth_sessions
+    WHERE ended_at IS NULL
+    ORDER BY id DESC
+    LIMIT 1
+  `)
+
   const qUserByLogin = db.prepare(`
     SELECT id, name, email, username, role, password_hash, is_active, branch_id
     FROM pos_users
@@ -64,16 +75,28 @@ export function registerAuthHandlers(
       AND (lower(email) = lower(?) OR lower(username) = lower(?))
     LIMIT 1
   `)
-  const qCreateSession = db.prepare(`INSERT INTO auth_sessions (user_id, started_at) VALUES (?, ?)`)
-  const qEndSession = db.prepare(`UPDATE auth_sessions SET ended_at=? WHERE id=?`)
+
+  const qCreateSession = db.prepare(`
+    INSERT INTO auth_sessions (user_id, started_at)
+    VALUES (?, ?)
+  `)
+
+  const qEndSession = db.prepare(`
+    UPDATE auth_sessions
+    SET ended_at = ?
+    WHERE id = ?
+  `)
+
   const qListUsers = db.prepare(`
     SELECT id, name, email, username, role, is_active, branch_id
-    FROM pos_users WHERE is_active=1
+    FROM pos_users
+    WHERE is_active = 1
     ORDER BY name COLLATE NOCASE
   `)
 
-  const getBaseUrl   = () => services.store.get('server.base_url') ?? null
-  const getDeviceId  = () => services.store.get('device_id') ?? services.store.get('server.device_id') ?? null
+  const getBaseUrl = () => services.store.get('server.base_url') ?? null
+  const getDeviceId = () =>
+    services.store.get('device_id') ?? services.store.get('server.device_id') ?? null
   const getBranchMeta = () => ({
     branch_id: services.store.get('branch_id') ?? services.store.get('branch.id') ?? null,
     branch_name: services.store.get('branch.name') ?? '',
@@ -82,13 +105,17 @@ export function registerAuthHandlers(
   function getCurrentUser() {
     const sess = qActiveSession.get() as any
     if (!sess) return null
-    const u = db.prepare(`SELECT id, name, role FROM pos_users WHERE id=?`).get(sess.user_id) as any
+    const u = db
+      .prepare(`SELECT id, name, email, role, is_active, branch_id FROM pos_users WHERE id = ?`)
+      .get(sess.user_id) as any
     return u || null
   }
 
-  function canUseBranch(u: { role?: string; branch_id?: number | null }, deviceBranchId: number) {
-    const role = String(u.role || '').toLowerCase()
-    if (role === 'admin') return true
+  function canUseBranch(
+    u: { role?: string | null; branch_id?: number | null },
+    deviceBranchId: number
+  ) {
+    if (isAdminRole(u.role)) return true
     const ub = Number(u.branch_id || 0)
     return ub !== 0 && deviceBranchId > 0 && ub === deviceBranchId
   }
@@ -109,7 +136,14 @@ export function registerAuthHandlers(
       token_present,
       branch_id,
       branch_name,
-      current_user: user,
+      current_user: user
+        ? {
+            id: user.id,
+            name: user.name,
+            role: user.role,
+            is_admin: isAdminRole(user.role),
+          }
+        : null,
       session_open: !!session,
     }
   })
@@ -117,31 +151,45 @@ export function registerAuthHandlers(
   ipcMain.handle('auth:listUsers', () => qListUsers.all())
 
   /* ---------- Login with Email/Username + Password (no PIN) ---------- */
-  ipcMain.handle('auth:loginWithPassword', async (_e, login: string, password: string) => {
-    const ident = String(login || '').trim().toLowerCase()
-    if (!ident || !password) throw new Error('Invalid credentials')
+  ipcMain.handle(
+    'auth:loginWithPassword',
+    async (_e, login: string, password: string) => {
+      const ident = String(login || '').trim().toLowerCase()
+      if (!ident || !password) throw new Error('Invalid credentials')
 
-    const row = qUserByLogin.get(ident, ident) as DBUser | undefined
-    if (!row || !row.password_hash) throw new Error('Invalid credentials')
+      const row = qUserByLogin.get(ident, ident) as DBUser | undefined
+      if (!row || !row.password_hash) throw new Error('Invalid credentials')
 
-    const { branch_id: devBranch } = getBranchMeta()
-    const deviceBranchId = Number(devBranch || 0)
-    if (!canUseBranch(row, deviceBranchId)) throw new Error('Invalid credentials')
+      const { branch_id: devBranch } = getBranchMeta()
+      const deviceBranchId = Number(devBranch || 0)
+      if (!canUseBranch(row, deviceBranchId)) throw new Error('Invalid credentials')
 
-    const ok = await bcrypt.compare(password, normalizeLaravelHash(row.password_hash))
-    if (!ok) throw new Error('Invalid credentials')
+      const ok = await bcrypt.compare(
+        password,
+        normalizeLaravelHash(row.password_hash)
+      )
+      if (!ok) throw new Error('Invalid credentials')
 
-    const now = Date.now()
-    const info = qCreateSession.run(row.id, now)
-    services.store.set('auth.user_id', row.id)
-    services.store.set('auth.session_id', info.lastInsertRowid)
+      const now = Date.now()
+      const info = qCreateSession.run(row.id, now)
+      services.store.set('auth.user_id', row.id)
+      services.store.set('auth.session_id', info.lastInsertRowid)
 
-    // Stamp current operator meta
-    setMeta('pos.current_user_id', String(row.id))
-    setMeta('pos.current_user_json', JSON.stringify({ id: row.id, name: row.name, role: row.role }))
+      // Stamp current operator meta
+      setMeta('pos.current_user_id', String(row.id))
+      setMeta(
+        'pos.current_user_json',
+        JSON.stringify({ id: row.id, name: row.name, role: row.role })
+      )
 
-    return { id: row.id, name: row.name, role: row.role }
-  })
+      return {
+        id: row.id,
+        name: row.name,
+        role: row.role,
+        is_admin: isAdminRole(row.role),
+      }
+    }
+  )
 
   /* ---------- Logout ---------- */
   ipcMain.handle('auth:logout', () => {
@@ -177,11 +225,59 @@ export function registerAuthHandlers(
       services.store.set('server.device_id', device_id)
     }
 
-    try { await services.sync.run() } catch (e: any) {
-      console.warn('[PAIR] optional sync.run failed (ok to ignore on first boot):', e?.message)
+    try {
+      await services.sync.run()
+    } catch (e: any) {
+      console.warn(
+        '[PAIR] optional sync.run failed (ok to ignore on first boot):',
+        e?.message
+      )
     }
 
     return { device_id: device_id ?? (services.store.get('device_id') ?? null) }
+  })
+
+  /* ---------- Who am I (used by layout for RBAC) ---------- */
+  ipcMain.handle('auth:whoami', async () => {
+    try {
+      const user = getCurrentUser()
+
+      // No session → treat as "Admin" for first-boot/dev
+      if (!user) {
+        return {
+          id: null,
+          name: 'Admin',
+          role: 'admin',
+          email: null,
+          is_admin: true,
+          branch_id: services.store.get('branch_id') ?? null,
+          is_active: 1,
+        }
+      }
+
+      const is_admin = isAdminRole(user.role)
+
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        is_admin,
+        branch_id: user.branch_id,
+        is_active: user.is_active,
+      }
+    } catch (e) {
+      console.error('auth:whoami failed:', e)
+      return {
+        id: null,
+        name: 'Admin',
+        role: 'admin',
+        email: null,
+        is_admin: true,
+        branch_id: services.store.get('branch_id') ?? null,
+        is_active: 1,
+      }
+    }
   })
 
   /* ---------- Unpair ---------- */
@@ -189,7 +285,9 @@ export function registerAuthHandlers(
     const sess = qActiveSession.get() as any
     if (sess) qEndSession.run(Date.now(), sess.id)
 
-    try { await saveSecret('device_token', '') } catch {}
+    try {
+      await saveSecret('device_token', '')
+    } catch {}
 
     services.store.delete('server.base_url')
     services.store.delete('server.device_id')

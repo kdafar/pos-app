@@ -15,6 +15,7 @@ type TableRow = {
   capacity: number;
   status: 'available' | 'occupied' | 'reserved';
   branch_id: number;
+  current_order_id?: string | number | null; // ⬅️ needed for clearTable
 };
 
 const columnHelper = createColumnHelper<TableRow>();
@@ -49,10 +50,17 @@ const normalize = (t: any): TableRow => ({
   capacity: toInt(t.capacity ?? t.seats ?? t.covers ?? 0),
   status: deriveStatus(t),
   branch_id: toInt(t.branch_id ?? t.location_id ?? 0),
+  // ⬇️ try our best to capture any order id the API might send
+  current_order_id:
+    t.current_order_id ??
+    t.order_id ??
+    t.orderId ??
+    t.currentOrderId ??
+    null,
 });
 
-/* ---------- columns (read-only) ---------- */
-const columns = [
+/* ---------- base columns (read-only) ---------- */
+const baseColumns = [
   columnHelper.accessor('number', { header: 'Number' }),
   columnHelper.accessor('label', { header: 'Label' }),
   columnHelper.accessor('capacity', { header: 'Capacity' }),
@@ -73,12 +81,12 @@ const columns = [
   columnHelper.accessor('branch_id', { header: 'Branch ID' }),
 ];
 
-/* ---------- page ---------- */
 function TablesPage() {
   const [rows, setRows] = useState<TableRow[]>([]);
   const [filterQ, setFilterQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | TableRow['status']>('all');
   const [loading, setLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -97,6 +105,27 @@ function TablesPage() {
     load();
   }, []);
 
+  // Detect admin (only admins see "Clear table" buttons)
+  useEffect(() => {
+    (async () => {
+      try {
+        const status = await window.api.invoke('auth:status'); // adjust channel if needed
+        const role =
+          status?.current_user?.role ??
+          status?.user?.role ??
+          status?.role ??
+          status?.current_user?.user_type;
+
+        const slug = String(role || '').toLowerCase();
+        if (['admin', 'owner', 'super_admin', 'superadmin', 's'].includes(slug)) {
+          setIsAdmin(true);
+        }
+      } catch (e) {
+        console.warn('auth:status failed, tables stay read-only for this user', e);
+      }
+    })();
+  }, []);
+
   const filtered = useMemo(() => {
     const q = filterQ.trim().toLowerCase();
     return rows.filter(r => {
@@ -111,6 +140,62 @@ function TablesPage() {
     });
   }, [rows, filterQ, statusFilter]);
 
+  // Admin-only clear action
+const handleClearTable = async (row: TableRow) => {
+  if (!isAdmin) return;
+
+  const ok = window.confirm(
+    `Clear table "${row.label}"?\n\nThis will detach any current order from this table.`
+  );
+  if (!ok) return;
+
+  try {
+    await window.api.invoke('orders:clearTable', {
+      table_id: row.id,
+      order_id: row.current_order_id ?? null, // may be null
+    });
+  } catch (e) {
+    console.error('orders:clearTable failed', e);
+    alert('Could not clear table. Check logs for details.');
+    return;
+  }
+
+  await load();
+};
+
+  // Build columns, with Actions only for admins
+const columns = useMemo(
+  () =>
+    isAdmin
+      ? [
+          ...baseColumns,
+          columnHelper.display({
+            id: 'actions',
+            header: 'Actions',
+            cell: info => {
+              const row = info.row.original;
+
+              // ⬅️ was requiring current_order_id; now only check status
+              const canClear = row.status !== 'available';
+
+              if (!canClear) return null;
+
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleClearTable(row)}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                  Clear table
+                </button>
+              );
+            },
+          }),
+        ]
+      : baseColumns,
+  [isAdmin]
+);
+
   const table = useReactTable({
     data: filtered,
     columns,
@@ -122,12 +207,12 @@ function TablesPage() {
 
   return (
     <div className="p-4">
-      {/* Toolbar (read-only) */}
+      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <h1 className="text-2xl font-bold mr-auto">Tables</h1>
 
         <span className="px-2 py-1 text-xs rounded-md border bg-white/60 backdrop-blur dark:bg-white/5 dark:border-white/10 text-slate-600 dark:text-slate-300">
-          Read-only • synced from server
+          {isAdmin ? 'Admin: you can clear occupied tables' : 'Read-only • synced from server'}
         </span>
 
         <div className="inline-flex rounded-lg border bg-white/70 backdrop-blur dark:bg-white/5 dark:border-white/10">
@@ -175,10 +260,10 @@ function TablesPage() {
                     className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
-                    {{
+                    {({
                       asc: ' 🔼',
                       desc: ' 🔽',
-                    }[h.column.getIsSorted() as string] ?? null}
+                    } as any)[h.column.getIsSorted() as string] ?? null}
                   </th>
                 ))}
               </tr>
@@ -196,7 +281,10 @@ function TablesPage() {
             ))}
             {table.getRowModel().rows.length === 0 && (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-10 text-center text-slate-500 dark:text-slate-400">
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-10 text-center text-slate-500 dark:text-slate-400"
+                >
                   No tables found
                 </td>
               </tr>

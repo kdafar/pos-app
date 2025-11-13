@@ -5,6 +5,7 @@ import { readOrCreateMachineId } from './machineId';
 
 import { registerAppImgProtocol } from './protocols';
 import type { Database as BetterSqliteDB } from 'better-sqlite3'
+import { registerLocalPrintHandlers } from './print';
 
 // DB + meta
 import db, { getMeta, migrate, setMeta } from './db';
@@ -34,6 +35,14 @@ app.whenReady().then(boot);
 // This resolves the "registerSchemesAsSecure should be run before app:ready" error.
 registerAppImgProtocol();
 registerOperationalReportHandlers();
+registerLocalPrintHandlers((key: string) => {
+  // you can reuse your existing meta/settings
+  try {
+    return getMeta(key);
+  } catch {
+    return null;
+  }
+});
 async function createWindow() {
   migrate();
 
@@ -461,6 +470,139 @@ function recalcOrderTotals(orderId: string) {
   return { subtotal, tax_total, discount_total, delivery_fee, grand_total };
 }
 
+/** POS user context & permissions */
+type PosUserContext = { id: string | null; isAdmin: boolean };
+
+function getCurrentPosUser(): PosUserContext {
+  // Try both keys for backward compatibility
+  const rawId = getMeta('pos.current_user_id') ?? getMeta('auth.user_id');
+  const id = rawId != null && rawId !== '' ? String(rawId) : null;
+
+  // If nobody is set, treat as admin (owner debugging / old DBs)
+  if (!id) return { id: null, isAdmin: true };
+
+  try {
+    const u = db
+      .prepare(`SELECT id, role FROM pos_users WHERE id = ? LIMIT 1`)
+      .get(id) as any;
+
+    const role = (u?.role || '').toString().toLowerCase();
+    const isAdmin = ['admin', 'owner', 'manager', 'super_admin', 'superadmin'].includes(role);
+
+    return { id, isAdmin };
+  } catch {
+    // If pos_users table missing, don't block the app
+    return { id, isAdmin: true };
+  }
+}
+
+/** Restrict queries to current user's orders (non-admin only). */
+function buildUserFilter(alias: string) {
+  const { id, isAdmin } = getCurrentPosUser();
+  const hasCreated = hasColumn('orders', 'created_by_user_id');
+  const hasCompleted = hasColumn('orders', 'completed_by_user_id');
+
+  if (!id || isAdmin || (!hasCreated && !hasCompleted)) {
+    return { sql: '', params: {} as Record<string, any> };
+  }
+
+  let expr: string;
+  if (hasCreated && hasCompleted) {
+    expr = `COALESCE(${alias}.created_by_user_id, ${alias}.completed_by_user_id)`;
+  } else if (hasCreated) {
+    expr = `${alias}.created_by_user_id`;
+  } else {
+    expr = `${alias}.completed_by_user_id`;
+  }
+
+  return {
+    sql: ` AND ${expr} = @user_id `,
+    params: { user_id: id },
+  };
+}
+
+/** Kill-switch: if pos.locked = 1/true, block mutations */
+function isPosLocked(): boolean {
+  const v = getMeta('pos.locked');
+  if (v == null) return false;
+  const s = String(v).toLowerCase();
+  return s === '1' || s === 'true';
+}
+
+/** Throw if order is not editable for the current user */
+function assertOrderEditable(orderId: string) {
+  const order = getOrderRow(orderId);
+  if (!order) throw new Error('Order not found');
+
+  const { isAdmin } = getCurrentPosUser();
+
+  const locked =
+    hasColumn('orders', 'is_locked') && Number(order.is_locked ?? 0) === 1;
+  const status = (order.status || '').toString().toLowerCase();
+
+  if (!isAdmin) {
+    if (locked) throw new Error('Order is locked');
+    if (['completed', 'cancelled', 'canceled'].includes(status)) {
+      throw new Error('Completed/cancelled orders cannot be edited');
+    }
+  }
+
+  return order;
+}
+
+/** Logging helper (handles old/new pos_action_log schemas safely) */
+let posLogMode: 'unknown' | 'new' | 'old' | 'none' = 'unknown';
+
+function detectPosLogSchema() {
+  if (posLogMode !== 'unknown') return posLogMode;
+  try {
+    const cols = db
+      .prepare(`PRAGMA table_info(pos_action_log)`)
+      .all() as Array<{ name: string }>;
+    if (!cols || cols.length === 0) {
+      posLogMode = 'none';
+    } else {
+      const names = cols.map((c) => c.name);
+      if (names.includes('meta_json')) posLogMode = 'new';
+      else if (names.includes('payload')) posLogMode = 'old';
+      else posLogMode = 'none';
+    }
+  } catch {
+    posLogMode = 'none';
+  }
+  return posLogMode;
+}
+
+function getCurrentUserIdForLog(): string | null {
+  return getCurrentPosUser().id;
+}
+
+function logAction(orderId: string | null, action: string, payload: any) {
+  try {
+    const mode = detectPosLogSchema();
+    if (mode === 'none') return;
+
+    const userId = getCurrentUserIdForLog();
+    const ts = nowMs();
+    const meta = payload ? JSON.stringify(payload) : null;
+
+    if (mode === 'new') {
+      const id = crypto.randomUUID();
+      db.prepare(
+        `INSERT INTO pos_action_log (id, order_id, user_id, action, meta_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(id, orderId ?? null, userId ?? null, action, meta, ts);
+    } else {
+      db.prepare(
+        `INSERT INTO pos_action_log (order_id, action, payload, performed_by_user_id, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(orderId ?? null, action, meta, userId ?? null, ts);
+    }
+  } catch {
+    // never crash POS if logging fails
+  }
+}
+
 
 /* ======================================================================
     IPC: KV + Settings
@@ -507,22 +649,19 @@ type ListByDateArgs = { start_ms: number; end_ms: number; branch_id?: string | n
 ipcMain.handle('orders:listByDate', (_evt, args: ListByDateArgs) => {
   const { start_ms, end_ms, branch_id } = args || {};
 
-  // Only reference columns that exist to avoid "no such column" errors
   const hasUpd = hasColumn('orders', 'updated_at');
   const hasOpen = hasColumn('orders', 'opened_at');
 
-  // COALESCE order for sorting/filtering by “most relevant timestamp”
-  // 1) updated_at (if present, ms)
-  // 2) opened_at  (if present, ms)
-  // 3) created_at (TEXT -> ms)
   const sortExpr = [
     hasUpd ? 'o.updated_at' : 'NULL',
     hasOpen ? 'o.opened_at' : 'NULL',
     "CAST(STRFTIME('%s', o.created_at) AS INTEGER) * 1000",
   ].join(', ');
 
-  // Optional branch filter if you store branch_id
-  const andBranch = typeof branch_id !== 'undefined' ? ' AND o.branch_id = @branch_id ' : '';
+  const andBranch =
+    typeof branch_id !== 'undefined' ? ' AND o.branch_id = @branch_id ' : '';
+
+  const { sql: andUser, params: userParams } = buildUserFilter('o');
 
   const sql = `
     SELECT * FROM (
@@ -539,13 +678,17 @@ ipcMain.handle('orders:listByDate', (_evt, args: ListByDateArgs) => {
         ${hasOpen ? 'o.opened_at' : 'NULL'} AS opened_at,
         o.created_at
       FROM orders o
-      WHERE 1=1 ${andBranch}
+      WHERE 1=1
+        ${andBranch}
+        ${andUser}
     ) t
     WHERE t.sort_ms BETWEEN @start_ms AND @end_ms
     ORDER BY t.sort_ms DESC
   `;
 
-  return db.prepare(sql).all({ start_ms, end_ms, branch_id });
+  return db
+    .prepare(sql)
+    .all({ start_ms, end_ms, branch_id, ...userParams });
 });
 
 // ---- LIST ALL (fallback used by renderer if listByDate fails) ----
@@ -557,6 +700,8 @@ ipcMain.handle('orders:listAll', () => {
     hasOpen ? 'o.opened_at' : 'NULL',
     "CAST(STRFTIME('%s', o.created_at) AS INTEGER) * 1000",
   ].join(', ');
+
+  const { sql: andUser, params } = buildUserFilter('o');
 
   const sql = `
     SELECT
@@ -572,12 +717,14 @@ ipcMain.handle('orders:listAll', () => {
       ${hasOpen ? 'o.opened_at' : 'NULL'} AS opened_at,
       o.created_at
     FROM orders o
+    WHERE 1=1
+      ${andUser}
     ORDER BY sort_ms DESC
     LIMIT 500
   `;
-  return db.prepare(sql).all();
-});
 
+  return db.prepare(sql).all(params);
+});
 
 // ---
 // --- FIX: This was the source of the crash.
@@ -612,27 +759,38 @@ type Services = {
 
 function now() { return Date.now() }
 
-function logAction(db: BetterSqliteDB, orderId: string, action: string, payload: any, userId: number | null) {
-  db.prepare(
-    `INSERT INTO pos_action_log (order_id, action, payload, performed_by_user_id, created_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(orderId, action, JSON.stringify(payload ?? null), userId, now())
-}
+ ipcMain.handle('orders:markPrinted', (_e, orderId: string) => {
+  // keep using your existing helper
+  const userId = getCurrentUserId(services);
 
-  ipcMain.handle('orders:markPrinted', (_e, orderId: string) => {
-    const userId = getCurrentUserId(services)
-    const order = qGetOrder.get(orderId) as any
-    if (!order) throw new Error('Order not found')
+  // 🔧 replace qGetOrder with a direct DB query
+  const order = db
+    .prepare(`SELECT id FROM orders WHERE id = ?`)
+    .get(orderId) as any;
 
-    const tx = db.transaction(() => {
-      db.prepare(`UPDATE orders SET printed_at=?, printed_by_user_id=?, is_locked=1, updated_at=? WHERE id=?`)
-        .run(now(), userId, now(), orderId)
-      logAction(db, orderId, 'orders:markPrinted', {}, userId)
-    })
-    tx()
+  if (!order) {
+    throw new Error('Order not found');
+  }
 
-    return { ok: true }
-  })
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE orders
+         SET printed_at = ?,
+             printed_by_user_id = ?,
+             is_locked = 1,
+             updated_at = ?
+       WHERE id = ?`
+    ).run(now(), userId, now(), orderId);
+
+    // keep your existing audit log style
+    logAction(db, orderId, 'orders:markPrinted', {}, userId);
+  });
+
+  tx();
+
+  return { ok: true };
+});
+
 
   ipcMain.handle('orders:paymentLink:set', (_e, orderId: string, url: string) => {
     const userId = getCurrentUserId(services)
@@ -1051,36 +1209,48 @@ ipcMain.handle('tables:list', async () => {
     ====================================================================== */
 
 ipcMain.handle('orders:listOpen', async () => {
-  return db.prepare(`
-    SELECT id, number, status, order_type, subtotal, grand_total, opened_at
-    FROM orders
-    WHERE status IS NULL OR status = 'open'
-    ORDER BY opened_at DESC
+  const { sql: andUser, params } = buildUserFilter('o');
+  const sql = `
+    SELECT o.id, o.number, o.status, o.order_type, o.subtotal, o.grand_total, o.opened_at
+    FROM orders o
+    WHERE (o.status IS NULL OR o.status = 'open')
+      ${andUser}
+    ORDER BY o.opened_at DESC
     LIMIT 50
-  `).all();
+  `;
+  return db.prepare(sql).all(params);
 });
 
 ipcMain.handle('orders:listActive', async () => {
-  return db.prepare(`
-    SELECT id, number, status, order_type, subtotal, grand_total, opened_at
-    FROM orders
-    WHERE status IS NULL OR status = 'open'
-    ORDER BY opened_at DESC
+  const { sql: andUser, params } = buildUserFilter('o');
+  const sql = `
+    SELECT o.id, o.number, o.status, o.order_type, o.subtotal, o.grand_total, o.opened_at
+    FROM orders o
+    WHERE (o.status IS NULL OR o.status = 'open')
+      ${andUser}
+    ORDER BY o.opened_at DESC
     LIMIT 50
-  `).all();
+  `;
+  return db.prepare(sql).all(params);
 });
 
 ipcMain.handle('orders:listPrepared', async () => {
-  return db.prepare(`
-    SELECT id, number, status, subtotal, grand_total, opened_at
-    FROM orders
-    WHERE status = 'prepared'
-    ORDER BY opened_at DESC
+  const { sql: andUser, params } = buildUserFilter('o');
+  const sql = `
+    SELECT o.id, o.number, o.status, o.subtotal, o.grand_total, o.opened_at
+    FROM orders o
+    WHERE o.status = 'prepared'
+      ${andUser}
+    ORDER BY o.opened_at DESC
     LIMIT 50
-  `).all();
+  `;
+  return db.prepare(sql).all(params);
 });
 
+
 ipcMain.handle('orders:start', async () => {
+  if (isPosLocked()) throw new Error('POS is locked');
+
   const deviceId = getMeta('device_id');
   const branchId = Number(getMeta('branch_id') ?? 0);
   if (!deviceId) throw new Error('Device not paired');
@@ -1088,17 +1258,75 @@ ipcMain.handle('orders:start', async () => {
   const id = crypto.randomUUID();
   const number = allocUniqueOrderNumber();
   const now = Date.now();
+  const { id: userId } = getCurrentPosUser();
 
-  db.prepare(`
-    INSERT INTO orders (id, number, device_id, branch_id, status, subtotal, tax_total, discount_total, grand_total, opened_at)
-    VALUES (?, ?, ?, ?, 'open', 0, 0, 0, 0, ?)
-  `).run(id, number, deviceId, branchId, now);
+  const hasCreatedBy = hasColumn('orders', 'created_by_user_id');
+  const hasCreatedAt = hasColumn('orders', 'created_at');
+
+  if (hasCreatedAt || hasCreatedBy) {
+    const cols = [
+      'id',
+      'number',
+      'device_id',
+      'branch_id',
+      'status',
+      'subtotal',
+      'tax_total',
+      'discount_total',
+      'grand_total',
+      'opened_at',
+    ];
+    const vals: any[] = [
+      id,
+      number,
+      deviceId,
+      branchId,
+      'open',
+      0,
+      0,
+      0,
+      0,
+      now,
+    ];
+    let valuesSql = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+
+    if (hasCreatedAt) {
+      cols.push('created_at');
+      valuesSql += ', CURRENT_TIMESTAMP';
+    }
+
+    if (hasCreatedBy) {
+      cols.push('created_by_user_id');
+      valuesSql += ', ?';
+      vals.push(userId ?? null);
+    }
+
+    const sql = `INSERT INTO orders (${cols.join(', ')}) VALUES (${valuesSql})`;
+    db.prepare(sql).run(...vals);
+  } else {
+    db.prepare(
+      `
+      INSERT INTO orders (id, number, device_id, branch_id, status, subtotal, tax_total, discount_total, grand_total, opened_at)
+      VALUES (?, ?, ?, ?, 'open', 0, 0, 0, 0, ?)
+    `
+    ).run(id, number, deviceId, branchId, now);
+  }
 
   safeAddToActiveOrders(id);
-  return { id, number, device_id: deviceId, branch_id: branchId, opened_at: now, status: 'open' };
+  return {
+    id,
+    number,
+    device_id: deviceId,
+    branch_id: branchId,
+    opened_at: now,
+    status: 'open',
+  };
 });
 
+
 ipcMain.handle('orders:setType', async (_e, orderId: string, type: 1 | 2 | 3) => {
+  if (isPosLocked()) throw new Error('POS is locked');
+assertOrderEditable(orderId);
   db.prepare(`UPDATE orders SET order_type = ? WHERE id = ?`).run(type, orderId);
   const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
   return { ok: true, order };
@@ -1120,69 +1348,139 @@ ipcMain.handle('orders:get', async (_e, orderId: string) => {
   return { order, lines };
 });
 
-ipcMain.handle('orders:addLine', async (_e, orderId: string, itemId: string, qty = 1) => {
-  const item = db.prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`).get(itemId) as any;
-  if (!item) throw new Error('Item not found');
+ipcMain.handle(
+  'orders:addLine',
+  async (_e, orderId: string, itemId: string, qty = 1) => {
+    if (isPosLocked()) throw new Error('POS is locked');
+    assertOrderEditable(orderId);
 
-  const row = db.prepare(`
-    SELECT id, qty, unit_price FROM order_lines
-    WHERE order_id = ? AND item_id = ? AND variation_id IS NULL AND addons_id IS NULL
-  `).get(orderId, itemId) as any;
+    const item = db
+      .prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`)
+      .get(itemId) as any;
+    if (!item) throw new Error('Item not found');
 
-  if (row) {
-    const newQty = Number(row.qty || 0) + Number(qty || 0);
-    if (newQty <= 0) {
-      db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(row.id);
-    } else {
-      const newTotal = +(newQty * Number(row.unit_price || 0)).toFixed(3);
-      db.prepare(`UPDATE order_lines SET qty = ?, line_total = ? WHERE id = ?`).run(newQty, newTotal, row.id);
+    const row = db
+      .prepare(
+        `
+        SELECT id, qty, unit_price FROM order_lines
+        WHERE order_id = ? AND item_id = ? AND variation_id IS NULL AND addons_id IS NULL
+      `
+      )
+      .get(orderId, itemId) as any;
+
+    if (row) {
+      const newQty = Number(row.qty || 0) + Number(qty || 0);
+      if (newQty <= 0) {
+        db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(row.id);
+      } else {
+        const newTotal = +(newQty * Number(row.unit_price || 0)).toFixed(3);
+        db.prepare(
+          `UPDATE order_lines SET qty = ?, line_total = ? WHERE id = ?`
+        ).run(newQty, newTotal, row.id);
+      }
+    } else if (qty > 0) {
+      const id = crypto.randomUUID();
+      const unit = Number(item.price || 0);
+      db.prepare(
+        `
+        INSERT INTO order_lines (
+          id, order_id, item_id, name, qty,
+          unit_price, tax_amount, line_total,
+          temp_line_id, name_ar
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?)
+      `
+      ).run(
+        id,
+        orderId,
+        item.id,
+        item.name,
+        qty,
+        unit,
+        +(qty * unit).toFixed(3),
+        item.name_ar ?? null
+      );
     }
-  } else if (qty > 0) {
-    const id = crypto.randomUUID();
-    const unit = Number(item.price || 0);
-    db.prepare(`
-      INSERT INTO order_lines (id, order_id, item_id, name, qty, unit_price, tax_amount, line_total, temp_line_id, name_ar)
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?)
-    `).run(id, orderId, item.id, item.name, qty, unit, +(qty * unit).toFixed(3), item.name_ar ?? null);
+
+    const totals = recalcOrderTotals(orderId);
+    const refreshed = db
+      .prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`)
+      .all(orderId);
+
+    return { totals, lines: refreshed };
   }
-  const totals = recalcOrderTotals(orderId);
-  const refreshed = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
-  return { totals, lines: refreshed };
-});
+);
+
 
 ipcMain.handle('orders:setLineQty', async (_e, lineId: string, qty: number) => {
-  const row = db.prepare(`SELECT order_id, unit_price FROM order_lines WHERE id = ?`).get(lineId) as any;
+  const row = db
+    .prepare(`SELECT order_id, unit_price FROM order_lines WHERE id = ?`)
+    .get(lineId) as any;
   if (!row) throw new Error('Line not found');
+
+  if (isPosLocked()) throw new Error('POS is locked');
+  assertOrderEditable(row.order_id);
+
   const q = Math.max(0, Number(qty || 0));
   if (q === 0) {
     db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
   } else {
     const total = +(q * Number(row.unit_price || 0)).toFixed(3);
-    db.prepare(`UPDATE order_lines SET qty = ?, line_total = ? WHERE id = ?`).run(q, total, lineId);
+    db.prepare(
+      `UPDATE order_lines SET qty = ?, line_total = ? WHERE id = ?`
+    ).run(q, total, lineId);
   }
+
   const totals = recalcOrderTotals(row.order_id);
-  const refreshed = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(row.order_id);
+  const refreshed = db
+    .prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`)
+    .all(row.order_id);
+
   return { ok: true, totals, lines: refreshed };
 });
 
+
 // Accept either (orderId, lineId) OR (lineId)
-ipcMain.handle('orders:removeLine', async (_e, a: string, b?: string) => {
-  let orderId: string | null = null;
-  let lineId: string;
+ipcMain.handle(
+  'orders:removeLine',
+  async (_e, a: string, b?: string) => {
+    let orderId: string | null = null;
+    let lineId: string;
 
-  if (b) { orderId = a; lineId = b; }
-  else { lineId = a; const r = db.prepare(`SELECT order_id FROM order_lines WHERE id = ?`).get(lineId) as any; orderId = r?.order_id ?? null; }
+    if (b) {
+      orderId = a;
+      lineId = b;
+    } else {
+      lineId = a;
+      const r = db
+        .prepare(`SELECT order_id FROM order_lines WHERE id = ?`)
+        .get(lineId) as any;
+      orderId = r?.order_id ?? null;
+    }
 
-  const info = db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
-  let totals = null, lines = null;
-  if (orderId) {
-    totals = recalcOrderTotals(orderId);
-    lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
+    if (orderId) {
+      if (isPosLocked()) throw new Error('POS is locked');
+      assertOrderEditable(orderId);
+    }
+
+    const info = db.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
+    let totals = null,
+      lines = null;
+    if (orderId) {
+      totals = recalcOrderTotals(orderId);
+      lines = db
+        .prepare(
+          `SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`
+        )
+        .all(orderId);
+    }
+    return { ok: info.changes > 0, totals, lines };
   }
-  return { ok: info.changes > 0, totals, lines };
-});
+);
 
 ipcMain.handle('orders:removeLineByItem', async (_e, orderId: string, itemId: string) => {
+  if (isPosLocked()) throw new Error('POS is locked');
+assertOrderEditable(orderId);
   db.prepare(`DELETE FROM order_lines WHERE order_id = ? AND item_id = ?`).run(orderId, itemId);
   const totals = recalcOrderTotals(orderId);
   const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
@@ -1191,6 +1489,8 @@ ipcMain.handle('orders:removeLineByItem', async (_e, orderId: string, itemId: st
 
 
 ipcMain.handle('orders:removePromo', async (_e, orderId: string) => {
+  if (isPosLocked()) throw new Error('POS is locked');
+assertOrderEditable(orderId);
   db.prepare(`UPDATE orders SET promocode = NULL WHERE id = ?`).run(orderId);
   const totals = recalcOrderTotals(orderId);
   const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
@@ -1200,6 +1500,8 @@ ipcMain.handle('orders:removePromo', async (_e, orderId: string) => {
 
 // --- ADDED: Handler for 'orders:applyPromo' ---
 ipcMain.handle('orders:applyPromo', async (_e, orderId: string, promoCode: string | null) => {
+  if (isPosLocked()) throw new Error('POS is locked');
+assertOrderEditable(orderId);
   const code = promoCode ? promoCode.trim().toUpperCase() : null;
   db.prepare(`UPDATE orders SET promocode = ? WHERE id = ?`).run(code, orderId);
 
@@ -1366,78 +1668,161 @@ ipcMain.handle('cart:setContext', async (_e, ctx: { order_type?: number; city_id
 });
 
 /** Create completed order from cart and leave it for outbox push */
-ipcMain.handle('orders:createFromCart', async (_e, customerData: {
-  full_name: string;
-  mobile: string;
-  address: string | null;
-  note: string | null;
-  payment_method_id: string;
-  payment_method_slug: string;
-}) => {
-  const rows = db.prepare(`SELECT * FROM cart ORDER BY created_at ASC, rowid ASC`).all();
-  const totals = cartTotals();
-  if (!rows || rows.length === 0) throw new Error('Cannot create order from an empty cart.');
-
-  const deviceId = getMeta('device_id');
-  const branchId = Number(getMeta('branch_id') ?? 0);
-  const orderType = Number(getMeta('cart.order_type') || 2);
-  const cartCityId = getMeta('cart.city_id'); // --- FIX: Get city_id from meta
-  const voidFee = getMeta('cart.void_delivery_fee') === '1' ? 1 : 0; // --- ADDED: Get void_fee status
-
-  const orderId = crypto.randomUUID();
-  const orderNumber = allocUniqueOrderNumber(); 
-  const now = Date.now();
-
-  db.transaction(() => {
-    db.prepare(`
-      INSERT INTO orders (id, number, device_id, branch_id, order_type, status, full_name, mobile, address, note,
-                          payment_method_id, payment_method_slug, subtotal, discount_total, delivery_fee, grand_total,
-                          opened_at, created_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, NULL)
-    `).run(
-      orderId, orderNumber, deviceId, branchId, orderType,
-      customerData.full_name, customerData.mobile, customerData.address, customerData.note,
-      customerData.payment_method_id, customerData.payment_method_slug,
-      totals.subtotal, totals.discount_total, totals.delivery_fee, totals.grand_total,
-      now
-    );
-
-    // --- MODIFIED: Persist context fields if columns exist ---
-    if (hasColumn('orders', 'city_id') && cartCityId) {
-      db.prepare(`UPDATE orders SET city_id = ? WHERE id = ?`).run(cartCityId, orderId);
+ipcMain.handle(
+  'orders:createFromCart',
+  async (
+    _e,
+    customerData: {
+      full_name: string;
+      mobile: string;
+      address: string | null;
+      note: string | null;
+      payment_method_id: string;
+      payment_method_slug: string;
     }
-    if (hasColumn('orders', 'void_delivery_fee')) {
-      db.prepare(`UPDATE orders SET void_delivery_fee = ? WHERE id = ?`).run(voidFee, orderId);
+  ) => {
+    if (isPosLocked()) throw new Error('POS is locked');
+
+    const rows = db.prepare(`SELECT * FROM cart ORDER BY created_at ASC, rowid ASC`).all();
+    const totals = cartTotals();
+    if (!rows || rows.length === 0) {
+      throw new Error('Cannot create order from an empty cart.');
     }
-    // --- End modification ---
 
-    const lineInsert = db.prepare(`
-      INSERT INTO order_lines (id, order_id, item_id, name, name_ar, qty, unit_price, line_total, notes,
-                               variation_id, variation, variation_price, addons_id, addons_name, addons_price, addons_qty)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    const deviceId = getMeta('device_id');
+    const branchId = Number(getMeta('branch_id') ?? 0);
+    const orderType = Number(getMeta('cart.order_type') || 2);
+    const cartCityId = getMeta('cart.city_id');
+    const voidFee = getMeta('cart.void_delivery_fee') === '1' ? 1 : 0;
+    const { id: userId } = getCurrentPosUser();
 
-    for (const item of rows) {
-      const unitPrice = baseUnitPrice(item);
-      const lineTotal = calcLineTotal(item);
-      lineInsert.run(
-        crypto.randomUUID(), orderId, item.item_id, item.item_name, item.item_name_ar, item.qty,
-        unitPrice, lineTotal, item.item_notes ?? null,
-        item.variation_id ?? null, item.variation ?? null, item.variation_price ?? null,
-        item.addons_id ?? null, item.addons_name ?? null, item.addons_price ?? null, item.addons_qty ?? null
+    const orderId = crypto.randomUUID();
+    const orderNumber = allocUniqueOrderNumber();
+    const now = Date.now();
+
+    db.transaction(() => {
+      db.prepare(
+        `
+        INSERT INTO orders (
+          id, number, device_id, branch_id,
+          order_type, status,
+          full_name, mobile, address, note,
+          payment_method_id, payment_method_slug,
+          subtotal, discount_total, delivery_fee, grand_total,
+          opened_at, created_at, synced_at
+        )
+        VALUES (
+          ?, ?, ?, ?,
+          ?, 'completed',
+          ?, ?, ?, ?,
+          ?, ?,
+          ?, ?, ?, ?,
+          ?, CURRENT_TIMESTAMP, NULL
+        )
+      `
+      ).run(
+        orderId,
+        orderNumber,
+        deviceId,
+        branchId,
+        orderType,
+        customerData.full_name,
+        customerData.mobile,
+        customerData.address,
+        customerData.note,
+        customerData.payment_method_id,
+        customerData.payment_method_slug,
+        totals.subtotal,
+        totals.discount_total,
+        totals.delivery_fee,
+        totals.grand_total,
+        now
       );
-    }
 
-    db.prepare('DELETE FROM cart').run();
-  })();
-  
-  // Recalc totals *after* transaction to ensure all fields (like city_id) are set
-  const _re = recalcOrderTotals(orderId);
+      // Persist context fields if columns exist
+      if (hasColumn('orders', 'city_id') && cartCityId) {
+        db.prepare(`UPDATE orders SET city_id = ? WHERE id = ?`).run(cartCityId, orderId);
+      }
+      if (hasColumn('orders', 'void_delivery_fee')) {
+        db.prepare(`UPDATE orders SET void_delivery_fee = ? WHERE id = ?`).run(voidFee, orderId);
+      }
 
-  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
-  const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
-  return { order, lines, queued_for_push: true };
-});
+      // Stamp who created & completed, and lock order
+      const hasCreatedBy = hasColumn('orders', 'created_by_user_id');
+      const hasCompletedBy = hasColumn('orders', 'completed_by_user_id');
+      const hasLockedCol = hasColumn('orders', 'is_locked');
+
+      const parts: string[] = [];
+      const params: any[] = [];
+
+      if (hasCreatedBy) {
+        parts.push('created_by_user_id = ?');
+        params.push(userId ?? null);
+      }
+      if (hasCompletedBy) {
+        parts.push('completed_by_user_id = ?');
+        params.push(userId ?? null);
+      }
+      if (hasLockedCol) {
+        parts.push('is_locked = 1');
+      }
+
+      if (parts.length) {
+        db.prepare(`UPDATE orders SET ${parts.join(', ')} WHERE id = ?`).run(...params, orderId);
+      }
+
+      const lineInsert = db.prepare(
+        `
+        INSERT INTO order_lines (
+          id, order_id, item_id, name, name_ar,
+          qty, unit_price, line_total, notes,
+          variation_id, variation, variation_price,
+          addons_id, addons_name, addons_price, addons_qty
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      );
+
+      for (const item of rows) {
+        const unitPrice = baseUnitPrice(item);
+        const lineTotal = calcLineTotal(item);
+        lineInsert.run(
+          crypto.randomUUID(),
+          orderId,
+          item.item_id,
+          item.item_name,
+          item.item_name_ar,
+          item.qty,
+          unitPrice,
+          lineTotal,
+          item.item_notes ?? null,
+          item.variation_id ?? null,
+          item.variation ?? null,
+          item.variation_price ?? null,
+          item.addons_id ?? null,
+          item.addons_name ?? null,
+          item.addons_price ?? null,
+          item.addons_qty ?? null
+        );
+      }
+
+      db.prepare('DELETE FROM cart').run();
+    })();
+
+    // Ensure totals are consistent with city/void_delivery_fee
+    recalcOrderTotals(orderId);
+
+    const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+    const lines = db
+      .prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`)
+      .all(orderId);
+
+    // Logged as a completed order
+    logAction(orderId, 'orders:createFromCart', { orderType, totals });
+
+    return { order, lines, queued_for_push: true };
+  }
+);
 
 /* ======================================================================
     IPC: Outbox (push completed orders) — Sync button uses these
@@ -1462,96 +1847,197 @@ ipcMain.handle('orders:pushOne', async (_e, orderId: string) => {
 });
 
 // replace the signature block with the extra fields
-ipcMain.handle('orders:complete', async (_e, orderId: string, customer: {
-  full_name: string;
-  mobile: string;
-  address?: string | null;
-  note?: string | null;
-  payment_method_id: string;
-  payment_method_slug: string;
-  // --- NEW optional geo fields from checkout form ---
-  state_id?: string | null;
-  city_id?: string | null;
-  block_id?: string | null;
-}) => {
-  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
-  if (!order) throw new Error('Order not found');
+ipcMain.handle(
+  'orders:complete',
+  async (
+    _e,
+    orderId: string,
+    customer: {
+      full_name: string;
+      mobile: string;
+      address?: string | null;
+      note?: string | null;
+      payment_method_id: string;
+      payment_method_slug: string;
+      state_id?: string | null;
+      city_id?: string | null;
+      block_id?: string | null;
+    }
+  ) => {
+    if (isPosLocked()) throw new Error('POS is locked');
+    assertOrderEditable(orderId);
 
-  // Persist geo IDs when columns exist (safe on older DBs)
-  if (hasColumn('orders', 'state_id')) db.prepare(`UPDATE orders SET state_id = ? WHERE id = ?`).run(customer.state_id ?? null, orderId);
-  if (hasColumn('orders', 'city_id'))  db.prepare(`UPDATE orders SET city_id  = ? WHERE id = ?`).run(customer.city_id  ?? null, orderId);
-  if (hasColumn('orders', 'block_id')) db.prepare(`UPDATE orders SET block_id = ? WHERE id = ?`).run(customer.block_id ?? null, orderId);
+    const order = db
+      .prepare(`SELECT * FROM orders WHERE id = ?`)
+      .get(orderId) as any;
+    if (!order) throw new Error('Order not found');
 
-  // --- ADDED: Persist void_delivery_fee context from 'cart' meta ---
-  // This ensures the setting is "locked in" before totals are calculated.
-  const voidFee = getMeta('cart.void_delivery_fee') === '1' ? 1 : 0;
-  if (hasColumn('orders', 'void_delivery_fee')) {
-      db.prepare(`UPDATE orders SET void_delivery_fee = ? WHERE id = ?`).run(voidFee, orderId);
-  }
-  // --- End addition ---
+    // ---------- VALIDATION BLOCK ----------
+    const errors: string[] = [];
+    const type = Number(order.order_type || 0);
 
-  // Ensure totals are up to date (after saving geo so delivery_fee can derive from city)
-  const totals = recalcOrderTotals(orderId);
-  const now = Date.now();
+    const name = (customer.full_name || '').trim();
+    const mobile = (customer.mobile || '').trim();
 
-  db.prepare(`
-    UPDATE orders
-    SET status='completed',
-        full_name=?,
-        mobile=?,
-        address=?,
-        note=?,
-        payment_method_id=?,
-        payment_method_slug=?,
-        subtotal=?,
-        discount_total=?,
-        delivery_fee=?,
-        grand_total=?,
-        closed_at=?,
-        synced_at=NULL
-    WHERE id = ?
-  `).run(
-    customer.full_name,
-    customer.mobile,
-    customer.address ?? null,
-    customer.note ?? null,
-    customer.payment_method_id,
-    customer.payment_method_slug,
-    totals.subtotal,
-    totals.discount_total,
-    totals.delivery_fee,
-    totals.grand_total,
-    now,
-    orderId
-  );
+    if (!name) errors.push('Customer name is required.');
+    if (!mobile) errors.push('Customer mobile is required.');
 
-  // (push logic stays as in your file)
-  let pushed = 0;
-  try {
-    if ((getMeta('pos.mode') || 'live') === 'live') {
-      const base = getMeta('server.base_url') || '';
-      const device_id = getMeta('device_id') || '';
-      const branch_id = Number(getMeta('branch_id') || 0);
-      const token = await loadSecret('device_token');
-      if (base && device_id && token) {
-        configureApi(base, { id: device_id, branch_id }, token);
-        const payload = buildOrderPayload(orderId);
-        if (payload) {
-          const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
-          await pushOutbox(envelope, { orders: [payload] });
-          markOrdersSynced([orderId]);
-          pushed = 1;
-        }
+    // Delivery
+    if (type === 1) {
+      if (!customer.city_id) errors.push('Delivery city is required.');
+      if (!customer.block_id) errors.push('Delivery block is required.');
+      if (!customer.address || !customer.address.trim()) {
+        errors.push('Delivery address is required.');
       }
     }
-  } catch (e) {
-    console.warn('[orders:complete] push failed, will retry via autosync:', (e as any)?.message);
-  }
 
-  const refreshed = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
-  const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`).all(orderId);
-  return { ok: true, pushed, order: refreshed, lines };
-});
+    // Dine-in
+    if (type === 3) {
+      if (!order.table_id) {
+        errors.push('Dine-in orders must have a table assigned before checkout.');
+      }
+    }
+
+    if (errors.length) {
+      // This will be caught in the renderer and shown via alert(...)
+      throw new Error(errors.join('\n'));
+    }
+    // ---------- END VALIDATION BLOCK ----------
+
+    // Persist geo IDs when columns exist
+    if (hasColumn('orders', 'state_id')) {
+      db.prepare(`UPDATE orders SET state_id = ? WHERE id = ?`).run(
+        customer.state_id ?? null,
+        orderId
+      );
+    }
+    if (hasColumn('orders', 'city_id')) {
+      db.prepare(`UPDATE orders SET city_id = ? WHERE id = ?`).run(
+        customer.city_id ?? null,
+        orderId
+      );
+    }
+    if (hasColumn('orders', 'block_id')) {
+      db.prepare(`UPDATE orders SET block_id = ? WHERE id = ?`).run(
+        customer.block_id ?? null,
+        orderId
+      );
+    }
+
+    // Lock in void_delivery_fee before totals
+    const voidFee = getMeta('cart.void_delivery_fee') === '1' ? 1 : 0;
+    if (hasColumn('orders', 'void_delivery_fee')) {
+      db.prepare(`UPDATE orders SET void_delivery_fee = ? WHERE id = ?`).run(
+        voidFee,
+        orderId
+      );
+    }
+
+    const totals = recalcOrderTotals(orderId);
+    const now = Date.now();
+    const { id: userId } = getCurrentPosUser();
+
+    db.prepare(
+      `
+      UPDATE orders
+      SET status='completed',
+          full_name=?,
+          mobile=?,
+          address=?,
+          note=?,
+          payment_method_id=?,
+          payment_method_slug=?,
+          subtotal=?,
+          discount_total=?,
+          delivery_fee=?,
+          grand_total=?,
+          closed_at=?,
+          synced_at=NULL
+      WHERE id = ?
+    `
+    ).run(
+      name,
+      mobile,
+      customer.address ?? null,
+      customer.note ?? null,
+      customer.payment_method_id,
+      customer.payment_method_slug,
+      totals.subtotal,
+      totals.discount_total,
+      totals.delivery_fee,
+      totals.grand_total,
+      now,
+      orderId
+    );
+
+    // Stamp completed_by + lock
+    const hasCompletedBy = hasColumn('orders', 'completed_by_user_id');
+    const hasLockedCol = hasColumn('orders', 'is_locked');
+
+    const parts: string[] = [];
+    const params: any[] = [];
+    if (hasCompletedBy) {
+      parts.push('completed_by_user_id = ?');
+      params.push(userId ?? null);
+    }
+    if (hasLockedCol) {
+      parts.push('is_locked = 1');
+    }
+    if (parts.length) {
+      db.prepare(`UPDATE orders SET ${parts.join(', ')} WHERE id = ?`).run(
+        ...params,
+        orderId
+      );
+    }
+
+    logAction(orderId, 'orders:complete', {
+      customer,
+      totals,
+    });
+
+    // Push logic unchanged…
+    let pushed = 0;
+    try {
+      if ((getMeta('pos.mode') || 'live') === 'live') {
+        const base = getMeta('server.base_url') || '';
+        const device_id = getMeta('device_id') || '';
+        const branch_id = Number(getMeta('branch_id') || 0);
+        const token = await loadSecret('device_token');
+        if (base && device_id && token) {
+          configureApi(base, { id: device_id, branch_id }, token);
+          const payload = buildOrderPayload(orderId);
+          if (payload) {
+            const envelope = {
+              client_msg_id: `pos-${Date.now()}-${Math.random()
+                .toString(36)
+                .slice(2)}`,
+            };
+            await pushOutbox(envelope, { orders: [payload] });
+            markOrdersSynced([orderId]);
+            pushed = 1;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(
+        '[orders:complete] push failed, will retry via autosync:',
+        (e as any)?.message
+      );
+    }
+
+    const refreshed = db
+      .prepare(`SELECT * FROM orders WHERE id = ?`)
+      .get(orderId);
+    const lines = db
+      .prepare(
+        `SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`
+      )
+      .all(orderId);
+
+    return { ok: true, pushed, order: refreshed, lines };
+  }
+);
+
 
 ipcMain.handle('dev:stats', () => {
   const q = (sql: string) => (db.prepare(sql).pluck().get() as number) || 0
@@ -1615,16 +2101,54 @@ ipcMain.handle('orders:setTable', async (_e, orderId: string, payload: { table_i
 });
 
 // Clear the table from an order
-ipcMain.handle('orders:clearTable', async (_e, orderId: string) => {
-  const o = db.prepare(`SELECT id, table_id FROM orders WHERE id = ?`).get(orderId) as any;
-  if (!o) throw new Error('Order not found');
+ipcMain.handle('orders:clearTable', async (_e, arg: any) => {
+  // Accept: '123', 123, or { order_id, table_id }
+  let orderId: string | null = null;
+  let tableId: string | null = null;
+
+  if (typeof arg === 'string' || typeof arg === 'number') {
+    orderId = String(arg);
+  } else if (arg && typeof arg === 'object') {
+    if (arg.order_id) orderId = String(arg.order_id);
+    if (arg.table_id) tableId = String(arg.table_id);
+  }
 
   db.transaction(() => {
-    if (o.table_id) db.prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`).run(o.table_id);
-    db.prepare(`UPDATE orders SET table_id = NULL, covers = NULL WHERE id = ?`).run(orderId);
+    // 1) If an orderId was provided, try to detach its table (no error if missing)
+    if (orderId) {
+      const o = db
+        .prepare(`SELECT id, table_id FROM orders WHERE id = ?`)
+        .get(orderId) as any | undefined;
+
+      if (o && o.table_id) {
+        // remember table id if caller didn't pass one
+        if (!tableId) tableId = String(o.table_id);
+
+        // detach table from this order
+        db.prepare(
+          `UPDATE orders SET table_id = NULL, covers = NULL WHERE id = ?`
+        ).run(orderId);
+      }
+      // if no order or no table_id -> silently continue
+    }
+
+    // 2) If we know a tableId (from arg or from the order), clear that table
+    if (tableId) {
+      // mark table as available
+      db.prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`).run(tableId);
+
+      // optional safety: detach any orders still pointing to this table
+      db.prepare(
+        `UPDATE orders SET table_id = NULL, covers = NULL WHERE table_id = ?`
+      ).run(tableId);
+    }
   })();
 
-  const order = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+  // Return the (possibly updated) order if we have an orderId
+  const order = orderId
+    ? db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId)
+    : null;
+
   return { ok: true, order };
 });
 
