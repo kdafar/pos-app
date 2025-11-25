@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog ,shell } from 'electron';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readOrCreateMachineId } from './machineId';
@@ -17,6 +17,10 @@ import { registerAuthHandlers } from './handlers/auth';
 
 // Optional socket server (kept from your file)
 import { createSocketServer } from './socket';
+import axios from 'axios';
+import https from 'node:https';
+import { URL } from 'node:url';
+
 
 process.env.APP_ROOT = path.join(__dirname, '../..');
 
@@ -632,15 +636,47 @@ ipcMain.handle('settings:getAll', getAllSettings);
 
 // --- ADDED: Handler for 'settings:getPosUser' ---
 ipcMain.handle('settings:getPosUser', async () => {
-    // V_TODO: Return actual user data if/when available
-    // For now, returning device/branch context
-    return {
-        name: readSettingRaw('pos.user_name') ?? 'POS User',
-        id: readSettingRaw('pos.user_id') ?? null,
-        deviceId: getMeta('device_id') ?? null,
-        branchName: getMeta('branch.name') ?? null,
-        branchId: Number(getMeta('branch_id') ?? 0),
-    };
+  // Try to get the current POS user id from meta (set on login)
+  const rawUserId = getMeta('auth.user_id');
+  const userId = rawUserId ? Number(rawUserId) : null;
+
+  let user: {
+    id: number;
+    name: string;
+    username: string | null;
+    email: string | null;
+    role: string | null;
+    branch_id: number | null;
+  } | undefined;
+
+  if (userId && !Number.isNaN(userId)) {
+    user = db
+      .prepare(`
+        SELECT id, name, username, email, role, branch_id
+        FROM pos_users
+        WHERE id = ?
+      `)
+      .get(userId) as any;
+  }
+
+  const branchId =
+    (user && user.branch_id != null ? user.branch_id : Number(getMeta('branch_id') ?? 0)) || 0;
+
+  return {
+    // keep old keys so UI doesn’t break
+    name: user?.name ?? (readSettingRaw('pos.user_name') ?? 'POS User'),
+    id: user?.id ?? (readSettingRaw('pos.user_id') ?? null),
+
+    // extra useful data
+    username: user?.username ?? null,
+    email: user?.email ?? null,
+    role: user?.role ?? null,
+    is_admin: user?.role === 'admin' ? 1 : 0,
+
+    deviceId: getMeta('device_id') ?? null,
+    branchName: getMeta('branch.name') ?? null,
+    branchId,
+  };
 });
 
 // ---- TODAY/LIST BY DATE (safe across schemas) ----
@@ -726,6 +762,69 @@ ipcMain.handle('orders:listAll', () => {
   return db.prepare(sql).all(params);
 });
 
+
+type PaymentLinkArgs = {
+  external_order_id: string;
+  order_number?: string | null;
+  amount: number;
+  currency?: string;
+  customer?: {
+    name?: string | null;
+    email?: string | null;
+    mobile?: string | null;
+  };
+};
+
+// Register the handler
+ipcMain.handle(
+  'payments:createLink',
+  async (_event, arg: PaymentLinkArgs | string, maybeAmount?: number) => {
+    const base = getMeta('server.base_url') || '';
+    const deviceId = getMeta('device_id') || '';
+    const branchId = Number(getMeta('branch_id') || 0); // not needed in payload, but good to have
+    const token = await loadSecret('device_token');
+
+    if (!base || !deviceId || !token) {
+      throw new Error('Not configured for payments (missing base URL / device / token)');
+    }
+
+    // Local axios client for /api/pos
+    const client = axios.create({
+      baseURL: base.replace(/\/+$/, '') + '/api/pos',
+      timeout: 15000,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-Pos-Device': deviceId, // posDevice middleware reads this
+      },
+    });
+
+    // Support 2 call shapes:
+    // 1) invoke('payments:createLink', { external_order_id, amount, ... })
+    // 2) invoke('payments:createLink', orderId, amount)
+    let payload: PaymentLinkArgs;
+
+    if (typeof arg === 'object' && arg !== null) {
+      payload = {
+        currency: 'KWD',
+        ...arg,
+      };
+    } else {
+      payload = {
+        external_order_id: String(arg),
+        amount: Number(maybeAmount ?? 0),
+        currency: 'KWD',
+      };
+    }
+
+    // Call your Laravel controller:
+    // POST /api/pos/payments/link
+    const { data } = await client.post('/payments/link', payload);
+
+    // data = { url, status, expires_at, provider_ref }
+    return data;
+  }
+);
+
 // ---
 // --- FIX: This was the source of the crash.
 // --- The `tables` table likely has `label` and `number` columns, not `name`.
@@ -759,11 +858,7 @@ type Services = {
 
 function now() { return Date.now() }
 
- ipcMain.handle('orders:markPrinted', (_e, orderId: string) => {
-  // keep using your existing helper
-  const userId = getCurrentUserId(services);
-
-  // 🔧 replace qGetOrder with a direct DB query
+ipcMain.handle('orders:markPrinted', (_e, orderId: string) => {
   const order = db
     .prepare(`SELECT id FROM orders WHERE id = ?`)
     .get(orderId) as any;
@@ -772,6 +867,7 @@ function now() { return Date.now() }
     throw new Error('Order not found');
   }
 
+  const ts = now();
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE orders
@@ -780,10 +876,10 @@ function now() { return Date.now() }
              is_locked = 1,
              updated_at = ?
        WHERE id = ?`
-    ).run(now(), userId, now(), orderId);
+    ).run(ts, getCurrentPosUser().id ?? null, ts, orderId);
 
-    // keep your existing audit log style
-    logAction(db, orderId, 'orders:markPrinted', {}, userId);
+    // new logAction signature
+    logAction(orderId, 'orders:markPrinted', {});
   });
 
   tx();
@@ -792,40 +888,167 @@ function now() { return Date.now() }
 });
 
 
-  ipcMain.handle('orders:paymentLink:set', (_e, orderId: string, url: string) => {
-    const userId = getCurrentUserId(services)
-    const order = qGetOrder.get(orderId) as any
-    if (!order) throw new Error('Order not found')
+ipcMain.handle('orders:paymentLink:set', (_e, orderId: string, url: string) => {
+  const order = db
+    .prepare(`SELECT id FROM orders WHERE id = ?`)
+    .get(orderId) as any;
+  if (!order) throw new Error('Order not found');
 
-    const tx = db.transaction(() => {
-      db.prepare(`
-        UPDATE orders SET payment_link_url=?, payment_link_status=?, payment_link_verified_at=NULL, updated_at=?
-        WHERE id=?
-      `).run(url, 'pending', now(), orderId)
-      logAction(db, orderId, 'orders:paymentLink:set', { url }, userId)
-    })
-    tx()
+  const ts = now();
+  const tx = db.transaction(() => {
+    db.prepare(`
+      UPDATE orders
+      SET payment_link_url = ?,
+          payment_link_status = ?,
+          payment_link_verified_at = NULL,
+          updated_at = ?
+      WHERE id = ?
+    `).run(url, 'pending', ts, orderId);
 
-    return { ok: true, url }
-  })
+    logAction(orderId, 'orders:paymentLink:set', { url });
+  });
+  tx();
 
-    ipcMain.handle('orders:paymentLink:status', (_e, orderId: string, status: string) => {
-    const userId = getCurrentUserId(services)
-    const order = qGetOrder.get(orderId) as any
-    if (!order) throw new Error('Order not found')
+  return { ok: true, url };
+});
 
-    const isPaid = ['paid', 'captured', 'success'].includes((status || '').toLowerCase())
-    const tx = db.transaction(() => {
-      db.prepare(`
-        UPDATE orders SET payment_link_status=?, payment_link_verified_at=?, updated_at=?
-        WHERE id=?
-      `).run(status, isPaid ? now() : null, now(), orderId)
-      logAction(db, orderId, 'orders:paymentLink:status', { status }, userId)
-    })
-    tx()
+ipcMain.handle('orders:paymentLink:status', (_e, orderId: string, status: string) => {
+  const order = db
+    .prepare(`SELECT id FROM orders WHERE id = ?`)
+    .get(orderId) as any;
+  if (!order) throw new Error('Order not found');
 
-    return { ok: true }
-  })
+  const isPaid = ['paid', 'captured', 'success'].includes((status || '').toLowerCase());
+  const ts = now();
+  const verifiedAt = isPaid ? ts : null;
+
+  const tx = db.transaction(() => {
+    db.prepare(`
+      UPDATE orders
+      SET payment_link_status = ?,
+          payment_link_verified_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(status, verifiedAt, ts, orderId);
+
+    logAction(orderId, 'orders:paymentLink:status', { status });
+  });
+  tx();
+
+  return { ok: true };
+});
+
+// -------------------- Sync status + connectivity helpers --------------------
+
+type SyncStatus = {
+  mode: 'live' | 'offline';     // effective mode for UI (live only if online & pos.mode === 'live')
+  last_sync_at: number;
+  base_url: string;
+  cursor: number;
+  paired: boolean;
+  token_present: boolean;
+  device_id: string | null;
+  branch_name: string;
+  branch_id: number;
+  unsynced: number;
+  online: boolean;              // true if host reachable
+};
+
+const DEFAULT_CHECK_URL = 'https://www.google.com';
+
+function checkOnlineOnce(target: string): Promise<boolean> {
+  return new Promise(resolve => {
+    try {
+      const url = new URL(target);
+      const req = https.request(
+        {
+          method: 'HEAD',
+          hostname: url.hostname,
+          path: url.pathname || '/',
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          timeout: 5000,
+        },
+        res => {
+          const ok = res.statusCode !== undefined && res.statusCode < 400;
+          resolve(ok);
+          req.destroy();
+        },
+      );
+
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
+      req.on('error', () => resolve(false));
+      req.end();
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+async function getSyncStatus(): Promise<SyncStatus> {
+  const posMode = (getMeta('pos.mode') || 'live') as 'live' | 'offline';
+  const base_url = getMeta('server.base_url') || '';
+  const deviceId = getMeta('device_id') || null;
+  const branch_name = getMeta('branch.name') || '';
+  const branch_id = Number(getMeta('branch_id') || 0);
+  const last_sync_at = Number(getMeta('sync.last_at') || 0);
+
+  let token: string | null = null;
+  if (deviceId) {
+    token = (await loadSecret('device_token')) || null;
+    // small retry in case secure store was just written
+    if (!token) {
+      await new Promise(r => setTimeout(r, 100));
+      token = (await loadSecret('device_token')) || null;
+    }
+  }
+
+  const token_present = !!token;
+  const paired = !!(deviceId && token_present);
+
+  let cursor = 0;
+  try {
+    cursor = Number(
+      db.prepare(`SELECT value FROM sync_state WHERE key = ?`).pluck().get('cursor') || 0,
+    );
+  } catch {
+    cursor = 0;
+  }
+
+  const unsynced =
+    (db
+      .prepare(
+        `SELECT COUNT(*) FROM orders WHERE status = 'completed' AND (synced_at IS NULL OR synced_at = 0)`,
+      )
+      .pluck()
+      .get() as number) || 0;
+
+  // Connectivity: prefer your server, fall back to Google
+  const target = base_url || DEFAULT_CHECK_URL;
+  const online = await checkOnlineOnce(target);
+
+  // Effective mode for UI: live only if online AND not manually set to offline
+  const mode: 'live' | 'offline' =
+    online && posMode === 'live' ? 'live' : ('offline' as const);
+
+  return {
+    mode,
+    last_sync_at,
+    base_url,
+    cursor,
+    paired,
+    token_present,
+    device_id: deviceId,
+    branch_name,
+    branch_id,
+    unsynced,
+    online,
+  };
+}
+
+
 /* ======================================================================
     IPC: Sync configure / pair / status / run / pull / push
     ====================================================================== */
@@ -892,37 +1115,41 @@ ipcMain.handle('sync:run', async () => {
   const device_id = getMeta('device_id') || '';
   const branch_id = Number(getMeta('branch_id') || 0);
   const token = await loadSecret('device_token');
+
   if (!base || !device_id || !token) {
     throw new Error('Not configured for sync (missing URL, device ID, or token)');
   }
 
-  ensureOrderNumberDedupeTriggers(); 
-  normalizeDuplicateOrderNumbers(); 
-  // Make sure axios is configured
+  ensureOrderNumberDedupeTriggers();
+  normalizeDuplicateOrderNumbers();
+
+  // Configure axios
   configureApi(base, { id: device_id, branch_id }, token);
 
-  // ← NEW: run bootstrap once if not done (or cursor is 0)
-  const cursorRow = db.prepare('SELECT value FROM sync_state WHERE key=?')
-                      .pluck().get('cursor') as string | undefined;
-  const cursor = Number(cursorRow ?? 0);
-  const bootDone = getMeta('bootstrap.done') === '1';
+  // 🔥 ALWAYS do a fresh bootstrap for manual sync
+  console.log('[Sync] Manual sync: running FULL bootstrap…');
+  await bootstrap(base);                // seeds items/categories/users/geo/etc.
+  setMeta('bootstrap.done', '1');       // keep flag if you use it elsewhere
 
-  if (!bootDone || cursor === 0) {
-    console.log('[Sync] First-time bootstrap…');
-    await bootstrap(base);                      // seeds items/categories/users/etc.
-    setMeta('bootstrap.done', '1');
-  }
-
-  // Then incremental
+  // Then incremental changes from cursor
+  console.log('[Sync] Manual sync: running incremental pull…');
   await pullChanges();
 
   // Optional: push completed orders
   let pushedCount = 0;
-  const pending = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
+  const pending = (db.prepare(`
+      SELECT COUNT(*)
+      FROM orders
+      WHERE status = 'completed'
+        AND (synced_at IS NULL OR synced_at = 0)
+    `).pluck().get() as number) || 0;
+
   if (pending > 0) {
     const batch = collectUnsyncedOrders(25);
     if (batch.length) {
-      const envelope = { client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+      const envelope = {
+        client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      };
       await pushOutbox(envelope, { orders: batch });
       markOrdersSynced(batch.map(o => o.id));
       pushedCount = batch.length;
@@ -931,8 +1158,10 @@ ipcMain.handle('sync:run', async () => {
 
   setMeta('sync.last_at', String(Date.now()));
   console.log(`[Sync] Manual sync:run complete. Pushed: ${pushedCount}`);
+
   return { ok: true, pulled: true, pushed: pushedCount };
 });
+
 
 ipcMain.handle('sync:pull', async () => {
   if ((getMeta('pos.mode') || 'live') !== 'live') throw new Error('Offline mode');
@@ -958,26 +1187,14 @@ ipcMain.handle('app:ensureBootstrap', async () => {
 
 /** Online/offline mode & status (for your topbar switch + sync btn) */
 ipcMain.handle('sync:setMode', async (_e, mode: 'live' | 'offline') => {
+  // keep using pos.mode as your manual kill switch for network / autosync
   setMeta('pos.mode', mode);
-  return { ok: true, mode };
+  // but always return the full computed status (includes connectivity)
+  return await getSyncStatus();
 });
 
 ipcMain.handle('sync:status', async () => {
-  const mode = getMeta('pos.mode') || 'live';
-  const last_sync_at = Number(getMeta('sync.last_at') || 0);
-  const base_url = getMeta('server.base_url') || '';
-  const deviceId = getMeta('device_id');
-  let token = deviceId ? await loadSecret('device_token') : null;
-  if (deviceId && !token) {
-    await new Promise(r => setTimeout(r, 100));
-    token = await loadSecret('device_token');
-  }
-  const paired = !!(deviceId && token);
-  const cursor = paired ? (Number(db.prepare('SELECT value FROM sync_state WHERE key = ?').pluck().get('cursor') || 0)) : 0;
-  const branch_name = getMeta('branch.name') || '';
-  const branch_id = Number(getMeta('branch_id') || 0);
-  const unsynced = (db.prepare(`SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`).pluck().get() as number) || 0;
-  return { mode, last_sync_at, base_url, cursor, paired, token_present: !!token, device_id: deviceId || null, branch_name, branch_id, unsynced };
+  return await getSyncStatus();
 });
 
 ipcMain.handle('dev:dumpPosUsers', () => {
@@ -1136,10 +1353,10 @@ ipcMain.handle('catalog:listAddons', async (_e, filter: { groupId?: string } | n
 
 ipcMain.handle('payments:listMethods', async () => {
   return db.prepare(`
-    SELECT id, slug, name_en, name_ar, legacy_code
+    SELECT id, slug, name_en, name_ar, legacy_code,is_active
     FROM payment_methods
     WHERE is_active = 1
-    ORDER BY sort_order ASC, name_en COLLATE NOCASE ASC
+    ORDER BY legacy_code ASC
   `).all();
 });
 
@@ -1162,21 +1379,32 @@ ipcMain.handle('geo:listCities', async (_e, stateId?: string | null) => {
     `).all(stateId);
   }
   return db.prepare(`
-    SELECT id, name, name_ar, min_order, delivery_fee
+    SELECT id, name, state_id, name_ar, min_order, delivery_fee
     FROM cities
     WHERE is_active = 1
     ORDER BY name_ar COLLATE NOCASE ASC
   `).all();
 });
 
-ipcMain.handle('geo:listBlocks', async (_e, cityId: string) => {
+ipcMain.handle('geo:listBlocks', async (_e, cityId?: string | null) => {
+  if (cityId && cityId !== 'all') {
+    return db.prepare(`
+      SELECT id, name, name_ar, city_id, is_active
+      FROM blocks
+      WHERE city_id = ? AND is_active = 1
+      ORDER BY name_ar COLLATE NOCASE ASC
+    `).all(cityId);
+  }
+
+  // no cityId → return all active blocks
   return db.prepare(`
-    SELECT id, name, name_ar
+    SELECT id, name, name_ar, city_id, is_active
     FROM blocks
-    WHERE city_id = ? AND is_active = 1
+    WHERE is_active = 1
     ORDER BY name_ar COLLATE NOCASE ASC
-  `).all(cityId);
+  `).all();
 });
+
 
 ipcMain.handle('geo:getCity', async (_e, cityId: string) => {
   return db.prepare(`
@@ -1188,7 +1416,14 @@ ipcMain.handle('geo:getCity', async (_e, cityId: string) => {
 ipcMain.handle('tables:list', async () => {
   const branchId = Number(getMeta('branch_id') || 0);
   const rows = db.prepare(`
-    SELECT id, COALESCE(label, 'Table '||number) AS name, capacity, is_available
+    SELECT
+      id,
+      number,
+      label,
+      COALESCE(label, 'Table ' || number) AS name,
+      capacity,
+      is_available,
+      branch_id
     FROM tables
     WHERE (branch_id = ? OR ? = 0)
     ORDER BY number ASC, name COLLATE NOCASE ASC
@@ -1196,11 +1431,19 @@ ipcMain.handle('tables:list', async () => {
 
   return rows.map(r => ({
     id: r.id,
+    // keep both so your normalizer can use them
+    number: r.number,
+    label: r.label ?? r.name,
     name: r.name,
-    seats: Number(r.capacity) || 0,
+    capacity: Number(r.capacity) || 0,
+    seats: Number(r.capacity) || 0, // if something else uses seats
+    is_available: Number(r.is_available) || 0,
+    branch_id: Number(r.branch_id) || 0,        // ✅ important
+    current_order_id: r.current_order_id ?? null, // if you ever store this
     status: Number(r.is_available) === 1 ? 'available' : 'occupied',
   }));
 });
+
 
 
 
@@ -2098,6 +2341,16 @@ ipcMain.handle('orders:setTable', async (_e, orderId: string, payload: { table_i
   order.table_name = tn?.name ?? null;
 
   return { ok: true, order };
+});
+
+ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  if (!url) {
+    throw new Error('No URL provided to shell:openExternal');
+  }
+
+  // Let Electron open default browser
+  await shell.openExternal(String(url));
+  return true;
 });
 
 // Clear the table from an order

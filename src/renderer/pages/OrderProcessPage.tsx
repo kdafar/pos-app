@@ -861,7 +861,7 @@ function CheckoutModal({ order, states, cities, blocks, theme, onClose, onComple
         setFormData(p => ({
           ...p,
           full_name: posUser.name || 'POS User',
-          mobile: posUser.mobile || '00000000',
+          mobile: posUser.mobile || '55555555',
           email: posUser.email || ''
         }));
         setUseQuickMode(true);
@@ -1456,6 +1456,34 @@ function Row({ label, value, theme }: { label: string; value: string; theme: 'li
   return (
     <div className={`flex justify-between ${textMuted}`}>
       <span>{label}</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  );
+}
+
+function labelForType(type: OrderType): string {
+  switch (type) {
+    case 1: return 'Delivery';
+    case 2: return 'Pickup';
+    case 3: return 'Dine-in';
+    default: return 'Order';
+  }
+}
+
+async function updatePaymentStatus(orderId: string, status: 'paid' | 'failed' | 'expired' | 'cancelled') {
+  try { await window.api.invoke('orders:paymentLink:status', orderId, status); } catch {}
+}
+
+/* ========== Global declarations ========== */
+declare global {
+  interface Window {
+    api: {
+      invoke: (channel: string, ...args: any[]) => Promise<any>;
+    };
+  }
+}
+
+export default OrderProcessPage;
       <span className="font-medium">{value}</span>
     </div>
   );

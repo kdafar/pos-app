@@ -61,7 +61,7 @@ export default function PaymentMethodsPage() {
   const [loading, setLoading] = useState(false);
 
   const [sorting, setSorting] = useState<SortingState>([
-    { id: 'sort_order', desc: false },
+    { id: 'legacy_code', desc: false },
   ]);
   const [pageSize, setPageSize] = useState(25);
 
@@ -94,16 +94,7 @@ export default function PaymentMethodsPage() {
   }, [data, q, activeFilter]);
 
   const columns = useMemo<ColumnDef<PaymentMethod>[]>(() => [
-    {
-      accessorKey: 'sort_order',
-      header: ({ column }) => (
-        <button className="inline-flex items-center gap-1 font-medium"
-                onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Sort <span className="opacity-60">↕</span>
-        </button>
-      ),
-      cell: (info) => String(info.getValue() ?? ''),
-    },
+
     {
       accessorKey: 'slug',
       header: ({ column }) => (

@@ -68,7 +68,7 @@ export function CheckoutModal() {
         setFormData(p => ({
           ...p,
           full_name: posUser.name || 'POS User',
-          mobile: posUser.mobile || '00000000',
+          mobile: posUser.mobile || '55555555',
           email: posUser.email || ''
         }));
         setUseQuickMode(true);

@@ -327,6 +327,7 @@ export function migrate() {
   ensureColumn('items', 'image TEXT', 'image');
   ensureColumn('items', 'has_variations INTEGER DEFAULT 0', 'has_variations');
   ensureColumn('items', 'size TEXT', 'size');
+  ensureColumn('items', 'has_addons INTEGER DEFAULT 0', 'has_addons');
 
   ensureColumn('payment_methods', 'updated_at TEXT', 'updated_at');
 
@@ -336,7 +337,7 @@ export function migrate() {
   ensureColumn('cities', 'updated_at TEXT', 'updated_at');
   ensureColumn('blocks', 'updated_at TEXT', 'updated_at');
   ensureColumn('app_settings', 'updated_at TEXT', 'updated_at');
-
+  ensureColumn('pos_users', 'mobile TEXT', 'mobile');
   ensureColumn('promos', 'max_discount REAL', 'max_discount');
 
   ensureColumn('orders', 'status_code INTEGER', 'status_code');
@@ -390,6 +391,9 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id);
     CREATE INDEX IF NOT EXISTS idx_pos_users_email ON pos_users(lower(email));
     CREATE INDEX IF NOT EXISTS idx_orders_outbox ON orders(status, synced_at, created_at);
+    CREATE INDEX IF NOT EXISTS idx_addons_group ON addons(group_id);
+    CREATE INDEX IF NOT EXISTS idx_item_addon_groups_item ON item_addon_groups(item_id);
+    CREATE INDEX IF NOT EXISTS idx_item_addon_groups_group ON item_addon_groups(group_id);
   `);
 
   // Column-dependent index on items(type) — guard it
@@ -466,6 +470,13 @@ export function withTxn<T>(fn: () => T): T {
 // Convenience fetcher
 export function getOrderById(orderId: string) {
   return db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId);
+}
+
+export function getSetting(key: string): string | null {
+  const row = db
+    .prepare('SELECT value FROM app_settings WHERE key = ?')
+    .get(key) as any;
+  return row?.value ?? null;
 }
 
 export default db;

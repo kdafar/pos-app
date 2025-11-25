@@ -111,6 +111,7 @@ function normUser(u: any) {
     name: (u.name ?? '') as string,
     username: u.username != null ? String(u.username) : null,
     email: u.email ? String(u.email).toLowerCase() : null,
+    mobile: u.mobile ?? '',
     role: mapRole(u.role ?? u.type),
     password_hash: (u.password_hash ?? u.password ?? null) as string | null, // Laravel hash ($2y$…)
     is_active: u.is_active === undefined ? 1 : (u.is_active ? 1 : 0),
@@ -565,19 +566,43 @@ export async function bootstrap(baseUrl: string) {
     for (const o of ordersSeed) upOrderSeed.run(normOrderSeed(o));
 
     const upUser = db.prepare(`
-      INSERT INTO pos_users (id, name, username, email, role, password_hash, is_active, branch_id, updated_at)
-      VALUES (@id, @name, @username, lower(@email), @role, @password_hash, @is_active, @branch_id, @updated_at)
-      ON CONFLICT(id) DO UPDATE SET
-        name=excluded.name,
-        username=excluded.username,
-        email=excluded.email,
-        role=excluded.role,
-        password_hash=excluded.password_hash,
-        is_active=excluded.is_active,
-        branch_id=excluded.branch_id,
-        updated_at=excluded.updated_at
+  INSERT INTO pos_users (
+    id,
+    name,
+    username,
+    email,
+    mobile,
+    role,
+    password_hash,
+    is_active,
+    branch_id,
+    updated_at
+  ) VALUES (
+    @id,
+    @name,
+    @username,
+    lower(@email),
+    @mobile,
+    @role,
+    @password_hash,
+    @is_active,
+    @branch_id,
+    @updated_at
+  )
+  ON CONFLICT(id) DO UPDATE SET
+    name          = excluded.name,
+    username      = excluded.username,
+    email         = excluded.email,
+    mobile        = excluded.mobile,
+    role          = excluded.role,
+    password_hash = excluded.password_hash,
+    is_active     = excluded.is_active,
+    branch_id     = excluded.branch_id,
+    updated_at    = excluded.updated_at
     `);
+
     for (const u of users) upUser.run(normUser(u));
+
 
     // cursor
     db.prepare(`

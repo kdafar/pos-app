@@ -109,16 +109,8 @@ export function Layout() {
     };
   }, []);
 
-  const toggleMode = async () => {
-    if (!sync) return;
-    const next = sync.mode === 'live' ? 'offline' : 'live';
-    try {
-      await window.api.invoke('sync:setMode', next);
-      await refreshStatus();
-    } catch (e) {
-      console.error('sync:setMode failed', e);
-    }
-  };
+  // ❌ no manual toggle anymore, mode is controlled by main process
+  // const toggleMode = async () => { ... }
 
   const runSync = async () => {
     try {
@@ -140,14 +132,24 @@ export function Layout() {
 
     const base =
       'px-2 py-1 rounded-lg text-[11px] font-medium border inline-flex items-center gap-1';
-    if (good)
-      return <span className={`${base} border-emerald-600/30 bg-emerald-500/15 text-emerald-300`}>
-        <Dot /> Live
-      </span>;
-    if (warn)
-      return <span className={`${base} border-amber-600/30 bg-amber-500/15 text-amber-300`}>
-        <Dot /> Offline
-      </span>;
+
+    if (good) {
+      return (
+        <span className={`${base} border-emerald-600/30 bg-emerald-500/15 text-emerald-300`}>
+          <Dot /> Live
+        </span>
+      );
+    }
+
+    if (warn) {
+      return (
+        <span className={`${base} border-amber-600/30 bg-amber-500/15 text-amber-300`}>
+          <Dot /> Offline
+        </span>
+      );
+    }
+
+    // "bad" (not paired / missing token / no base_url)
     return (
       <span className={`${base} border-rose-600/30 bg-rose-500/15 text-rose-300`}>
         <Dot /> Not paired
@@ -176,20 +178,59 @@ export function Layout() {
       {/* Sidebar */}
       <aside className="h-full bg-card border-r flex flex-col p-3 transition-all duration-300 min-h-0 min-w-0">
         {/* Brand + controls */}
-        <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} gap-2 px-2 h-10 mb-2`}>
-          <div className={`font-bold tracking-wide text-lg text-foreground flex items-center gap-2 overflow-hidden ${collapsed ? 'hidden' : 'flex'}`}>
+        <div
+          className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} gap-2 px-2 h-10 mb-2`}
+        >
+          <div
+            className={`font-bold tracking-wide text-lg text-foreground flex items-center gap-2 overflow-hidden ${
+              collapsed ? 'hidden' : 'flex'
+            }`}
+          >
             <span className="flex-shrink-0">🍣</span>
-            {!collapsed && <span className="transition-opacity duration-200 whitespace-nowrap">{brand}</span>}
+            {!collapsed && (
+              <span className="transition-opacity duration-200 whitespace-nowrap">{brand}</span>
+            )}
           </div>
           <div className="flex items-center gap-1">
-            <button className={`${iconButtonClass} ${collapsed ? 'hidden' : 'inline-flex'}`} title="Toggle theme" onClick={toggleTheme}>
-              {theme === 'light' ? <IconMoon className="h-5 w-5" /> : <IconSun className="h-5 w-5" />}
+            <button
+              className={`${iconButtonClass} ${collapsed ? 'hidden' : 'inline-flex'}`}
+              title="Toggle theme"
+              onClick={toggleTheme}
+            >
+              {theme === 'light' ? (
+                <IconMoon className="h-5 w-5" />
+              ) : (
+                <IconSun className="h-5 w-5" />
+              )}
             </button>
-            <button className={iconButtonClass} title="Collapse" onClick={toggleCollapsed}>
-              {collapsed ? <IconPanelRight className="h-5 w-5" /> : <IconPanelLeft className="h-5 w-5" />}
+            <button
+              className={iconButtonClass}
+              title="Collapse"
+              onClick={toggleCollapsed}
+            >
+              {collapsed ? (
+                <IconPanelRight className="h-5 w-5" />
+              ) : (
+                <IconPanelLeft className="h-5 w-5" />
+              )}
             </button>
           </div>
         </div>
+
+        {/* User Info Card */}
+        {!collapsed && user && (
+          <div className="mx-1 mb-2 px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs uppercase">
+              {(user.name || 'U').slice(0, 2)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold truncate text-foreground">{user.name}</div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground truncate">
+                {user.role || 'Staff'}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Sync summary card */}
         {!collapsed && (
@@ -222,20 +263,24 @@ export function Layout() {
                 </div>
               </div>
 
-              <div className="flex shrink-0 flex-col gap-1">
-                <button
-                  onClick={toggleMode}
+              <div className="flex shrink-0 flex-col gap-1 items-end">
+                {/* Read-only mode indicator (no onClick) */}
+                <div
                   className={[
-                    'inline-flex h-7 w-7 items-center justify-center rounded-md border text-[10px]',
-                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    'inline-flex h-7 px-2 items-center justify-center gap-1 rounded-md border text-[10px]',
                     sync?.mode === 'live'
-                      ? 'bg-emerald-600 text-emerald-50 border-emerald-700 hover:bg-emerald-500'
-                      : 'bg-muted text-foreground border-border hover:bg-muted/80',
+                      ? 'bg-emerald-600 text-emerald-50 border-emerald-700'
+                      : 'bg-muted text-foreground border-border',
                   ].join(' ')}
-                  title={sync?.mode === 'live' ? 'Go offline' : 'Go live'}
+                  title={
+                    sync?.mode === 'live'
+                      ? 'Online – controlled by connectivity'
+                      : 'Offline – controlled by connectivity'
+                  }
                 >
                   {sync?.mode === 'live' ? <Cloud size={13} /> : <CloudOff size={13} />}
-                </button>
+                  <span>{sync?.mode === 'live' ? 'Online' : 'Offline'}</span>
+                </div>
 
                 <button
                   onClick={runSync}
@@ -246,7 +291,7 @@ export function Layout() {
                     'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                     'disabled:cursor-not-allowed disabled:opacity-60',
                   ].join(' ')}
-                  title="Sync now"
+                  title={sync?.mode === 'live' ? 'Sync now' : 'Cannot sync while offline'}
                 >
                   <RefreshCw
                     size={13}
@@ -377,9 +422,20 @@ export function Layout() {
 }
 
 function NavLink({
-  to, text, icon, collapsed, active = false,
-}: { to: string; text: string; icon?: string; collapsed?: boolean; active?: boolean }) {
-  const baseClasses = 'flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-200';
+  to,
+  text,
+  icon,
+  collapsed,
+  active = false,
+}: {
+  to: string;
+  text: string;
+  icon?: string;
+  collapsed?: boolean;
+  active?: boolean;
+}) {
+  const baseClasses =
+    'flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-200';
   const activeClasses = 'bg-primary text-primary-foreground';
   const inactiveClasses = 'text-muted-foreground hover:text-foreground hover:bg-muted';
   const collapsedClasses = 'w-10 h-10 justify-center px-0';
@@ -388,49 +444,99 @@ function NavLink({
   return (
     <Link
       to={to}
-      className={`${baseClasses} ${active ? activeClasses : inactiveClasses} ${collapsed ? collapsedClasses : expandedClasses}`}
+      className={`${baseClasses} ${
+        active ? activeClasses : inactiveClasses
+      } ${collapsed ? collapsedClasses : expandedClasses}`}
     >
       <span className="text-lg flex-shrink-0">{icon || '•'}</span>
-      {!collapsed && <span className="text-sm font-medium transition-opacity duration-200 whitespace-nowrap">{text}</span>}
+      {!collapsed && (
+        <span className="text-sm font-medium transition-opacity duration-200 whitespace-nowrap">
+          {text}
+        </span>
+      )}
     </Link>
   );
 }
 
 function SectionLabel({ children, hidden }: { children: React.ReactNode; hidden?: boolean }) {
   if (hidden) return <div className="h-4" />;
-  return <div className="mt-3 mb-1 uppercase tracking-wide text-xs text-muted-foreground px-3">{children}</div>;
+  return (
+    <div className="mt-3 mb-1 uppercase tracking-wide text-xs text-muted-foreground px-3">
+      {children}
+    </div>
+  );
 }
 
 /* --- Tiny atoms --- */
-const Dot = () => <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" />;
+const Dot = () => (
+  <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" />
+);
 
 /* --- Icons --- */
 const IconPanelLeft = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-       strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M9 3v18" />
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect width="18" height="18" x="3" y="3" rx="2" />
+    <path d="M9 3v18" />
   </svg>
 );
 const IconPanelRight = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-       strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M15 3v18" />
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect width="18" height="18" x="3" y="3" rx="2" />
+    <path d="M15 3v18" />
   </svg>
 );
 const IconMoon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-       strokeLinecap="round" strokeLinejoin="round" className={className}>
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
     <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
   </svg>
 );
 const IconSun = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-       strokeLinecap="round" strokeLinejoin="round" className={className}>
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
     <circle cx="12" cy="12" r="4" />
-    <path d="M12 2v2" /><path d="M12 20v2" />
-    <path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" />
-    <path d="M2 12h2" /><path d="M20 12h2" />
-    <path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />
+    <path d="M12 2v2" />
+    <path d="M12 20v2" />
+    <path d="m4.93 4.93 1.41 1.41" />
+    <path d="m17.66 17.66 1.41 1.41" />
+    <path d="M2 12h2" />
+    <path d="M20 12h2" />
+    <path d="m6.34 17.66-1.41 1.41" />
+    <path d="m19.07 4.93-1.41 1.41" />
   </svg>
 );
 
