@@ -1,8 +1,12 @@
 // src/renderer/pages/pos/OrderSide.tsx
 import React, { useState } from 'react';
 import {
-  ShoppingCart, Check, X, Percent,
-  UtensilsCrossed, Table2,
+  ShoppingCart,
+  Check,
+  X,
+  Percent,
+  UtensilsCrossed,
+  Table2,
 } from 'lucide-react';
 
 import {
@@ -31,7 +35,9 @@ export default function OrderSide({
   currentOrder,
   orderLines,
   promos,
-  states, cities, blocks,
+  states,
+  cities,
+  blocks,
   tables,
   onRefreshTables,
   onCreateOrder,
@@ -73,7 +79,9 @@ export default function OrderSide({
     try {
       await window.api.invoke('orders:print', orderId);
     } catch {
-      try { await window.api.invoke('orders:markPrinted', orderId); } catch {}
+      try {
+        await window.api.invoke('orders:markPrinted', orderId);
+      } catch {}
     }
   };
 
@@ -82,7 +90,9 @@ export default function OrderSide({
     try {
       const next = await window.api.invoke('orders:listActive');
       if (next?.length) await onSelectOrder(next[0].id);
-    } catch { /* no-op */ }
+    } catch {
+      /* no-op */
+    }
   };
 
   const handleClose = async () => {
@@ -92,9 +102,14 @@ export default function OrderSide({
     if (currentOrder.order_type === 3 && currentOrder.table_id) {
       try {
         await window.api.invoke('orders:clearTable', currentOrder.id);
-        console.log(`[handleClose] Explicitly cleared table for order ${currentOrder.id}`);
+        console.log(
+          `[handleClose] Explicitly cleared table for order ${currentOrder.id}`
+        );
       } catch (e) {
-        console.warn(`[handleClose] Failed to clear table for order ${currentOrder.id}`, e);
+        console.warn(
+          `[handleClose] Failed to clear table for order ${currentOrder.id}`,
+          e
+        );
       }
     }
 
@@ -102,27 +117,35 @@ export default function OrderSide({
       if (orderLines.length > 0) {
         await window.api.invoke('orders:cancel', currentOrder.id);
       } else {
-        await window.api.invoke('orders:delete', currentOrder.id);
+        await window.api.invoke('orders:close', currentOrder.id);
       }
     } catch (e) {
       console.error('Failed to close/cancel/delete order:', e);
-      try { await window.api.invoke('orders:close', currentOrder.id); } catch {}
+      try {
+        await window.api.invoke('orders:close', currentOrder.id);
+      } catch {}
     }
 
     await focusNextActive();
-    try { await onRefreshTables(); } catch {}
+    try {
+      await onRefreshTables();
+    } catch {}
   };
 
   return (
-    <div className={`${bg} backdrop-blur border-l ${border} flex flex-col h-full overflow-hidden`}>
+    <div
+      className={`${bg} backdrop-blur border-l ${border} flex flex-col h-full overflow-hidden`}
+    >
       {/* Header */}
       <div className={`p-4 border-b ${border} shrink-0`}>
         {currentOrder ? (
           <div>
-            <div className="flex items-center justify-between mb-3">
+            <div className='flex items-center justify-between mb-3'>
               <div>
                 <div className={`text-xs ${textMuted}`}>Order Number</div>
-                <div className={`text-xl font-bold ${text}`}>#{currentOrder.number}</div>
+                <div className={`text-xl font-bold ${text}`}>
+                  #{currentOrder.number}
+                </div>
               </div>
               <div
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${
@@ -137,7 +160,7 @@ export default function OrderSide({
 
             {/* Table controls (dine-in) */}
             {currentOrder.order_type === 3 && (
-              <div className="flex items-center gap-2 mb-3">
+              <div className='flex items-center gap-2 mb-3'>
                 {currentOrder.table_id ? (
                   <button
                     onClick={() => setShowTablePicker(true)}
@@ -147,8 +170,9 @@ export default function OrderSide({
                         : 'bg-emerald-100 text-emerald-700 border-emerald-300'
                     }`}
                   >
-                    <Table2 size={14} className="inline mr-1" />
-                    {currentOrder.table_name || 'Table'} • {currentOrder.covers || 1}
+                    <Table2 size={14} className='inline mr-1' />
+                    {currentOrder.table_name || 'Table'} •{' '}
+                    {currentOrder.covers || 1}
                   </button>
                 ) : (
                   <button
@@ -159,17 +183,23 @@ export default function OrderSide({
                         : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
                     }`}
                   >
-                    <UtensilsCrossed size={14} className="inline mr-1" /> Assign Table
+                    <UtensilsCrossed size={14} className='inline mr-1' /> Assign
+                    Table
                   </button>
                 )}
                 {currentOrder.table_id && (
                   <button
                     onClick={async () => {
                       try {
-                        await window.api.invoke('orders:clearTable', currentOrder.id);
+                        await window.api.invoke(
+                          'orders:clearTable',
+                          currentOrder.id
+                        );
                         await onSelectOrder(currentOrder.id);
                         await onRefreshTables();
-                      } catch (e) { console.error(e); }
+                      } catch (e) {
+                        console.error(e);
+                      }
                     }}
                     className={`px-3 py-1.5 rounded-lg border text-xs ${
                       theme === 'dark'
@@ -187,11 +217,18 @@ export default function OrderSide({
             {currentOrder.promocode ? (
               <div
                 className={`flex items-center justify-between p-2.5 rounded-lg border ${
-                  theme === 'dark' ? 'bg-green-500/10 border-green-500/30' : 'bg-green-50 border-green-300'
+                  theme === 'dark'
+                    ? 'bg-green-500/10 border-green-500/30'
+                    : 'bg-green-50 border-green-300'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <Percent size={16} className={theme === 'dark' ? 'text-green-400' : 'text-green-600'} />
+                <div className='flex items-center gap-2'>
+                  <Percent
+                    size={16}
+                    className={
+                      theme === 'dark' ? 'text-green-400' : 'text-green-600'
+                    }
+                  />
                   <span
                     className={`text-xs font-medium ${
                       theme === 'dark' ? 'text-green-300' : 'text-green-700'
@@ -220,12 +257,12 @@ export default function OrderSide({
                     : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
                 }`}
               >
-                <Percent size={14} className="inline mr-1" /> Apply Promo Code
+                <Percent size={14} className='inline mr-1' /> Apply Promo Code
               </button>
             )}
           </div>
         ) : (
-          <div className="text-center py-3">
+          <div className='text-center py-3'>
             <p className={`${textMuted} mb-2`}>No active order</p>
             <button
               onClick={onCreateOrder}
@@ -244,21 +281,21 @@ export default function OrderSide({
       {/* Body */}
       {currentOrder && (
         <>
-          <div className="grow overflow-y-auto p-4">
+          <div className='grow overflow-y-auto p-4'>
             {orderLines.length === 0 ? (
               <div
                 className={`flex flex-col items-center justify-center min-h-[200px] ${textMuted} opacity-70`}
               >
-                <ShoppingCart size={40} className="mb-3" />
-                <p className="text-center">
+                <ShoppingCart size={40} className='mb-3' />
+                <p className='text-center'>
                   Cart is empty
                   <br />
                   Add items to get started
                 </p>
               </div>
             ) : (
-              <div className="space-y-2.5">
-                {orderLines.map(line => (
+              <div className='space-y-2.5'>
+                {orderLines.map((line) => (
                   <OrderLineItem
                     key={line.id}
                     line={line}
@@ -275,18 +312,22 @@ export default function OrderSide({
           <div
             className={`p-4 border-t ${border} ${cardBg} pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] shrink-0`}
           >
-            <div className="space-y-1.5 mb-3">
-              <Row label="Subtotal" value={(currentOrder.subtotal || 0).toFixed(3)} theme={theme} />
+            <div className='space-y-1.5 mb-3'>
+              <Row
+                label='Subtotal'
+                value={(currentOrder.subtotal || 0).toFixed(3)}
+                theme={theme}
+              />
               {currentOrder.discount_total > 0 && (
                 <Row
-                  label="Discount"
+                  label='Discount'
                   value={`-${(currentOrder.discount_total || 0).toFixed(3)}`}
                   theme={theme}
                 />
               )}
               {currentOrder.order_type === 1 && (
                 <Row
-                  label="Delivery Fee"
+                  label='Delivery Fee'
                   value={(currentOrder.delivery_fee || 0).toFixed(3)}
                   theme={theme}
                 />
@@ -297,30 +338,38 @@ export default function OrderSide({
                 }`}
               >
                 <span>Total</span>
-                <span className={theme === 'dark' ? 'text-blue-300' : 'text-blue-600'}>
+                <span
+                  className={
+                    theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
+                  }
+                >
                   {(currentOrder.grand_total || 0).toFixed(3)}
                 </span>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className='grid grid-cols-2 gap-2'>
               {/* Close order */}
               <button
-                type="button"
+                type='button'
                 onClick={handleClose}
                 className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
                   theme === 'dark'
                     ? 'bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30'
                     : 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
                 }`}
-                title={orderLines.length > 0 ? 'Cancel this order' : 'Delete this empty order'}
+                title={
+                  orderLines.length > 0
+                    ? 'Cancel this order'
+                    : 'Delete this empty order'
+                }
               >
                 <X size={16} /> Close
               </button>
 
               {/* Place order (checkout) */}
               <button
-                type="button"
+                type='button'
                 onClick={() => setShowCheckout(true)}
                 disabled={orderLines.length === 0}
                 className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
@@ -350,7 +399,9 @@ export default function OrderSide({
           onAfterComplete={async () => {
             setShowCheckout(false);
             await focusNextActive();
-            try { await onRefreshTables(); } catch {}
+            try {
+              await onRefreshTables();
+            } catch {}
           }}
           onLoadCities={onLoadCities}
           onLoadBlocks={onLoadBlocks}
@@ -367,7 +418,10 @@ export default function OrderSide({
           onRefresh={onRefreshTables}
           onAssign={async (t, covers) => {
             try {
-              await window.api.invoke('orders:setTable', currentOrder.id, { table_id: t.id, covers });
+              await window.api.invoke('orders:setTable', currentOrder.id, {
+                table_id: t.id,
+                covers,
+              });
               await onSelectOrder(currentOrder.id);
               await onRefreshTables();
               setShowTablePicker(false);
@@ -384,7 +438,10 @@ export default function OrderSide({
           theme={theme}
           promos={promos}
           onClose={() => setShowPromoDialog(false)}
-          onApply={async (code) => { await onApplyPromo(code); setShowPromoDialog(false); }}
+          onApply={async (code) => {
+            await onApplyPromo(code);
+            setShowPromoDialog(false);
+          }}
         />
       )}
     </div>
@@ -392,21 +449,33 @@ export default function OrderSide({
 }
 
 /* ---------- helpers ---------- */
-function Row({ label, value, theme }: { label: string; value: string; theme: 'light' | 'dark' }) {
+function Row({
+  label,
+  value,
+  theme,
+}: {
+  label: string;
+  value: string;
+  theme: 'light' | 'dark';
+}) {
   const textMuted = theme === 'dark' ? 'text-slate-300' : 'text-gray-600';
   return (
     <div className={`flex justify-between ${textMuted}`}>
       <span>{label}</span>
-      <span className="font-medium">{value}</span>
+      <span className='font-medium'>{value}</span>
     </div>
   );
 }
 
 function labelForType(type: OrderType): string {
   switch (type) {
-    case 1: return 'Delivery';
-    case 2: return 'Pickup';
-    case 3: return 'Dine-in';
-    default: return 'Order';
+    case 1:
+      return 'Delivery';
+    case 2:
+      return 'Pickup';
+    case 3:
+      return 'Dine-in';
+    default:
+      return 'Order';
   }
 }

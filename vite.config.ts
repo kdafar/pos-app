@@ -1,16 +1,16 @@
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
-import { resolve } from 'path'
-import tailwindcss from '@tailwindcss/vite'
-import react from '@vitejs/plugin-react' // <-- Make sure react plugin is also imported if you use it
+import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import { resolve } from 'path';
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react'; // <-- Make sure react plugin is also imported if you use it
 
 // optional, keeps "use client" strings
-let preserveDirectives: any
+let preserveDirectives: any;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  preserveDirectives = require('rollup-plugin-preserve-directives')
+  preserveDirectives = require('rollup-plugin-preserve-directives');
 } catch {
   // Plugin not installed — provide a no-op fallback that satisfies Rollup/Vite plugin usage
-  preserveDirectives = () => ({ name: 'preserve-directives-fallback' })
+  preserveDirectives = () => ({ name: 'preserve-directives-fallback' });
 }
 
 const nativeExternal = [
@@ -21,7 +21,7 @@ const nativeExternal = [
   /keytar(?:\/.*)?/,
   /bufferutil(?:\/.*)?/,
   /utf-8-validate(?:\/.*)?/,
-]
+];
 
 export default defineConfig({
   main: {
@@ -45,7 +45,7 @@ export default defineConfig({
       tailwindcss(),
       react(), // <-- Add the react plugin here as well
     ],
-    
+
     // Tell Vite where the renderer's root is.
     root: 'src/renderer',
     build: {
@@ -53,7 +53,10 @@ export default defineConfig({
         input: resolve(__dirname, 'src/renderer/index.html'),
         // ❷ Filter only the noisy "use client" directive warnings
         onwarn(warning, defaultHandler) {
-          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && /"use client"/.test(warning.message || '')) {
+          if (
+            warning.code === 'MODULE_LEVEL_DIRECTIVE' &&
+            /"use client"/.test(warning.message || '')
+          ) {
             return; // ignore these
           }
           defaultHandler(warning);
@@ -73,5 +76,4 @@ export default defineConfig({
       ],
     },
   },
-})
-
+});
