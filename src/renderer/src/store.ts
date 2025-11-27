@@ -1,23 +1,96 @@
 import { create } from 'zustand';
 
 /* ========= Types ========= */
-type Role = 'admin' | 'Admin' | 'superadmin' | 'Super Admin' | 'branch' | 'kitchen' | string;
-type Category = { id: string; name: string; name_ar?: string; position?: number; visible?: number };
-type Subcategory = { id: string; category_id: string; name: string; name_ar?: string; position?: number; visible?: number };
-type Item = { id: string; name: string; name_ar?: string; barcode?: string; price: number; is_outofstock?: number; category_id?: string|null; subcategory_id?: string|null };
-type AddonGroup = { id: string; name: string; name_ar: string; is_required: boolean; max_select: number; addons_count: number };
-type Addon = { id: string; group_id: string; name: string; name_ar: string; price: number };
-type ActiveTab = { id: string; tab_position: number; number: string; order_type: number; updated_at: number; user_id?: string|number; created_by_user_id?: string|number };
-type OrderLine = { id: string; item_id: string; name: string; name_ar?: string; qty: number; unit_price: number; line_total: number };
-type Order = {
-  id: string; number: string; order_type: 1|2|3; status: string;
-  subtotal: number; tax_total: number; discount_total: number; delivery_fee: number; grand_total: number;
-  user_id?: string|number; created_by_user_id?: string|number;
+type Role =
+  | 'admin'
+  | 'Admin'
+  | 'superadmin'
+  | 'Super Admin'
+  | 'branch'
+  | 'kitchen'
+  | string;
+type Category = {
+  id: string;
+  name: string;
+  name_ar?: string;
+  position?: number;
+  visible?: number;
 };
-type CurrentUser = { id: string|number; name?: string; role?: Role; branch_id?: string|number } | null;
+type Subcategory = {
+  id: string;
+  category_id: string;
+  name: string;
+  name_ar?: string;
+  position?: number;
+  visible?: number;
+};
+type Item = {
+  id: string;
+  name: string;
+  name_ar?: string;
+  barcode?: string;
+  has_addons?: number | boolean;
+  price: number;
+  is_outofstock?: number;
+  category_id?: string | null;
+  subcategory_id?: string | null;
+};
+type AddonGroup = {
+  id: string;
+  name: string;
+  name_ar: string;
+  is_required: boolean;
+  max_select: number;
+  addons_count: number;
+};
+type Addon = {
+  id: string;
+  group_id: string;
+  name: string;
+  name_ar: string;
+  price: number;
+};
+type ActiveTab = {
+  id: string;
+  tab_position: number;
+  number: string;
+  order_type: number;
+  updated_at: number;
+  user_id?: string | number;
+  created_by_user_id?: string | number;
+};
+type OrderLine = {
+  id: string;
+  item_id: string;
+  name: string;
+  name_ar?: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+};
+type Order = {
+  id: string;
+  number: string;
+  order_type: 1 | 2 | 3;
+  status: string;
+  subtotal: number;
+  tax_total: number;
+  discount_total: number;
+  delivery_fee: number;
+  grand_total: number;
+  user_id?: string | number;
+  created_by_user_id?: string | number;
+};
+type CurrentUser = {
+  id: string | number;
+  name?: string;
+  role?: Role;
+  branch_id?: string | number;
+} | null;
 
 /* ========= Helpers ========= */
-const api = (channel: string, ...args: any[]) => window.api!.invoke(channel, ...args);
+const api = (channel: string, ...args: any[]) =>
+  window.api!.invoke(channel, ...args);
 
 const isAdminRole = (r?: Role) =>
   !!r && ['admin', 'Admin', 'superadmin', 'Super Admin'].includes(String(r));
@@ -25,14 +98,26 @@ const isAdminRole = (r?: Role) =>
 const toStr = (v: any) => (v == null ? '' : String(v));
 
 const normalizeCats = (arr: any[] = []): Category[] =>
-  arr.map(c => ({ ...c, id: toStr(c.id) }));
+  arr.map((c) => ({ ...c, id: toStr(c.id) }));
 
 const normalizeSubs = (arr: any[] = []): Subcategory[] =>
-  arr.map(s => ({ ...s, id: toStr(s.id), category_id: toStr(s.category_id) }));
+  arr.map((s) => ({
+    ...s,
+    id: toStr(s.id),
+    category_id: toStr(s.category_id),
+  }));
 
 /** Try a primary IPC shape then fall back to a secondary one */
-async function tryInvoke<T=any>(primary: () => Promise<T>, fallback?: () => Promise<T>): Promise<T> {
-  try { return await primary(); } catch (e) { if (fallback) return await fallback(); throw e; }
+async function tryInvoke<T = any>(
+  primary: () => Promise<T>,
+  fallback?: () => Promise<T>
+): Promise<T> {
+  try {
+    return await primary();
+  } catch (e) {
+    if (fallback) return await fallback();
+    throw e;
+  }
 }
 
 /* ========= Store ========= */
@@ -70,9 +155,9 @@ interface AppState {
     refreshCurrent: () => Promise<void>;
     refreshPrepared: () => Promise<void>;
 
-    newOrder: (type?: 1|2|3) => Promise<void>;
+    newOrder: (type?: 1 | 2 | 3) => Promise<void>;
     addItem: (it: Item, qty?: number) => Promise<void>;
-    setOrderType: (type: 1|2|3) => Promise<void>;
+    setOrderType: (type: 1 | 2 | 3) => Promise<void>;
     decreaseLine: (line: OrderLine) => Promise<void>;
 
     setQ: (q: string) => void;
@@ -104,19 +189,32 @@ export const useStore = create<AppState>((set, get) => ({
   prepared: [],
 
   actions: {
-    toggleCollapsed: () => set(s => ({ collapsed: !s.collapsed })),
+    toggleCollapsed: () => set((s) => ({ collapsed: !s.collapsed })),
     setBrand: (name) => set({ brand: name }),
 
     /* ----- whoami (renderer-safe) ----- */
     fetchWhoAmI: async () => {
       // Prefer IPC; fall back to window.pos.auth.status() if available
       let who: any = null;
-      try { who = await api('auth:status'); } catch {}
+      try {
+        who = await api('auth:status');
+      } catch {}
       if (!who && (window as any).pos?.auth?.status) {
-        try { who = await (window as any).pos.auth.status(); } catch {}
+        try {
+          who = await (window as any).pos.auth.status();
+        } catch {}
       }
       const user = who?.current_user || who?.user || null;
-      set({ currentUser: user ? { id: user.id, name: user.name, role: user.role, branch_id: user.branch_id } : null });
+      set({
+        currentUser: user
+          ? {
+              id: user.id,
+              name: user.name,
+              role: user.role,
+              branch_id: user.branch_id,
+            }
+          : null,
+      });
     },
 
     /* ----- initial data (cats/subs/addonGroups/items/tabs/prepared) ----- */
@@ -150,8 +248,18 @@ export const useStore = create<AppState>((set, get) => ({
     refreshItems: async () => {
       const { q, catId, subId } = get();
       let list = await tryInvoke(
-        () => api('catalog:listItems', { q, categoryId: catId, subcategoryId: subId }),
-        () => api('catalog:listItems', { q, category_id: catId, subcategory_id: subId })
+        () =>
+          api('catalog:listItems', {
+            q,
+            categoryId: catId,
+            subcategoryId: subId,
+          }),
+        () =>
+          api('catalog:listItems', {
+            q,
+            category_id: catId,
+            subcategory_id: subId,
+          })
       );
       if (!Array.isArray(list)) list = [];
       set({ items: list });
@@ -171,8 +279,11 @@ export const useStore = create<AppState>((set, get) => ({
 
       if (mineOnly && currentUser?.id != null) {
         const uid = String(currentUser.id);
-        t = t.filter(a =>
-          String((a as any).created_by_user_id ?? (a as any).user_id ?? '') === uid
+        t = t.filter(
+          (a) =>
+            String(
+              (a as any).created_by_user_id ?? (a as any).user_id ?? ''
+            ) === uid
         );
       }
 
@@ -197,15 +308,22 @@ export const useStore = create<AppState>((set, get) => ({
       const mineOnly = !isAdminRole(currentUser?.role);
 
       let p: any[] = await tryInvoke(
-        () => api('orders:listPrepared', mineOnly ? { mineOnly: true, limit: 20 } : { limit: 20 }),
+        () =>
+          api(
+            'orders:listPrepared',
+            mineOnly ? { mineOnly: true, limit: 20 } : { limit: 20 }
+          ),
         () => api('orders:listPrepared', 20) // legacy signature
       );
       if (!Array.isArray(p)) p = [];
 
       if (mineOnly && currentUser?.id != null) {
         const uid = String(currentUser.id);
-        p = p.filter(o =>
-          String((o as any).created_by_user_id ?? (o as any).user_id ?? '') === uid
+        p = p.filter(
+          (o) =>
+            String(
+              (o as any).created_by_user_id ?? (o as any).user_id ?? ''
+            ) === uid
         );
       }
 
@@ -239,8 +357,14 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       // edit lock: only owner or admin can mutate
-      const ownerId = String((order as any)?.created_by_user_id ?? (order as any)?.user_id ?? '');
-      if (!isAdminRole(currentUser?.role) && ownerId && String(currentUser?.id ?? '') !== ownerId) {
+      const ownerId = String(
+        (order as any)?.created_by_user_id ?? (order as any)?.user_id ?? ''
+      );
+      if (
+        !isAdminRole(currentUser?.role) &&
+        ownerId &&
+        String(currentUser?.id ?? '') !== ownerId
+      ) {
         console.warn('Edit denied: not owner of the order');
         return;
       }
@@ -254,8 +378,14 @@ export const useStore = create<AppState>((set, get) => ({
       const { currentId, order, currentUser } = get();
       if (!currentId) return;
 
-      const ownerId = String((order as any)?.created_by_user_id ?? (order as any)?.user_id ?? '');
-      if (!isAdminRole(currentUser?.role) && ownerId && String(currentUser?.id ?? '') !== ownerId) {
+      const ownerId = String(
+        (order as any)?.created_by_user_id ?? (order as any)?.user_id ?? ''
+      );
+      if (
+        !isAdminRole(currentUser?.role) &&
+        ownerId &&
+        String(currentUser?.id ?? '') !== ownerId
+      ) {
         console.warn('Edit denied: not owner of the order');
         return;
       }
@@ -269,8 +399,14 @@ export const useStore = create<AppState>((set, get) => ({
       const { currentId, order, currentUser } = get();
       if (!currentId) return;
 
-      const ownerId = String((order as any)?.created_by_user_id ?? (order as any)?.user_id ?? '');
-      if (!isAdminRole(currentUser?.role) && ownerId && String(currentUser?.id ?? '') !== ownerId) {
+      const ownerId = String(
+        (order as any)?.created_by_user_id ?? (order as any)?.user_id ?? ''
+      );
+      if (
+        !isAdminRole(currentUser?.role) &&
+        ownerId &&
+        String(currentUser?.id ?? '') !== ownerId
+      ) {
         console.warn('Edit denied: not owner of the order');
         return;
       }
@@ -280,9 +416,18 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     /* ----- UI filters (auto-refresh items) ----- */
-    setQ: (q) => { set({ q }); void get().actions.refreshItems(); },
-    setCatId: (id) => { set({ catId: id, subId: null }); void get().actions.refreshItems(); },
-    setSubId: (id) => { set({ subId: id }); void get().actions.refreshItems(); },
+    setQ: (q) => {
+      set({ q });
+      void get().actions.refreshItems();
+    },
+    setCatId: (id) => {
+      set({ catId: id, subId: null });
+      void get().actions.refreshItems();
+    },
+    setSubId: (id) => {
+      set({ subId: id });
+      void get().actions.refreshItems();
+    },
     setCurrentId: (id) => set({ currentId: id }),
-  }
+  },
 }));

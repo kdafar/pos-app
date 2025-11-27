@@ -73,42 +73,48 @@
 }
 
 @layer utilities {
-  /* Pretty, theme-aware scrollbars */
-  .nice-scroll{
-    /* keeps layout width stable when scrollbar appears */
+  .nice-scroll {
     scrollbar-gutter: stable both-edges;
-    /* Firefox */
-    scrollbar-width: thin;
-    scrollbar-color: rgb(100 116 139 / .6) transparent; /* slate-500 thumb on transparent track */
-    /* Prevent overscroll chaining (nicer in nested panes) */
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: rgb(148 163 184 / 0.7) transparent;
     overscroll-behavior: contain;
   }
-  .dark .nice-scroll{
-    scrollbar-color: rgb(71 85 105 / .7) transparent;   /* darker thumb for dark mode */
+
+  .dark .nice-scroll {
+    scrollbar-color: rgb(75 85 99 / 0.8) transparent;
   }
 
-  /* Chromium/WebKit */
-  .nice-scroll::-webkit-scrollbar{
-    width: 8px; height: 8px;
+  /* WebKit / Chromium */
+  .nice-scroll::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
   }
-  .nice-scroll::-webkit-scrollbar-track{
+
+  .nice-scroll::-webkit-scrollbar-track {
     background: transparent;
   }
-  .nice-scroll::-webkit-scrollbar-thumb{
+
+  .nice-scroll::-webkit-scrollbar-thumb {
     background-clip: padding-box;
-    border: 2px solid transparent;       /* gives a nice inset look */
     border-radius: 999px;
-    background-color: rgba(148,163,184,.55); /* slate-400/55 */
-    transition: background-color .15s ease;
+    border: 2px solid transparent;
+    background-color: rgba(148, 163, 184, 0.55); /* slate-400-ish */
+    transition: background-color 0.15s ease, border-color 0.15s ease;
   }
-  .dark .nice-scroll::-webkit-scrollbar-thumb{
-    background-color: rgba(71,85,105,.65);   /* slate-600/65 */
+
+  .dark .nice-scroll::-webkit-scrollbar-thumb {
+    background-color: rgba(75, 85, 99, 0.75); /* slate-600-ish */
   }
-  .nice-scroll:hover::-webkit-scrollbar-thumb{
-    background-color: rgba(148,163,184,.85);
+
+  .nice-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.9);
   }
-  .dark .nice-scroll:hover::-webkit-scrollbar-thumb{
-    background-color: rgba(100,116,139,.9);
+
+  .dark .nice-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.95);
   }
-  .nice-scroll::-webkit-scrollbar-corner{ background: transparent; }
+
+  .nice-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }

@@ -84,7 +84,10 @@ export function registerOrdersHandlers(
       | undefined;
   };
 
-  const assertOrderEditable = (orderId: string) => {
+  const assertOrderEditable = (
+    orderId: string,
+    opts?: { allowAddOnLockedDineIn?: boolean }
+  ) => {
     const order = getOrderRow(orderId);
     if (!order) throw new Error('Order not found');
 
@@ -92,13 +95,22 @@ export function registerOrdersHandlers(
     const locked =
       hasColumn('orders', 'is_locked') && Number(order.is_locked ?? 0) === 1;
     const status = (order.status || '').toLowerCase();
+    const isDineIn = Number(order.order_type) === 3;
 
     if (!isAdmin) {
-      if (locked) throw new Error('Order is locked');
+      if (locked) {
+        const canBypass = opts?.allowAddOnLockedDineIn && isDineIn;
+
+        if (!canBypass) {
+          throw new Error('Order is locked');
+        }
+      }
+
       if (['completed', 'cancelled', 'closed'].includes(status)) {
         throw new Error('Completed orders cannot be edited');
       }
     }
+
     return order;
   };
 
@@ -294,6 +306,20 @@ export function registerOrdersHandlers(
     getOrderWithLines(orderId)
   );
 
+  ipcMain.handle('orders:getForTable', async (_e, tableId: number) => {
+    // Finds the active open order for this table
+    const order = rawDb
+      .prepare(
+        `SELECT * FROM orders WHERE table_id = ? AND status NOT IN ('completed', 'cancelled', 'closed') ORDER BY created_at DESC LIMIT 1`
+      )
+      .get(tableId) as any;
+
+    if (order) {
+      return getOrderWithLines(order.id);
+    }
+    return null;
+  });
+
   // ─────────────────────────────────────────────────────────────
   // 🛒 LINES / ITEMS
   // ─────────────────────────────────────────────────────────────
@@ -302,18 +328,32 @@ export function registerOrdersHandlers(
     'orders:addLine',
     async (_e, orderId: string, itemId: string, qty = 1) => {
       if (isPosLocked()) throw new Error('POS is locked');
-      assertOrderEditable(orderId);
+
+      // Allow adding even if locked for dine-in
+      const order = assertOrderEditable(orderId, {
+        allowAddOnLockedDineIn: true,
+      });
 
       const item = rawDb
         .prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`)
         .get(itemId) as any;
       if (!item) throw new Error('Item not found');
 
-      const row = rawDb
-        .prepare(
-          `SELECT id, qty, unit_price FROM order_lines WHERE order_id = ? AND item_id = ? AND variation_id IS NULL AND addons_id IS NULL`
-        )
-        .get(orderId, itemId) as any;
+      const isLockedDineIn =
+        Number(order.order_type) === 3 &&
+        hasColumn('orders', 'is_locked') &&
+        Number(order.is_locked ?? 0) === 1;
+
+      let row: any = null;
+
+      // Only merge with existing line if NOT locked dine-in
+      if (!isLockedDineIn) {
+        row = rawDb
+          .prepare(
+            `SELECT id, qty, unit_price FROM order_lines WHERE order_id = ? AND item_id = ? AND variation_id IS NULL AND addons_id IS NULL`
+          )
+          .get(orderId, itemId) as any;
+      }
 
       if (row) {
         const newQty = Number(row.qty || 0) + Number(qty || 0);
@@ -345,6 +385,7 @@ export function registerOrdersHandlers(
             item.name_ar ?? null
           );
       }
+
       return recalcAndGet(orderId);
     }
   );
@@ -357,6 +398,12 @@ export function registerOrdersHandlers(
         .prepare(`SELECT * FROM order_lines WHERE id = ?`)
         .get(lineId) as any;
       if (!line) throw new Error('Line not found');
+
+      // DINE-IN LOCK CHECK
+      if (hasColumn('order_lines', 'is_locked') && line.is_locked == 1) {
+        throw new Error('This item is locked/printed and cannot be modified.');
+      }
+
       assertOrderEditable(line.order_id);
 
       if (qty <= 0) {
@@ -380,6 +427,12 @@ export function registerOrdersHandlers(
       .prepare(`SELECT * FROM order_lines WHERE id = ?`)
       .get(lineId) as any;
     if (!line) return null;
+
+    // DINE-IN LOCK CHECK
+    if (hasColumn('order_lines', 'is_locked') && line.is_locked == 1) {
+      throw new Error('This item is locked/printed and cannot be removed.');
+    }
+
     assertOrderEditable(line.order_id);
     rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
     return recalcAndGet(line.order_id);
@@ -390,9 +443,14 @@ export function registerOrdersHandlers(
     async (_e, orderId: string, itemId: string) => {
       if (isPosLocked()) throw new Error('POS is locked');
       assertOrderEditable(orderId);
-      rawDb
-        .prepare(`DELETE FROM order_lines WHERE order_id = ? AND item_id = ?`)
-        .run(orderId, itemId);
+
+      // Only remove unlocked lines
+      let sql = `DELETE FROM order_lines WHERE order_id = ? AND item_id = ?`;
+      if (hasColumn('order_lines', 'is_locked')) {
+        sql += ` AND (is_locked IS NULL OR is_locked = 0)`;
+      }
+
+      rawDb.prepare(sql).run(orderId, itemId);
       return recalcAndGet(orderId);
     }
   );
@@ -453,7 +511,7 @@ export function registerOrdersHandlers(
   });
 
   // ─────────────────────────────────────────────────────────────
-  // ✅ CHECKOUT / COMPLETE (FIXED: Column checks)
+  // ✅ CHECKOUT / COMPLETE
   // ─────────────────────────────────────────────────────────────
 
   ipcMain.handle(
@@ -477,8 +535,10 @@ export function registerOrdersHandlers(
       const { id: userId } = getCurrentPosUser();
       const totals = recalcOrderTotals(services, orderId);
 
+      const isDineIn = type === 3;
+
       const cols = [
-        "status = 'completed'",
+        'status = ?',
         'full_name = ?',
         'mobile = ?',
         'address = ?',
@@ -491,6 +551,8 @@ export function registerOrdersHandlers(
       ];
 
       const params: any[] = [
+        // Status: keep as-is for dine-in, 'completed' for others
+        isDineIn ? order.status || 'open' : 'completed',
         customer.full_name,
         customer.mobile ?? '',
         customer.address ?? '',
@@ -502,14 +564,15 @@ export function registerOrdersHandlers(
         ts,
       ];
 
-      // FIX 2: Check for completed_at OR closed_at
-      if (hasColumn('orders', 'completed_at')) {
-        cols.push('completed_at = ?');
-        params.push(ts);
-      } else if (hasColumn('orders', 'closed_at')) {
-        // Fallback for older schemas
-        cols.push('closed_at = ?');
-        params.push(ts);
+      // Only set completed/closed timestamps for non-dine-in
+      if (!isDineIn) {
+        if (hasColumn('orders', 'completed_at')) {
+          cols.push('completed_at = ?');
+          params.push(ts);
+        } else if (hasColumn('orders', 'closed_at')) {
+          cols.push('closed_at = ?');
+          params.push(ts);
+        }
       }
 
       if (hasColumn('orders', 'completed_by_user_id')) {
@@ -517,6 +580,8 @@ export function registerOrdersHandlers(
         params.push(userId);
       }
 
+      // Lock order for ALL types, but our addLine special-case
+      // allows more items *only* for dine-in.
       if (hasColumn('orders', 'is_locked')) {
         cols.push('is_locked = 1');
       }
@@ -532,21 +597,58 @@ export function registerOrdersHandlers(
         throw new Error('Database error during completion: ' + err.message);
       }
 
-      if (order.table_id)
+      // IMPORTANT CHANGE:
+      // - For dine-in: DO NOT free the table here.
+      // - For others: keep old behavior.
+      if (order.table_id && !isDineIn) {
         rawDb
           .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
           .run(order.table_id);
+      }
 
       log('orders.complete', orderId, { customer, totals });
       return recalcAndGet(orderId);
     }
   );
 
+  // New handler to explicitly release/finish a dine-in table
+  ipcMain.handle('orders:releaseTable', async (_e, orderId: string) => {
+    const ts = nowMs();
+    const order = getOrderRow(orderId);
+    if (!order) return;
+
+    // 1. Mark order as completed
+    let sql = `UPDATE orders SET status = 'completed', updated_at = ?`;
+    if (hasColumn('orders', 'completed_at')) sql += `, completed_at = ?`;
+    sql += ` WHERE id = ?`;
+
+    const params = [ts];
+    if (hasColumn('orders', 'completed_at')) params.push(ts);
+    params.push(orderId);
+
+    rawDb.prepare(sql).run(...params);
+
+    // 2. Release table
+    if (order.table_id) {
+      rawDb
+        .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
+        .run(order.table_id);
+    }
+
+    return getOrderWithLines(orderId);
+  });
+
   // ... (markPrinted, paymentLink, createFromCart omitted but assumed present)
   ipcMain.handle('orders:markPrinted', async (_e, orderId: string) => {
     const ts = nowMs();
     const cols = ['printed_at = ?', 'updated_at = ?'];
-    if (hasColumn('orders', 'is_locked')) cols.push('is_locked = 1');
+    // For dine-in, printing might lock the lines too
+    if (hasColumn('order_lines', 'is_locked')) {
+      rawDb
+        .prepare(`UPDATE order_lines SET is_locked = 1 WHERE order_id = ?`)
+        .run(orderId);
+    }
+
     rawDb
       .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
       .run(ts, ts, orderId);
@@ -703,7 +805,7 @@ export function registerOrdersHandlers(
   });
 
   // ─────────────────────────────────────────────────────────────
-  // 🍽️ TABLES (FIXED: Removed table_name update)
+  // 🍽️ TABLES
   // ─────────────────────────────────────────────────────────────
 
   ipcMain.handle(
@@ -721,7 +823,6 @@ export function registerOrdersHandlers(
       if (!o) throw new Error('Order not found');
       if (Number(o.order_type) !== 3) throw new Error('Order is not dine-in');
 
-      // FIX 1: Removed 'table_name' from query
       rawDb.transaction(() => {
         if (o.table_id && o.table_id !== tableId) {
           rawDb
@@ -741,6 +842,29 @@ export function registerOrdersHandlers(
     }
   );
 
+  ipcMain.handle(
+    'tables:getActiveOrderForTable',
+    async (_e, tableId: string) => {
+      const { sql: userSql, params } = buildUserFilter('o');
+
+      const row = rawDb
+        .prepare(
+          `
+        SELECT o.*
+        FROM orders o
+        WHERE o.table_id = @table_id
+          AND o.status IN ('open', 'pending', 'ready', 'prepared')
+          ${userSql}
+        ORDER BY o.opened_at DESC, o.created_at DESC
+        LIMIT 1
+      `
+        )
+        .get({ ...params, table_id: tableId }) as any;
+
+      return row || null;
+    }
+  );
+
   ipcMain.handle('orders:clearTable', async (_e, orderId: string) => {
     rawDb.transaction(() => {
       const o = getOrderRow(orderId);
@@ -748,7 +872,7 @@ export function registerOrdersHandlers(
         rawDb
           .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
           .run(o.table_id);
-      // FIX 1: Removed 'table_name' from query
+
       rawDb
         .prepare(
           `UPDATE orders SET table_id = NULL, covers = NULL, updated_at = ? WHERE id = ?`

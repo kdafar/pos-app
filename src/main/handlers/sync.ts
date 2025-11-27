@@ -15,8 +15,7 @@ import {
 
 import { prefetchItemImages } from '../imageCache';
 
-// 🧩 Order / outbox helpers from our util
-// We remove collectUnsyncedOrders/buildOrderPayload from here to use robust local versions
+// Order util
 import {
   ensureOrderNumberDedupeTriggers,
   normalizeDuplicateOrderNumbers,
@@ -24,7 +23,7 @@ import {
 } from '../utils/orderNumbers';
 
 /* ------------------------------------------------------------------
- * 🛡️ ROBUST LOCAL HELPERS (Fixes missing column crashes)
+ * 🛡️ ROBUST LOCAL HELPERS
  * ------------------------------------------------------------------ */
 
 function hasColumn(table: string, column: string): boolean {
@@ -93,14 +92,13 @@ function safeBuildOrderPayload(orderId: string) {
       closed_at: o.closed_at,
       created_at: o.created_at,
       updated_at: o.updated_at,
-      completed_at: completedAt, // Ensure this is populated
+      completed_at: completedAt,
     },
     lines,
   };
 }
 
 function safeCollectUnsyncedOrders(limit = 20) {
-  // Avoid crash if 'completed_at' missing from DB
   const sortCol = hasColumn('orders', 'completed_at')
     ? 'completed_at'
     : 'created_at';
@@ -130,7 +128,7 @@ function safeCollectUnsyncedOrders(limit = 20) {
  * ------------------------------------------------------------------ */
 
 type SyncStatus = {
-  mode: 'live' | 'offline'; // effective mode for UI
+  mode: 'live' | 'offline';
   last_sync_at: number;
   base_url: string;
   cursor: number;
@@ -188,7 +186,6 @@ async function getSyncStatus(): Promise<SyncStatus> {
   if (deviceId) {
     token = (await loadSecret('device_token')) || null;
     if (!token) {
-      // small retry in case secure store was just written
       await new Promise((r) => setTimeout(r, 100));
       token = (await loadSecret('device_token')) || null;
     }
@@ -217,11 +214,9 @@ async function getSyncStatus(): Promise<SyncStatus> {
       .pluck()
       .get() as number) || 0;
 
-  // Connectivity: prefer your server, fall back to Google
   const target = base_url || DEFAULT_CHECK_URL;
   const online = await checkOnlineOnce(target);
 
-  // Effective mode for UI
   const mode: 'live' | 'offline' =
     online && posMode === 'live' ? 'live' : 'offline';
 
@@ -271,26 +266,19 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle('sync:bootstrap', async (_e, baseUrl?: string) => {
-    // 🔗 uses util (triggers + duplicates handled in one place)
     ensureOrderNumberDedupeTriggers();
     const url = baseUrl || getMeta('server.base_url') || '';
     if (!url) throw new Error('Missing base URL');
 
+    // 1. Run bootstrap logic
     const payload = await bootstrap(url);
 
-    // persist branch meta if present
+    // 2. Save Meta
     if (payload?.branch?.id) setMeta('branch_id', String(payload.branch.id));
     if (payload?.branch?.name)
       setMeta('branch.name', String(payload.branch.name));
 
-    console.log('[sync] bootstrap completed, starting image prefetch...');
-    try {
-      await prefetchItemImages(5);
-      console.log('[sync] image prefetch done');
-    } catch (e: any) {
-      console.warn('[sync] image prefetch failed:', e?.message || e);
-    }
-    // upsert staff users from backend
+    // 3. Upsert Users
     const users = payload?.catalog?.users || [];
     if (Array.isArray(users) && users.length) {
       const upsert = db.prepare(`
@@ -311,10 +299,18 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
       tx(users);
     }
 
+    // 4. Trigger Image Prefetch (NOW AWAITED & LOGGED)
+    console.log('[sync] bootstrap completed, starting image prefetch...');
+    try {
+      await prefetchItemImages(5);
+      console.log('[sync] image prefetch done');
+    } catch (e: any) {
+      console.warn('[sync] image prefetch failed:', e?.message || e);
+    }
+
     return payload;
   });
 
-  // Manual sync: full bootstrap + pull + push
   ipcMain.handle('sync:run', async () => {
     console.log('[Sync] Manual sync:run triggered');
 
@@ -333,7 +329,6 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
       );
     }
 
-    // 🔗 order-number util handles triggers + dupes
     ensureOrderNumberDedupeTriggers();
     normalizeDuplicateOrderNumbers();
 
@@ -346,7 +341,10 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
     console.log('[Sync] Manual sync: running incremental pull…');
     await pullChanges();
 
-    // Optional: push completed orders
+    // Trigger image prefetch after manual sync as well
+    prefetchItemImages(5).catch((err) => console.error('Prefetch error', err));
+
+    // Push logic...
     let pushedCount = 0;
     const pending =
       (db
@@ -355,14 +353,13 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
         SELECT COUNT(*)
         FROM orders
         WHERE status = 'completed'
-          AND (synced_at IS NULL OR synced_at = 0)
+        AND (synced_at IS NULL OR synced_at = 0)
       `
         )
         .pluck()
         .get() as number) || 0;
 
     if (pending > 0) {
-      // USE ROBUST LOCAL HELPER
       const batch = safeCollectUnsyncedOrders(25);
       if (batch.length) {
         const envelope = {
@@ -397,7 +394,12 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
   ipcMain.handle('app:ensureBootstrap', async () => {
     const itemsCount =
       (db.prepare('SELECT COUNT(*) FROM items').pluck().get() as number) || 0;
-    if (itemsCount > 0) return { bootstrapped: false, itemsCount };
+
+    // Even if items exist, we should check if images are missing and download them
+    if (itemsCount > 0) {
+      prefetchItemImages(3).catch(console.error); // Run in background
+      return { bootstrapped: false, itemsCount };
+    }
 
     const base = getMeta('server.base_url');
     if (!base)
@@ -408,12 +410,15 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
       };
 
     await bootstrap(base);
+
+    // Trigger download
+    prefetchItemImages(5).catch(console.error);
+
     const after =
       (db.prepare('SELECT COUNT(*) FROM items').pluck().get() as number) || 0;
     return { bootstrapped: true, itemsCount: after };
   });
 
-  /** Online/offline mode & status (for your topbar switch + sync btn) */
   ipcMain.handle('sync:setMode', async (_e, mode: 'live' | 'offline') => {
     setMeta('pos.mode', mode);
     return await getSyncStatus();
@@ -438,7 +443,6 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
     if ((getMeta('pos.mode') || 'live') !== 'live')
       throw new Error('Offline mode');
 
-    // Use safe local builder
     const payload = safeBuildOrderPayload(orderId);
     if (!payload) throw new Error('Order not found');
 
@@ -454,7 +458,6 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
     if ((getMeta('pos.mode') || 'live') !== 'live')
       throw new Error('Offline mode');
 
-    // Use robust local helper
     const toPush = safeCollectUnsyncedOrders(limit);
     if (!toPush.length) return { ok: true, pushed: 0 };
 

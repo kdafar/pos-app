@@ -1,4 +1,3 @@
-// src/main/protocols.ts
 import { app, protocol, session } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -34,7 +33,10 @@ export function registerAppImgProtocol() {
     'appimg',
     (request, callback) => {
       try {
-        const url = new URL(request.url); // appimg://by-abs/C:/...  OR  appimg:///filename.jpg
+        // Log for debugging
+        // console.log('[AppImg] Request:', request.url);
+
+        const url = new URL(request.url); // appimg://by-abs/C:/...  OR  appimg://filename.jpg
         let targetPath: string;
 
         if (url.hostname === 'by-abs') {
@@ -44,18 +46,36 @@ export function registerAppImgProtocol() {
           p = path.normalize(p);
 
           // Safety: keep inside imagesDir (fallback to basename inside imagesDir)
+          // Note: You might want to relax this check if you intend to serve files from anywhere on disk
           if (!p.toLowerCase().startsWith(imagesDir.toLowerCase())) {
+            // For safety/fallback, just look in images dir if path is outside
             targetPath = path.join(imagesDir, path.basename(p));
           } else {
             targetPath = p;
           }
         } else {
-          // Relative filename mode: appimg:///49-abc.jpg
-          const fname = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+          // Relative filename mode:
+          // 1. appimg://filename.jpg  -> hostname="filename.jpg", pathname=""
+          // 2. appimg:///filename.jpg -> hostname="", pathname="/filename.jpg"
+
+          let fname = url.hostname;
+          if (!fname) {
+            // If no hostname, strip leading slashes from pathname
+            fname = url.pathname.replace(/^\/+/, '');
+          }
+
+          fname = decodeURIComponent(fname);
           targetPath = path.join(imagesDir, fname);
         }
 
-        if (!fs.existsSync(targetPath)) return callback({ error: -6 }); // FILE_NOT_FOUND
+        // Debug log the resolved path
+        // console.log(`[AppImg] Resolved: ${targetPath} (Exists: ${fs.existsSync(targetPath)})`);
+
+        if (!fs.existsSync(targetPath)) {
+          // console.warn(`[AppImg] 404 Not Found: ${targetPath}`);
+          return callback({ error: -6 }); // FILE_NOT_FOUND
+        }
+
         callback({ path: targetPath });
       } catch (e) {
         console.error('appimg error:', e);
@@ -63,10 +83,10 @@ export function registerAppImgProtocol() {
       }
     },
     (err) => {
-      console.log(
-        'appimg protocol registration',
-        err ? `FAILED: ${err}` : 'OK'
-      );
+      //   console.log(
+      //     'appimg protocol registration',
+      //     err ? `FAILED: ${err}` : 'OK'
+      //   );
     }
   );
 }

@@ -5,8 +5,11 @@ import CatalogPanel from './CatalogPanel';
 import OrderSide from './OrderSide';
 import { useRootTheme } from './useRootTheme';
 
+import { AddonPickerModal } from './components/AddonPickerModal';
+
 import {
   OrderType,
+  SelectedAddon,
   Order,
   OrderLine,
   Item,
@@ -45,6 +48,8 @@ export default function OrderProcessPage() {
   }, [defaultOrderType]);
 
   const [auth, setAuth] = useState<AuthStatus | null>(null);
+
+  const [addonItem, setAddonItem] = useState<Item | null>(null);
 
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -223,23 +228,12 @@ export default function OrderProcessPage() {
 
   const addItemToOrder = async (item: Item, qty = 1) => {
     if (item.is_outofstock) return;
+
     try {
       let order = currentOrder;
       if (!order) {
         order = await startOrder(defaultOrderType);
       }
-      const { totals, lines } = await window.api.invoke(
-        'orders:addLine',
-        order.id,
-        item.id,
-        qty
-      );
-      // 'totals' is actually the full object returned by recalcAndGet usually {order, lines} or just {totals} depending on implementation
-      // But in our backend 'orders:addLine' returns recalcAndGet() which is {order, lines}.
-      // So 'totals' here is actually { order:..., lines:... }
-      // Wait, 'orders:addLine' returns { totals, lines } in some versions or { order, lines } in others?
-      // In my backend above: returns recalcAndGet() -> { order, lines }.
-      // So the destructuring { totals, lines } in this frontend code is WRONG.
 
       const res = await window.api.invoke(
         'orders:addLine',
@@ -247,6 +241,7 @@ export default function OrderProcessPage() {
         item.id,
         qty
       );
+
       setOrderLines(res.lines || []);
       setCurrentOrder(res.order); // Use the returned order object directly
     } catch (e) {
@@ -257,14 +252,11 @@ export default function OrderProcessPage() {
   const applyPromoCode = async (code: string) => {
     if (!currentOrder) return;
     try {
-      // FIX: The backend 'orders:applyPromo' now returns { order, lines } via recalcAndGet.
       const res = await window.api.invoke(
         'orders:applyPromo',
         currentOrder.id,
         code
       );
-
-      // Update state with the full order object returned by backend
       if (res && res.order) {
         setCurrentOrder(res.order);
       }
@@ -298,6 +290,19 @@ export default function OrderProcessPage() {
 
   const startDineInForTable = async (table: TableInfo) => {
     try {
+      // 1) Check if this table already has an active order
+      const existing = await window.api.invoke(
+        'tables:getActiveOrderForTable',
+        table.id
+      );
+
+      if (existing && existing.id) {
+        // Just focus the existing order
+        await selectOrder(existing.id);
+        return;
+      }
+
+      // 2) No active order → create a new dine-in order and assign table
       const order = await startOrder(3);
       if (!order || !order.id) return;
 
@@ -311,7 +316,7 @@ export default function OrderProcessPage() {
       await loadTables();
     } catch (e) {
       console.error('startDineInForTable failed', e);
-      alert('Could not start dine-in order for this table.');
+      alert('Could not start or open dine-in order for this table.');
     }
   };
 
@@ -354,7 +359,7 @@ export default function OrderProcessPage() {
               <h1 className={`text-lg font-bold ${text}`}>POS</h1>
             </div>
 
-            <div className='flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar min-w-0 px-2 pb-0.5'>
+            <div className='flex-1 flex items-center gap-2 overflow-x-auto nice-scroll min-w-0 px-2 pb-0.5'>
               {activeOrders.map((order) => (
                 <button
                   key={order.id}
@@ -440,6 +445,7 @@ export default function OrderProcessPage() {
           selectedSubcategoryId={selectedSubcategoryId}
           setSelectedSubcategoryId={setSelectedSubcategoryId}
           onAddItem={addItemToOrder}
+          onSelectWithAddons={(it) => setAddonItem(it)}
         />
 
         <OrderSide
@@ -461,6 +467,50 @@ export default function OrderProcessPage() {
           onLoadBlocks={onLoadBlocks}
         />
       </div>
+
+      {addonItem && currentOrder && (
+        <AddonPickerModal
+          theme={theme}
+          item={addonItem}
+          onClose={() => setAddonItem(null)}
+          onConfirm={async (selection: SelectedAddon[]) => {
+            try {
+              // Map to a compact payload for main process
+              const payload = {
+                addons: selection.map((s) => ({
+                  addon_id: s.id,
+                  group_id: s.group_id,
+                  qty: s.qty,
+                })),
+              };
+
+              const res = await window.api.invoke(
+                'orders:addLine',
+                currentOrder.id,
+                addonItem.id,
+                1, // base qty
+                payload
+              );
+
+              // Update local state with server-calculated totals
+              if (res && res.order) {
+                setCurrentOrder(res.order);
+                setOrderLines(res.lines || []);
+              } else {
+                await loadActiveOrders();
+              }
+            } catch (e) {
+              console.error(
+                '[OrderProcessPage] add line with addons failed',
+                e
+              );
+              alert('Could not add item with add-ons.');
+            } finally {
+              setAddonItem(null);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

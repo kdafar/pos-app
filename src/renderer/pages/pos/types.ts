@@ -62,7 +62,7 @@ export interface Block {
 export interface Promo {
   id: string;
   code: string;
-  type: string;       // 'percent' | 'amount' etc.
+  type: string; // 'percent' | 'amount' etc.
   value: number;
   min_total: number;
   max_discount?: number;
@@ -85,6 +85,7 @@ export interface Item {
   barcode: string;
   price: number;
   is_outofstock: number;
+  has_addons?: number | boolean;
   category_id: string;
   subcategory_id: string;
   image?: string | null;

@@ -1,4 +1,3 @@
-// src/main/handlers/catalog.ts
 import type { IpcMain } from 'electron';
 import db from '../db';
 
@@ -23,14 +22,25 @@ function log(...args: any[]) {
 export function registerCatalogHandlers(ipcMain: IpcMain) {
   // 🔍 Search items by name / barcode
   ipcMain.handle('catalog:search', async (_e, q: string) => {
+    // FIX: Added image and image_local here
     const stmt = db.prepare(
       `
-      SELECT id, name, name_ar, barcode, price, is_outofstock
-      FROM items
-      WHERE name LIKE ? OR name_ar LIKE ? OR barcode = ?
-      LIMIT 50
-    `
+    SELECT
+      id,
+      name,
+      name_ar,
+      barcode,
+      price,
+      is_outofstock,
+      has_addons,
+      image,
+      image_local
+    FROM items
+    WHERE name LIKE ? OR name_ar LIKE ? OR barcode = ?
+    LIMIT 50
+  `
     );
+
     return stmt.all(`%${q}%`, `%${q}%`, q);
   });
 
@@ -75,9 +85,21 @@ export function registerCatalogHandlers(ipcMain: IpcMain) {
         params.push(filter.subcategoryId);
       }
 
+      // FIX: Added image and image_local here
       const sql = `
-        SELECT id, name, name_ar, barcode, price, is_outofstock,
-               updated_at, category_id, subcategory_id
+        SELECT
+          id,
+          name,
+          name_ar,
+          barcode,
+          price,
+          is_outofstock,
+          has_addons,  
+          updated_at,
+          category_id,
+          subcategory_id,
+          image,
+          image_local
         FROM items
         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
         ORDER BY name COLLATE NOCASE ASC

@@ -1,4 +1,3 @@
-// src/renderer/pages/pos/OrderSide.tsx
 import React, { useState } from 'react';
 import {
   ShoppingCart,
@@ -7,6 +6,7 @@ import {
   Percent,
   UtensilsCrossed,
   Table2,
+  LogOut,
 } from 'lucide-react';
 
 import {
@@ -98,19 +98,19 @@ export default function OrderSide({
   const handleClose = async () => {
     if (!currentOrder) return;
 
-    // Clear table for dine-in
-    if (currentOrder.order_type === 3 && currentOrder.table_id) {
+    // For Dine-in, "Close" here means "Cancel/Delete" if empty,
+    // OR if user really wants to force quit.
+    // To release table we use handleReleaseTable.
+
+    // If it's dine-in and has table, we clear table before closing ONLY if it was just created (empty)
+    if (
+      currentOrder.order_type === 3 &&
+      currentOrder.table_id &&
+      orderLines.length === 0
+    ) {
       try {
         await window.api.invoke('orders:clearTable', currentOrder.id);
-        console.log(
-          `[handleClose] Explicitly cleared table for order ${currentOrder.id}`
-        );
-      } catch (e) {
-        console.warn(
-          `[handleClose] Failed to clear table for order ${currentOrder.id}`,
-          e
-        );
-      }
+      } catch {}
     }
 
     try {
@@ -130,6 +130,25 @@ export default function OrderSide({
     try {
       await onRefreshTables();
     } catch {}
+  };
+
+  // Final settlement for dine-in
+  const handleReleaseTable = async () => {
+    if (!currentOrder) return;
+    if (
+      !confirm(
+        'Are you sure you want to release this table and finish the order?'
+      )
+    )
+      return;
+    try {
+      await window.api.invoke('orders:releaseTable', currentOrder.id);
+      await focusNextActive();
+      await onRefreshTables();
+    } catch (e) {
+      console.error(e);
+      alert('Failed to release table');
+    }
   };
 
   return (
@@ -187,7 +206,7 @@ export default function OrderSide({
                     Table
                   </button>
                 )}
-                {currentOrder.table_id && (
+                {currentOrder.table_id && orderLines.length === 0 && (
                   <button
                     onClick={async () => {
                       try {
@@ -281,7 +300,7 @@ export default function OrderSide({
       {/* Body */}
       {currentOrder && (
         <>
-          <div className='grow overflow-y-auto p-4'>
+          <div className='grow overflow-y-auto nice-scroll p-4'>
             {orderLines.length === 0 ? (
               <div
                 className={`flex flex-col items-center justify-center min-h-[200px] ${textMuted} opacity-70`}
@@ -349,23 +368,39 @@ export default function OrderSide({
             </div>
 
             <div className='grid grid-cols-2 gap-2'>
-              {/* Close order */}
-              <button
-                type='button'
-                onClick={handleClose}
-                className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
-                  theme === 'dark'
-                    ? 'bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30'
-                    : 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
-                }`}
-                title={
-                  orderLines.length > 0
-                    ? 'Cancel this order'
-                    : 'Delete this empty order'
-                }
-              >
-                <X size={16} /> Close
-              </button>
+              {/* Close/Release order */}
+              {currentOrder.order_type === 3 &&
+              currentOrder.table_id &&
+              orderLines.length > 0 ? (
+                <button
+                  type='button'
+                  onClick={handleReleaseTable}
+                  className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
+                    theme === 'dark'
+                      ? 'bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30'
+                      : 'bg-rose-100 text-rose-700 border border-rose-300 hover:bg-rose-200'
+                  }`}
+                >
+                  <LogOut size={16} /> Release Table
+                </button>
+              ) : (
+                <button
+                  type='button'
+                  onClick={handleClose}
+                  className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
+                    theme === 'dark'
+                      ? 'bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30'
+                      : 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+                  }`}
+                  title={
+                    orderLines.length > 0
+                      ? 'Cancel this order'
+                      : 'Delete this empty order'
+                  }
+                >
+                  <X size={16} /> Close
+                </button>
+              )}
 
               {/* Place order (checkout) */}
               <button
@@ -378,7 +413,8 @@ export default function OrderSide({
                     : 'bg-gray-900 hover:bg-black text-white disabled:opacity-50 disabled:cursor-not-allowed'
                 }`}
               >
-                <Check size={18} /> Place Order
+                <Check size={18} />
+                {currentOrder.order_type === 3 ? 'Update / Pay' : 'Place Order'}
               </button>
             </div>
           </div>
@@ -398,10 +434,15 @@ export default function OrderSide({
           onApplyPromo={onApplyPromo}
           onAfterComplete={async () => {
             setShowCheckout(false);
-            await focusNextActive();
-            try {
-              await onRefreshTables();
-            } catch {}
+            // If Dine-in, we stay on the order (or refresh) but don't close it
+            if (currentOrder.order_type === 3) {
+              await onSelectOrder(currentOrder.id);
+            } else {
+              await focusNextActive();
+              try {
+                await onRefreshTables();
+              } catch {}
+            }
           }}
           onLoadCities={onLoadCities}
           onLoadBlocks={onLoadBlocks}

@@ -39,7 +39,10 @@ export function configureApi(baseUrl: string, device: Device, token: string) {
       }
       if (st === 423) {
         // server says device locked
-        setMeta('device.locked_at', String(error?.response?.data?.locked_at ?? Date.now()));
+        setMeta(
+          'device.locked_at',
+          String(error?.response?.data?.locked_at ?? Date.now())
+        );
       }
       return Promise.reject(error);
     }
@@ -52,7 +55,8 @@ function markSyncedNow() {
 
 /* ---------- Normalizers (coerce to SQLite-friendly values) ---------- */
 const S = (v: any) => (v === undefined || v === null ? null : String(v));
-const N = (v: any) => (v === undefined || v === null || v === '' ? 0 : Number(v));
+const N = (v: any) =>
+  v === undefined || v === null || v === '' ? 0 : Number(v);
 const B = (v: any) => (v ? 1 : 0); // boolean → 0/1
 
 function normItem(it: any) {
@@ -67,9 +71,13 @@ function normItem(it: any) {
     image: S(it.image),
     size: S(it.size),
     has_variations: B(it.has_variations),
+    has_addons: B(it.has_addons),
     type: S(it.type),
     is_outofstock: B(it.is_outofstock),
-    branch_id: it.branch_id === null || it.branch_id === undefined ? null : N(it.branch_id),
+    branch_id:
+      it.branch_id === null || it.branch_id === undefined
+        ? null
+        : N(it.branch_id),
     updated_at: S(it.updated_at),
   };
 }
@@ -81,7 +89,10 @@ function normVariation(v: any) {
     name: S(v.name) || '',
     name_ar: S(v.name_ar) || '',
     price: v.price === null || v.price === undefined ? null : N(v.price),
-    sale_price: v.sale_price === null || v.sale_price === undefined ? null : N(v.sale_price),
+    sale_price:
+      v.sale_price === null || v.sale_price === undefined
+        ? null
+        : N(v.sale_price),
     updated_at: S(v.updated_at),
   };
 }
@@ -92,7 +103,10 @@ function normItemAddonGroup(m: any) {
     item_id: S(m.item_id)!,
     group_id: S(m.group_id)!,
     is_required: B(m.is_required),
-    max_select: m.max_select === null || m.max_select === undefined ? null : N(m.max_select),
+    max_select:
+      m.max_select === null || m.max_select === undefined
+        ? null
+        : N(m.max_select),
     updated_at: S(m.updated_at),
   };
 }
@@ -100,7 +114,13 @@ function normItemAddonGroup(m: any) {
 function mapRole(typeOrRole: any) {
   const t = Number(typeOrRole);
   if (!Number.isNaN(t)) {
-    return t === 1 ? 'admin' : t === 4 ? 'kitchen' : t === 6 ? 'branch' : 'branch';
+    return t === 1
+      ? 'admin'
+      : t === 4
+      ? 'kitchen'
+      : t === 6
+      ? 'branch'
+      : 'branch';
   }
   return String(typeOrRole || 'branch').toLowerCase();
 }
@@ -114,7 +134,7 @@ function normUser(u: any) {
     mobile: u.mobile ?? '',
     role: mapRole(u.role ?? u.type),
     password_hash: (u.password_hash ?? u.password ?? null) as string | null, // Laravel hash ($2y$…)
-    is_active: u.is_active === undefined ? 1 : (u.is_active ? 1 : 0),
+    is_active: u.is_active === undefined ? 1 : u.is_active ? 1 : 0,
     branch_id: u.branch_id == null ? null : Number(u.branch_id),
     updated_at: u.updated_at ? String(u.updated_at) : null,
   };
@@ -127,7 +147,10 @@ function normPromo(p: any) {
     type: S(p.type) ?? 'percent', // server uses percent (offer_amount)
     value: N(p.value),
     min_total: N(p.min_total),
-    max_discount: p.max_discount === null || p.max_discount === undefined ? null : N(p.max_discount),
+    max_discount:
+      p.max_discount === null || p.max_discount === undefined
+        ? null
+        : N(p.max_discount),
     start_at: S(p.start_at),
     end_at: S(p.end_at),
     active: B(p.active),
@@ -261,7 +284,13 @@ function normOrderSeed(o: any) {
 }
 
 /* ---------- Pairing ---------- */
-export async function pairDevice(baseUrl: string, pairCode: string, branchId: string, deviceName: string, machineId: string) {
+export async function pairDevice(
+  baseUrl: string,
+  pairCode: string,
+  branchId: string,
+  deviceName: string,
+  machineId: string
+) {
   const pairingApi = axios.create({
     baseURL: baseUrl.replace(/\/+$/, '') + '/api/pos',
     timeout: 15000,
@@ -280,7 +309,8 @@ export async function pairDevice(baseUrl: string, pairCode: string, branchId: st
 
   setMeta('device_id', data.device.id);
   setMeta('server.base_url', baseUrl);
-  if (data.device.branch_id) setMeta('branch_id', String(data.device.branch_id));
+  if (data.device.branch_id)
+    setMeta('branch_id', String(data.device.branch_id));
   await saveSecret('device_token', data.token);
 
   return { deviceId: data.device.id, branchId: data.device.branch_id };
@@ -310,7 +340,10 @@ export async function bootstrap(baseUrl: string) {
 
   if (data?.device) {
     if (data.device.killswitch_after_days != null) {
-      setMeta('device.killswitch_after_days', String(data.device.killswitch_after_days));
+      setMeta(
+        'device.killswitch_after_days',
+        String(data.device.killswitch_after_days)
+      );
     }
     if (data.device.locked_at) {
       setMeta('device.locked_at', String(data.device.locked_at));
@@ -320,16 +353,23 @@ export async function bootstrap(baseUrl: string) {
   }
 
   const catalog = data.catalog ?? data;
-  const asArray = (x: any): any[] => (Array.isArray(x) ? x : x ? Object.values(x) : []);
+  const asArray = (x: any): any[] =>
+    Array.isArray(x) ? x : x ? Object.values(x) : [];
 
   const items = asArray(catalog.items ?? catalog.item);
-  const itemVariations = asArray(catalog.item_variations ?? catalog.variations ?? []);
+  const itemVariations = asArray(
+    catalog.item_variations ?? catalog.variations ?? []
+  );
   const itemAddonGroups = asArray(catalog.item_addon_groups ?? []);
   const promos = asArray(catalog.promos ?? catalog.promo_codes);
   const promoExclusions = asArray(catalog.promo_exclusions ?? []);
-  const groups = asArray(catalog.addons ?? catalog.addon_groups ?? catalog.addons_groups);
+  const groups = asArray(
+    catalog.addons ?? catalog.addon_groups ?? catalog.addons_groups
+  );
   const categories = asArray(catalog.categories);
-  const payMethods = asArray(catalog.payment_methods ?? catalog.web_payment_methods ?? catalog.payments);
+  const payMethods = asArray(
+    catalog.payment_methods ?? catalog.web_payment_methods ?? catalog.payments
+  );
   const settings = asArray(catalog.settings ?? []);
   const states = asArray(catalog.states ?? []);
   const cities = asArray(catalog.cities ?? []);
@@ -342,26 +382,56 @@ export async function bootstrap(baseUrl: string) {
   const tx = db.transaction(() => {
     // items
     const upItem = db.prepare(`
-      INSERT INTO items (
-        id,category_id,subcategory_id,name,name_ar,barcode,price,image,size,has_variations,type,is_outofstock,branch_id,updated_at
-      ) VALUES (
-        @id,@category_id,@subcategory_id,@name,@name_ar,@barcode,@price,@image,@size,@has_variations,@type,@is_outofstock,@branch_id,@updated_at
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        category_id=excluded.category_id,
-        subcategory_id=excluded.subcategory_id,
-        name=excluded.name,
-        name_ar=excluded.name_ar,
-        barcode=excluded.barcode,
-        price=excluded.price,
-        image=excluded.image,
-        size=excluded.size,
-        has_variations=excluded.has_variations,
-        type=excluded.type,
-        is_outofstock=excluded.is_outofstock,
-        branch_id=excluded.branch_id,
-        updated_at=excluded.updated_at
-    `);
+  INSERT INTO items (
+    id,
+    category_id,
+    subcategory_id,
+    name,
+    name_ar,
+    barcode,
+    price,
+    image,
+    size,
+    has_variations,
+    has_addons,
+    type,
+    is_outofstock,
+    branch_id,
+    updated_at
+  ) VALUES (
+    @id,
+    @category_id,
+    @subcategory_id,
+    @name,
+    @name_ar,
+    @barcode,
+    @price,
+    @image,
+    @size,
+    @has_variations,
+    @has_addons,
+    @type,
+    @is_outofstock,
+    @branch_id,
+    @updated_at
+  )
+  ON CONFLICT(id) DO UPDATE SET
+    category_id    = excluded.category_id,
+    subcategory_id = excluded.subcategory_id,
+    name           = excluded.name,
+    name_ar        = excluded.name_ar,
+    barcode        = excluded.barcode,
+    price          = excluded.price,
+    image          = excluded.image,
+    size           = excluded.size,
+    has_variations = excluded.has_variations,
+    has_addons     = excluded.has_addons,     -- 👈 NEW
+    type           = excluded.type,
+    is_outofstock  = excluded.is_outofstock,
+    branch_id      = excluded.branch_id,
+    updated_at     = excluded.updated_at
+`);
+
     for (const it of items) upItem.run(normItem(it));
 
     // variations
@@ -417,7 +487,8 @@ export async function bootstrap(baseUrl: string) {
         max_select=excluded.max_select,
         updated_at=excluded.updated_at
     `);
-    for (const m of itemAddonGroups) upItemAddonGroup.run(normItemAddonGroup(m));
+    for (const m of itemAddonGroups)
+      upItemAddonGroup.run(normItemAddonGroup(m));
 
     // promos
     const upPromo = db.prepare(`
@@ -495,7 +566,11 @@ export async function bootstrap(baseUrl: string) {
         updated_at = excluded.updated_at
     `);
     for (const s of settings) {
-      upSetting.run(String(s.key), String(s.value ?? ''), s.updated_at ? String(s.updated_at) : null);
+      upSetting.run(
+        String(s.key),
+        String(s.value ?? ''),
+        s.updated_at ? String(s.updated_at) : null
+      );
     }
 
     // geo
@@ -603,12 +678,13 @@ export async function bootstrap(baseUrl: string) {
 
     for (const u of users) upUser.run(normUser(u));
 
-
     // cursor
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO sync_state(key,value) VALUES('cursor',?)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value
-    `).run(String(data.cursor ?? 0));
+    `
+    ).run(String(data.cursor ?? 0));
   });
 
   tx();
@@ -621,7 +697,10 @@ export async function bootstrap(baseUrl: string) {
 
 /* ---------- Pull (incremental) ---------- */
 export async function pullChanges() {
-  const cursorRow = db.prepare('SELECT value FROM sync_state WHERE key = ?').pluck().get('cursor') as string | undefined;
+  const cursorRow = db
+    .prepare('SELECT value FROM sync_state WHERE key = ?')
+    .pluck()
+    .get('cursor') as string | undefined;
   const cursor = Number(cursorRow ?? 0);
 
   const { data } = await api.post('/pull', { cursor });
@@ -710,7 +789,7 @@ export async function pullChanges() {
       db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(S(pk));
 
     for (const c of changes) {
-      const op  = c.op;
+      const op = c.op;
       const tbl = String(c.table || '').toLowerCase();
 
       if (tbl === 'item' || tbl === 'items') {
@@ -720,7 +799,11 @@ export async function pullChanges() {
           upItem.run(normItem(c.data));
           changedItemIds.push(String(c.data.id));
         }
-      } else if (tbl === 'variation' || tbl === 'variations' || tbl === 'item_variations') {
+      } else if (
+        tbl === 'variation' ||
+        tbl === 'variations' ||
+        tbl === 'item_variations'
+      ) {
         if (op === 'delete') delBy('variations', c.pk);
         else if (c.data) upVar.run(normVariation(c.data));
       } else if (tbl === 'promocode' || tbl === 'promos') {
@@ -734,19 +817,20 @@ export async function pullChanges() {
             [promoId, itemId] = c.pk;
           } else if (c.pk && typeof c.pk === 'object') {
             promoId = c.pk.promo_id ?? c.pk.promocode_id;
-            itemId  = c.pk.item_id;
+            itemId = c.pk.item_id;
           } else if (c.data) {
             promoId = c.data.promo_id ?? c.data.promocode_id;
-            itemId  = c.data.item_id;
+            itemId = c.data.item_id;
           }
           if (promoId != null && itemId != null) {
-            db.prepare(`DELETE FROM promo_item_exclusions WHERE promo_id = ? AND item_id = ?`)
-              .run(S(promoId), S(itemId));
+            db.prepare(
+              `DELETE FROM promo_item_exclusions WHERE promo_id = ? AND item_id = ?`
+            ).run(S(promoId), S(itemId));
           }
         } else if (c.data) {
           upPromoEx.run({
             promo_id: S(c.data.promo_id ?? c.data.promocode_id)!,
-            item_id:  S(c.data.item_id)!,
+            item_id: S(c.data.item_id)!,
           });
         }
       } else if (tbl === 'addons_group' || tbl === 'addon_groups') {
@@ -765,10 +849,12 @@ export async function pullChanges() {
       // (extend for other tables if your /pull adds them)
     }
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO sync_state(key,value) VALUES('cursor',?)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value
-    `).run(String(data.cursor ?? cursor));
+    `
+    ).run(String(data.cursor ?? cursor));
   });
 
   apply(data.changes ?? []);
