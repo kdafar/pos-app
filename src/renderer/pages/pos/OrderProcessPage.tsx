@@ -207,8 +207,21 @@ export default function OrderProcessPage() {
     try {
       const order = await startOrder(orderType);
       await selectOrder(order.id);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error('[createNewOrder] error', e);
+      const msg =
+        (e && (e.message || e.toString?.())) || 'Could not create a new order.';
+
+      // Match the backend message from orders:start
+      if (msg.toLowerCase().includes('open order with no items')) {
+        alert(
+          'You already have an open order with no items.\nPlease add items to it or cancel it before opening a new one.'
+        );
+        // Refresh list so they can see/select that open empty order
+        await loadActiveOrders();
+      } else {
+        alert(msg);
+      }
     }
   };
 
@@ -243,9 +256,23 @@ export default function OrderProcessPage() {
       );
 
       setOrderLines(res.lines || []);
-      setCurrentOrder(res.order); // Use the returned order object directly
-    } catch (e) {
-      console.error(e);
+      setCurrentOrder(res.order);
+      // Optionally refresh active orders bar
+      await loadActiveOrders();
+    } catch (e: any) {
+      console.error('[addItemToOrder] error', e);
+      const msg =
+        (e && (e.message || e.toString?.())) ||
+        'Could not add this item to the order.';
+
+      if (msg.toLowerCase().includes('open order with no items')) {
+        alert(
+          'You already have an open order with no items.\nPlease add items to it or cancel it before starting another one.'
+        );
+        await loadActiveOrders();
+      } else {
+        alert(msg);
+      }
     }
   };
 
@@ -290,33 +317,62 @@ export default function OrderProcessPage() {
 
   const startDineInForTable = async (table: TableInfo) => {
     try {
-      // 1) Check if this table already has an active order
+      // 1. Check if we are already viewing this table's order
+      // (Prevents reloading if you just clicked the same table you are working on)
+      if (
+        currentOrder?.table_id === table.id &&
+        currentOrder?.order_type === 3
+      ) {
+        return;
+      }
+
+      // 2. Check backend: Does this table ALREADY have an order?
+      // (This fixes the "I can't click that table again" issue)
       const existing = await window.api.invoke(
         'tables:getActiveOrderForTable',
         table.id
       );
 
       if (existing && existing.id) {
-        // Just focus the existing order
+        // If yes, just open that order! Don't create a new one.
         await selectOrder(existing.id);
+        // REFRESH HERE: Ensure the UI knows it's occupied (turns red)
+        await loadTables();
         return;
       }
 
-      // 2) No active order → create a new dine-in order and assign table
+      // 3. If no existing order, start a NEW one
+      // We pass 3 (Dine-in).
+      // NOTE: Ensure your startOrder function DOES NOT call loadTables() internally
+      // to avoid double flashing, or if it does, it doesn't matter because we fix it below.
       const order = await startOrder(3);
       if (!order || !order.id) return;
 
+      // 4. ASSIGN THE TABLE
+      // This is the most critical step. The table is not "Busy" until this finishes.
       await window.api.invoke('orders:setTable', order.id, {
         table_id: table.id,
         covers: table.seats || 2,
       });
 
-      await loadActiveOrders();
-      await selectOrder(order.id);
+      // 5. UPDATE CURRENT ORDER
+      // We need to update currentOrder locally so the UI knows we are on this table
+      const updated = await window.api.invoke('orders:get', order.id);
+      setCurrentOrder(updated.order);
+      setOrderLines(updated.lines || []);
+
+      // 6. THE FIX: REFRESH TABLES NOW
+      // We fetch the list NOW, after step 4 is complete.
+      // The backend will now report this table has an active_order_id.
       await loadTables();
+
+      // Also refresh active orders bar
+      await loadActiveOrders();
     } catch (e) {
       console.error('startDineInForTable failed', e);
-      alert('Could not start or open dine-in order for this table.');
+      alert('Could not assign table.');
+      // If error, refresh anyway to show true state
+      await loadTables();
     }
   };
 
@@ -485,7 +541,7 @@ export default function OrderProcessPage() {
               };
 
               const res = await window.api.invoke(
-                'orders:addLine',
+                'orders:addLineWithAddons',
                 currentOrder.id,
                 addonItem.id,
                 1, // base qty

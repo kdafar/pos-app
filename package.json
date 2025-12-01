@@ -1,7 +1,7 @@
 {
   "name": "pos-app",
   "productName": "POS App",
-  "version": "0.2.7",
+  "version": "0.2.9",
   "description": "POS App",
   "private": true,
   "main": "out/main/index.js",
@@ -62,6 +62,7 @@
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "nodemon": "^3.1.11",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.16",
     "typescript": "^5.2.2",

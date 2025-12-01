@@ -6,20 +6,27 @@ import db, { getSetting } from './db';
 import QRCode from 'qrcode';
 import bwipjs from 'bwip-js';
 
-
-
 type OrderType = 1 | 2 | 3;
+
 type OrderRow = {
   id: string;
   number: string;
   order_type: OrderType;
+  status?: string | null;
   payment_method_slug?: string;
+
+  city_id?: string | null; // ✅ add this
+
   delivery_fee?: number | null;
   discount_amount?: number | null;
+  discount_total?: number | null;
   grand_total?: number | null;
   subtotal?: number | null;
-  delivery_date?: string | null;
-  created_at: string;
+  tax_total?: number | null;
+
+  delivery_date?: string | number | null;
+  created_at: string | number | null;
+
   full_name?: string;
   mobile?: string;
   address?: string | null;
@@ -31,6 +38,28 @@ type OrderRow = {
   order_notes?: string | null;
   promocode?: string | null;
 };
+
+function parseList(input: any): any[] {
+  if (input == null) return [];
+  if (Array.isArray(input)) return input;
+
+  const s = String(input).trim();
+  if (!s) return [];
+
+  // Try JSON first
+  try {
+    const j = JSON.parse(s);
+    if (Array.isArray(j)) return j;
+  } catch {
+    // ignore
+  }
+
+  // Fallback: comma separated
+  return s
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
 
 type LineRow = {
   id: string;
@@ -46,19 +75,27 @@ type LineRow = {
 
 // ---- helpers --------------------------------------------------------------
 
-function sleep(ms: number) { return new Promise(res => setTimeout(res, ms)); }
+function sleep(ms: number) {
+  return new Promise((res) => setTimeout(res, ms));
+}
 
 function getOrder(orderId: string): OrderRow | undefined {
-  const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
     SELECT
       o.id,
       o.number,
       o.order_type,
+      o.status,
       o.payment_method_slug,
 
-      -- ✅ Only use columns that exist in POS SQLite
+      o.city_id,                     -- ✅ add this
+
       o.delivery_fee               AS delivery_fee,
+      o.discount_total             AS discount_total,
       o.discount_amount            AS discount_amount,
+      o.tax_total                  AS tax_total,
       o.grand_total,
       o.subtotal,
 
@@ -69,69 +106,159 @@ function getOrder(orderId: string): OrderRow | undefined {
       o.address,
       o.landmark,
 
-      t.label AS table_name,       -- from tables table
+      t.label AS table_name,
       NULL  AS branch_name,
       NULL  AS branch_phone,
       o.number AS order_number,
-      o.note  AS order_notes,      -- POS column 'note' mapped to order_notes
-      o.promocode                  -- exists in migration
+      o.note  AS order_notes,
+      o.promocode
     FROM orders o
     LEFT JOIN tables t ON o.table_id = t.id
     WHERE o.id = ?
-  `).get(orderId) as OrderRow | undefined;
+  `
+    )
+    .get(orderId) as OrderRow | undefined;
 
   return row;
 }
 
+function safeDate(value: string | number | null | undefined): Date {
+  if (value == null) return new Date();
+  if (typeof value === 'number') return new Date(value);
+
+  const s = String(value).trim();
+  if (/^\d+$/.test(s)) {
+    // milliseconds timestamp stored as text
+    return new Date(Number(s));
+  }
+
+  return new Date(s);
+}
+
+function orderStatusLabel(
+  status: string | null | undefined,
+  lang: 'ar' | 'en'
+) {
+  if (!status) return '';
+  const s = status.toLowerCase();
+  if (lang === 'ar') {
+    switch (s) {
+      case 'open':
+        return 'مفتوح';
+      case 'pending':
+        return 'قيد الانتظار';
+      case 'ready':
+        return 'جاهز';
+      case 'prepared':
+        return 'مجهز';
+      case 'completed':
+        return 'مكتمل';
+      case 'cancelled':
+        return 'ملغى';
+      case 'closed':
+        return 'مغلق';
+      default:
+        return status;
+    }
+  }
+  // English
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 function getLines(orderId: string): LineRow[] {
-  // ⚠️ Adjust to your schema (order_details)
-  const rows = db.prepare(`
+  const raw = db
+    .prepare(
+      `
     SELECT
       ol.id,
-      ol.name AS item_name,     -- FIX: Use 'name' from order_lines
-      ol.name_ar AS item_name_ar, -- FIX: Use 'name_ar' from order_lines
-      ol.variation,             -- FIX: Use 'variation'
-      i.size,                   -- FIX: Get 'size' from joined items table
-      ol.notes AS item_notes,   -- FIX: Use 'notes' from order_lines
+      ol.name       AS item_name,
+      ol.name_ar    AS item_name_ar,
+      ol.variation  AS variation,
+      i.size        AS size,
+      ol.notes      AS item_notes,
       ol.qty,
       ol.unit_price AS price,
-      -- NOTE: Your schema stores addons in separate columns, not JSON.
-      -- This will pass NULL, so addons won't print, but it avoids a crash.
-      -- To fix, you would need to build a JSON string here,
-      -- or change the render function.
-      NULL AS addons_json
-    FROM order_lines ol         -- FIX: Table is 'order_lines', not 'order_details'
+
+      -- raw addon fields in order_lines
+      ol.addons_name,
+      ol.addons_price,
+      ol.addons_qty
+    FROM order_lines ol
     LEFT JOIN items i ON i.id = ol.item_id
     WHERE ol.order_id = ?
     ORDER BY ol.id ASC
-  `).all(orderId) as LineRow[];
-  return rows;
+  `
+    )
+    .all(orderId) as any[];
+
+  const lines: LineRow[] = raw.map((r) => {
+    const names = parseList(r.addons_name);
+    const prices = parseList(r.addons_price).map((v) => Number(v));
+    const qtys = parseList(r.addons_qty).map((v) => Number(v));
+
+    const addons: Array<{
+      name?: string;
+      name_ar?: string;
+      qty?: number;
+      price?: number;
+    }> = [];
+
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      if (!name) continue;
+
+      addons.push({
+        name,
+        // if you later add Arabic names, set name_ar here
+        qty: Number(qtys[i] || 1) || 1,
+        price: Number(prices[i] || 0) || 0,
+      });
+    }
+
+    return {
+      id: r.id,
+      item_name: r.item_name,
+      item_name_ar: r.item_name_ar,
+      variation: r.variation,
+      size: r.size,
+      item_notes: r.item_notes,
+      qty: Number(r.qty || 0),
+      price: Number(r.price || 0),
+      addons_json: addons.length ? JSON.stringify(addons) : null,
+    };
+  });
+
+  return lines;
 }
-async function toDataUrl(filePath: string | null | undefined): Promise<string | null> {
+
+async function toDataUrl(
+  filePath: string | null | undefined
+): Promise<string | null> {
   try {
     if (!filePath) return null;
     const buf = await fs.readFile(filePath);
     const ext = path.extname(filePath).slice(1) || 'png';
     return `data:image/${ext};base64,${buf.toString('base64')}`;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function orderTypeLabel(t: OrderType, lang: 'ar' | 'en') {
   if (lang === 'ar') {
-    return t === 1 ? 'توصيل'
-         : t === 2 ? 'استلام من المطعم'
-         : 'طاولة';
+    return t === 1 ? 'توصيل' : t === 2 ? 'استلام من المطعم' : 'طاولة';
   }
 
-  return t === 1 ? 'Delivery'
-       : t === 2 ? 'Pickup'
-       : 'Dine-in';
+  return t === 1 ? 'Delivery' : t === 2 ? 'Pickup' : 'Dine-in';
 }
 
 // generate QR & barcode as base64 (no internet)
 async function makeQrPngDataUrl(text: string) {
-  return await QRCode.toDataURL(text || '', { margin: 1, scale: 4, errorCorrectionLevel: 'M' });
+  return await QRCode.toDataURL(text || '', {
+    margin: 1,
+    scale: 4,
+    errorCorrectionLevel: 'M',
+  });
 }
 async function makeCode128PngDataUrl(text: string) {
   const png = await bwipjs.toBuffer({
@@ -176,16 +303,16 @@ function renderReceiptHTML(opts: {
 
   // ---- items & addons ----
   let itemsHtml = '';
-  let total = 0;
+  let computedSubtotal = 0;
 
   for (const L of lines) {
     const lineTotal = L.qty * L.price;
-    total += lineTotal;
+    computedSubtotal += lineTotal;
 
     const name =
       lang === 'ar'
-        ? (L.item_name_ar || L.item_name)
-        : (L.item_name || L.item_name_ar || '');
+        ? L.item_name_ar || L.item_name
+        : L.item_name || L.item_name_ar || '';
 
     const optParts: string[] = [];
     if (L.variation) optParts.push(`[${L.variation}]`);
@@ -195,9 +322,13 @@ function renderReceiptHTML(opts: {
       <tr>
         <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:left;">
           ${name} ${optParts.join(' ') || ''}
-          ${L.item_notes
-            ? `<br><small>* ${String(L.item_notes).replace(/\n/g, '<br>')}</small>`
-            : ''
+          ${
+            L.item_notes
+              ? `<br><small>* ${String(L.item_notes).replace(
+                  /\n/g,
+                  '<br>'
+                )}</small>`
+              : ''
           }
         </td>
         <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:right;">
@@ -209,18 +340,24 @@ function renderReceiptHTML(opts: {
       </tr>
     `;
 
-    // addons like Blade (if you later build addons_json)
+    // (Addons still optional: addons_json can be wired later if you want)
     if (L.addons_json) {
       try {
-        const addons: Array<{name?:string;name_ar?:string;qty?:number;price?:number}> = JSON.parse(L.addons_json);
+        const addons: Array<{
+          name?: string;
+          name_ar?: string;
+          qty?: number;
+          price?: number;
+        }> = JSON.parse(L.addons_json);
+
         for (const a of addons) {
-          const aname = lang === 'ar'
-            ? (a.name_ar || a.name || '')
-            : (a.name || a.name_ar || '');
+          const aname =
+            lang === 'ar'
+              ? a.name_ar || a.name || ''
+              : a.name || a.name_ar || '';
           const aqty = a.qty ?? 1;
           const aprice = a.price ?? 0;
           const addonTotal = aprice * aqty;
-          total += addonTotal * L.qty;
 
           itemsHtml += `
             <tr>
@@ -237,7 +374,7 @@ function renderReceiptHTML(opts: {
           `;
         }
       } catch {
-        // ignore bad JSON
+        // ignore JSON errors
       }
     }
 
@@ -248,14 +385,54 @@ function renderReceiptHTML(opts: {
     `;
   }
 
-  let orderTotal = total;
-  const deliveryCharge = Number(order.delivery_fee || 0);
-  const discount = Number(order.discount_amount || 0);
+  // ---- totals from ORDER row (with fallback) ----
+  const subtotal =
+    order.subtotal != null && !Number.isNaN(Number(order.subtotal))
+      ? Number(order.subtotal)
+      : computedSubtotal;
 
-  orderTotal += deliveryCharge;
-  orderTotal -= discount;
+  const discount =
+    order.discount_amount != null &&
+    !Number.isNaN(Number(order.discount_amount))
+      ? Number(order.discount_amount)
+      : order.discount_total != null &&
+        !Number.isNaN(Number(order.discount_total))
+      ? Number(order.discount_total)
+      : 0;
 
-  const createdAt = new Date(order.created_at);
+  const typeCode = Number(order.order_type ?? 0);
+
+  const deliveryCharge =
+    typeCode === 1 ? Number(order.delivery_fee ?? 0) || 0 : 0;
+
+  const grandTotal =
+    order.grand_total != null && !Number.isNaN(Number(order.grand_total))
+      ? Number(order.grand_total)
+      : +(subtotal - discount + deliveryCharge).toFixed(3);
+
+  // ---- date / time ----
+  // ---- created_at handling (supports ms epoch or "YYYY-MM-DD HH:mm:ss") ----
+  let createdAt: Date;
+
+  if (order.created_at != null) {
+    const raw = order.created_at as any;
+
+    // Try numeric (ms since epoch)
+    const num = Number(raw);
+    if (!Number.isNaN(num) && num > 0) {
+      createdAt = new Date(num);
+    } else {
+      // Fallback: SQLite-style "YYYY-MM-DD HH:mm:ss"
+      // Replace space with 'T' and add 'Z' so JS parses it as UTC
+      const str = String(raw).trim();
+      const isoLike = str.includes('T') ? str : str.replace(' ', 'T') + 'Z';
+      const d = new Date(isoLike);
+      createdAt = isNaN(d.getTime()) ? new Date() : d;
+    }
+  } else {
+    createdAt = new Date();
+  }
+
   const createdLabel = createdAt.toLocaleString('en-KW', {
     year: 'numeric',
     month: '2-digit',
@@ -266,29 +443,27 @@ function renderReceiptHTML(opts: {
   });
 
   const deliveryTimeLabel = order.delivery_date
-    ? new Date(order.delivery_date).toLocaleTimeString('en-KW', {
+    ? safeDate(order.delivery_date).toLocaleTimeString('en-KW', {
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
       })
     : '';
 
-  const orderType =
-    order.order_type === 1
-      ? 'Delivery'
-      : order.order_type === 2
-      ? 'Pickup'
-      : 'Dine-in';
-
+  const orderTypeText = orderTypeLabel(order.order_type, lang);
   const paymentLabel = order.payment_method_slug
-    ? order.payment_method_slug.charAt(0).toUpperCase() + order.payment_method_slug.slice(1)
+    ? order.payment_method_slug.charAt(0).toUpperCase() +
+      order.payment_method_slug.slice(1)
     : '';
+  const statusText = orderStatusLabel(order.status, lang);
 
   const addressBlock =
-    order.order_type === 1
-      ? (order.address || '')
-      : order.order_type === 3
-      ? (order.table_name ? `Table: ${order.table_name}` : '')
+    typeCode === 1
+      ? order.address || ''
+      : typeCode === 3
+      ? order.table_name
+        ? `Table: ${order.table_name}`
+        : ''
       : '';
 
   return `<!DOCTYPE html>
@@ -344,7 +519,11 @@ function renderReceiptHTML(opts: {
     <table width="85%" border="0" cellpadding="0" cellspacing="0" align="center" bgcolor="#fff">
       <tr>
         <td style="font-size:15px;font-family:'Open Sans',sans-serif;line-height:18px;vertical-align:bottom;text-align:center;padding-top:5px;">
-          ${aboutLogo ? `<img style="width:40mm" src="${aboutLogo}" alt="">` : ''}
+          ${
+            aboutLogo
+              ? `<img style="width:40mm" src="${aboutLogo}" alt="">`
+              : ''
+          }
           ${
             branchName
               ? `<strong style="font-size:16px;"><br>${branchName}${
@@ -361,8 +540,12 @@ function renderReceiptHTML(opts: {
         <td style="font-family:'Open Sans',sans-serif;line-height:15px;vertical-align:bottom;text-align:center;font-weight:bold;">
           <h3 style="font-weight:bold;margin:8px 0;">
             Invoice ${order.number || order.id}<br>
-            ${orderType}<br>
-            <small>${paymentLabel}</small>
+            ${orderTypeText}<br>
+            <small>
+              ${[paymentLabel || null, statusText || null]
+                .filter(Boolean)
+                .join(' • ')}
+            </small>
           </h3>
         </td>
       </tr>
@@ -396,9 +579,13 @@ function renderReceiptHTML(opts: {
         <td colspan="2">
           ${
             order.order_type === 1
-              ? (addressBlock ? `<br>${addressBlock}` : '')
+              ? addressBlock
+                ? `<br>${addressBlock}`
+                : ''
               : order.order_type === 3
-              ? (addressBlock ? `<br>${addressBlock}` : '')
+              ? addressBlock
+                ? `<br>${addressBlock}`
+                : ''
               : ''
           }
           ${order.landmark ? `<br>${order.landmark}` : ''}
@@ -410,7 +597,10 @@ function renderReceiptHTML(opts: {
       orderNotes
         ? `
       <div style="padding:5px 10px 5px 15px">
-        <h6>Order note:<br><small>${String(orderNotes).replace(/\n/g, '<br>')}</small></h6>
+        <h6>Order note:<br><small>${String(orderNotes).replace(
+          /\n/g,
+          '<br>'
+        )}</small></h6>
       </div>
     `
         : ''
@@ -438,11 +628,11 @@ function renderReceiptHTML(opts: {
             <br><strong>Subtotal</strong>
           </td>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:bottom;text-align:right;" width="50%">
-            <strong>${currency} ${fmt(total)}</strong>
+            <strong>${currency} ${fmt(subtotal)}</strong>
           </td>
         </tr>
         ${
-          order.order_type === 1
+          typeCode === 1 && Math.abs(deliveryCharge) > 0.0005
             ? `
         <tr>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
@@ -459,7 +649,9 @@ function renderReceiptHTML(opts: {
             ? `
         <tr>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
-            <strong>Discount</strong> ${order.promocode ? `(${order.promocode})` : ''}
+            <strong>Discount</strong> ${
+              order.promocode ? `(${order.promocode})` : ''
+            }
           </td>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
             <strong>- ${currency} ${fmt(discount)}</strong>
@@ -472,7 +664,7 @@ function renderReceiptHTML(opts: {
             <strong>Grand total</strong>
           </td>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
-            <strong>${currency} ${fmt(orderTotal)}</strong>
+            <strong>${currency} ${fmt(grandTotal)}</strong>
           </td>
         </tr>
       </tbody>
@@ -482,7 +674,11 @@ function renderReceiptHTML(opts: {
     <table width="85%" border="0" cellpadding="0" cellspacing="0" align="left" style="border-top:1px solid #000000;margin-top:6px;">
       <tr>
         <td>
-          ${qrDataUrl ? `<img width="100" height="100" src="${qrDataUrl}" />` : ''}
+          ${
+            qrDataUrl
+              ? `<img width="100" height="100" src="${qrDataUrl}" />`
+              : ''
+          }
         </td>
         <td>
           ${
@@ -498,11 +694,15 @@ function renderReceiptHTML(opts: {
 </html>`;
 }
 
-
 // ---- print flow -----------------------------------------------------------
 
 async function printHtmlSilently(html: string): Promise<void> {
-  const win = new BrowserWindow({ show: true, width: 420, height: 800, webPreferences: { javascript: true } });
+  const win = new BrowserWindow({
+    show: true,
+    width: 420,
+    height: 800,
+    webPreferences: { javascript: true },
+  });
   try {
     // data URL avoids any disk writes
     const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
@@ -510,12 +710,14 @@ async function printHtmlSilently(html: string): Promise<void> {
 
     // tiny settle
     await sleep(120);
-    
+
     // Trigger print from Main Process to allow preview if silent is false
     await new Promise<void>((resolve, reject) => {
       // silent: false => opens the dialog with preview
-      win.webContents.print({ silent: false, printBackground: true, deviceName: '' }, (ok, reason) =>
-        ok ? resolve() : reject(new Error(reason || 'Print failed'))
+      win.webContents.print(
+        { silent: false, printBackground: true, deviceName: '' },
+        (ok, reason) =>
+          ok ? resolve() : reject(new Error(reason || 'Print failed'))
       );
     });
   } finally {
@@ -524,7 +726,12 @@ async function printHtmlSilently(html: string): Promise<void> {
 }
 
 async function printToPdfFile(html: string): Promise<string> {
-  const win = new BrowserWindow({ show: true, width: 420, height: 800, webPreferences: { javascript: true } });
+  const win = new BrowserWindow({
+    show: true,
+    width: 420,
+    height: 800,
+    webPreferences: { javascript: true },
+  });
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   const pdf = await win.webContents.printToPDF({ printBackground: true });
   const out = path.join(os.tmpdir(), `receipt-${Date.now()}.pdf`);
@@ -536,68 +743,99 @@ async function printToPdfFile(html: string): Promise<string> {
 // ---- IPCs ----------------------------------------------------------------
 
 export function registerLocalPrintHandlers() {
-
   // Main printing IPC (OFFLINE-FIRST)
- ipcMain.handle('orders:print', async (_e, orderId: string, opts?: { savePdf?: boolean }) => {
-  const lang = (getSetting('ui.lang') as 'ar' | 'en') || 'en';
-  const currency = (getSetting('pos.currency') as string) || 'KD';
+  ipcMain.handle(
+    'orders:print',
+    async (_e, orderId: string, opts?: { savePdf?: boolean }) => {
+      const lang = (getSetting('ui.lang') as 'ar' | 'en') || 'en';
+      const currency = (getSetting('pos.currency') as string) || 'KD';
 
-  const order = getOrder(orderId);
-  if (!order) throw new Error('Order not found locally');
+      const order = getOrder(orderId);
+      if (!order) throw new Error('Order not found locally');
 
-  const lines = getLines(orderId);
+      const lines = getLines(orderId);
 
-  // 🔹 Logo path (whatever key you stored in app_settings)
-  const aboutLogoPath =
-    (getSetting('assets.about_logo_path') as string) ||
-    (getSetting('general.logo_path') as string) ||
-    null;
-  const aboutLogo = await toDataUrl(aboutLogoPath);
+      let effectiveDelivery = Number(order.delivery_fee ?? 0);
 
-  // 🔹 Restaurant name & phone from settings, with fallback to branch
-  const brandName =
-    (getSetting('general.site_title') as string) ||
-    (getSetting('about.name_en') as string) ||
-    order.branch_name ||
-    null;
+      if (
+        order.order_type === 1 && // only for Delivery
+        Math.abs(effectiveDelivery) < 0.0005 // if 0 or not set
+      ) {
+        const cityId = (order.city_id ?? null) as string | null;
 
-  const brandPhone =
-    (getSetting('general.phone') as string) ||
-    (getSetting('about.phone') as string) ||
-    order.branch_phone ||
-    null;
+        if (cityId) {
+          const cityRow = db
+            .prepare('SELECT delivery_fee FROM cities WHERE id = ?')
+            .get(cityId) as any;
 
-  const qrText = order.order_number || order.number || String(order.id);
-  const qrDataUrl = await makeQrPngDataUrl(qrText);
+          const cityFee = Number(cityRow?.delivery_fee ?? 0);
+          if (!Number.isNaN(cityFee) && Math.abs(cityFee) > 0.0005) {
+            effectiveDelivery = cityFee;
+          }
+        }
+      }
 
-  const codeText = `${(getSetting('gps.username') || 'XXX').toString().slice(0, 3)}${order.id}`;
-  const barcodeDataUrl = await makeCode128PngDataUrl(codeText);
+      // Patch order object passed into renderer
+      const patchedOrder: OrderRow = {
+        ...order,
+        delivery_fee: effectiveDelivery,
+      };
 
-  const html = renderReceiptHTML({
-    aboutLogo,
-    branchName: brandName,     // ✅ now shows restaurant name
-    branchPhone: brandPhone,   // ✅ restaurant phone
-    lang,
-    order,
-    lines,
-    qrDataUrl,
-    barcodeDataUrl,
-    currency,
-    orderNotes: order.order_notes || null,
-  });
+      // 🔹 Logo path (whatever key you stored in app_settings)
+      const aboutLogoPath =
+        (getSetting('assets.about_logo_path') as string) ||
+        (getSetting('general.logo_path') as string) ||
+        null;
+      const aboutLogo = await toDataUrl(aboutLogoPath);
 
-  if (opts?.savePdf) {
-    const pdfPath = await printToPdfFile(html);
-    return { ok: true, pdfPath };
-  }
+      // 🔹 Restaurant name & phone from settings, with fallback to branch
+      const brandName =
+        (getSetting('general.site_title') as string) ||
+        (getSetting('about.name_en') as string) ||
+        order.branch_name ||
+        null;
 
-  await printHtmlSilently(html);
+      const brandPhone =
+        (getSetting('general.phone') as string) ||
+        (getSetting('about.phone') as string) ||
+        order.branch_phone ||
+        null;
 
-  try {
-    db.prepare(`UPDATE orders SET printed_at = datetime('now') WHERE id = ?`).run(orderId);
-  } catch {}
+      const qrText = order.order_number || order.number || String(order.id);
+      const qrDataUrl = await makeQrPngDataUrl(qrText);
 
-  return { ok: true };
-});
+      const codeText = `${(getSetting('gps.username') || 'XXX')
+        .toString()
+        .slice(0, 3)}${order.id}`;
+      const barcodeDataUrl = await makeCode128PngDataUrl(codeText);
 
+      const html = renderReceiptHTML({
+        aboutLogo,
+        branchName: brandName,
+        branchPhone: brandPhone,
+        lang,
+        order: patchedOrder, // ✅ use patched order here
+        lines,
+        qrDataUrl,
+        barcodeDataUrl,
+        currency,
+        orderNotes: order.order_notes || null,
+      });
+
+      if (opts?.savePdf) {
+        const pdfPath = await printToPdfFile(html);
+        return { ok: true, pdfPath };
+      }
+
+      await printHtmlSilently(html);
+
+      try {
+        db.prepare(
+          `UPDATE orders SET printed_at = datetime('now') WHERE id = ?`
+        ).run(orderId);
+      } catch {}
+
+      return { ok: true };
+    }
+  );
 }

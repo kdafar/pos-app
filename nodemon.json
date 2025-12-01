@@ -1,0 +1,7 @@
+{
+  "watch": ["out/main/index.js"],
+  "ext": "js",
+  "exec": "electron .",
+  "restartable": "rs",
+  "delay": "100"
+}

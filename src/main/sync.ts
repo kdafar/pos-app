@@ -425,7 +425,7 @@ export async function bootstrap(baseUrl: string) {
     image          = excluded.image,
     size           = excluded.size,
     has_variations = excluded.has_variations,
-    has_addons     = excluded.has_addons,     -- 👈 NEW
+    has_addons     = excluded.has_addons, 
     type           = excluded.type,
     is_outofstock  = excluded.is_outofstock,
     branch_id      = excluded.branch_id,
@@ -710,25 +710,55 @@ export async function pullChanges() {
   const apply = db.transaction((changes: any[]) => {
     const upItem = db.prepare(`
       INSERT INTO items (
-        id,category_id,subcategory_id,name,name_ar,barcode,price,image,size,has_variations,type,is_outofstock,branch_id,updated_at
+        id,
+        category_id,
+        subcategory_id,
+        name,
+        name_ar,
+        barcode,
+        price,
+        image,
+        size,
+        has_variations,
+        has_addons,
+        type,
+        is_outofstock,
+        branch_id,
+        updated_at
       ) VALUES (
-        @id,@category_id,@subcategory_id,@name,@name_ar,@barcode,@price,@image,@size,@has_variations,@type,@is_outofstock,@branch_id,@updated_at
+        @id,
+        @category_id,
+        @subcategory_id,
+        @name,
+        @name_ar,
+        @barcode,
+        @price,
+        @image,
+        @size,
+        @has_variations,
+        @has_addons,
+        @type,
+        @is_outofstock,
+        @branch_id,
+        @updated_at
       )
       ON CONFLICT(id) DO UPDATE SET
-        category_id=excluded.category_id,
-        subcategory_id=excluded.subcategory_id,
-        name=excluded.name,
-        name_ar=excluded.name_ar,
-        barcode=excluded.barcode,
-        price=excluded.price,
-        image=excluded.image,
-        size=excluded.size,
-        has_variations=excluded.has_variations,
-        type=excluded.type,
-        is_outofstock=excluded.is_outofstock,
-        branch_id=excluded.branch_id,
-        updated_at=excluded.updated_at
+        category_id    = excluded.category_id,
+        subcategory_id = excluded.subcategory_id,
+        name           = excluded.name,
+        name_ar        = excluded.name_ar,
+        barcode        = excluded.barcode,
+        price          = excluded.price,
+        image          = excluded.image,
+        size           = excluded.size,
+        has_variations = excluded.has_variations,
+        has_addons     = excluded.has_addons,
+        type           = excluded.type,
+        is_outofstock  = excluded.is_outofstock,
+        branch_id      = excluded.branch_id,
+        updated_at     = excluded.updated_at
     `);
+
     const upVar = db.prepare(`
       INSERT INTO variations (id,item_id,name,name_ar,price,sale_price,updated_at)
       VALUES (@id,@item_id,@name,@name_ar,@price,@sale_price,@updated_at)
@@ -771,18 +801,39 @@ export async function pullChanges() {
         item_id=excluded.item_id,group_id=excluded.group_id,is_required=excluded.is_required,max_select=excluded.max_select,updated_at=excluded.updated_at
     `);
     const upUser = db.prepare(`
-      INSERT INTO pos_users (id, name, username, email, role, password_hash, is_active, branch_id, updated_at)
-      VALUES (@id, @name, @username, lower(@email), @role, @password_hash, @is_active, @branch_id, @updated_at)
+      INSERT INTO pos_users (
+        id,
+        name,
+        username,
+        email,
+        mobile,
+        role,
+        password_hash,
+        is_active,
+        branch_id,
+        updated_at
+      ) VALUES (
+        @id,
+        @name,
+        @username,
+        lower(@email),
+        @mobile,
+        @role,
+        @password_hash,
+        @is_active,
+        @branch_id,
+        @updated_at
+      )
       ON CONFLICT(id) DO UPDATE SET
-        name=excluded.name,
-        -- FIXED: Added 'username=excluded.username' to the ON CONFLICT clause
-        username=excluded.username,
-        email=excluded.email,
-        role=excluded.role,
-        password_hash=excluded.password_hash,
-        is_active=excluded.is_active,
-        branch_id=excluded.branch_id,
-        updated_at=excluded.updated_at
+        name          = excluded.name,
+        username      = excluded.username,
+        email         = excluded.email,
+        mobile        = excluded.mobile,
+        role          = excluded.role,
+        password_hash = excluded.password_hash,
+        is_active     = excluded.is_active,
+        branch_id     = excluded.branch_id,
+        updated_at    = excluded.updated_at
     `);
 
     const delBy = (table: string, pk: any) =>

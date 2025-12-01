@@ -26,7 +26,16 @@ export interface OrderLine {
   qty: number;
   unit_price: number;
   line_total: number;
+
+  // NEW (optional, all nullable in DB)
+  variation?: string | null;
+  variation_price?: number | null;
+  addons_name?: string | null; // e.g. "Cheese, Bacon"
+  addons_price?: string | null; // raw text/JSON from backend (if you need later)
+  addons_qty?: string | null; // same
+  notes?: string | null;
 }
+
 export type OrderType = 1 | 2 | 3;
 export interface Order {
   id: string;

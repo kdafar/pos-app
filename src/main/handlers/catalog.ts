@@ -25,20 +25,27 @@ export function registerCatalogHandlers(ipcMain: IpcMain) {
     // FIX: Added image and image_local here
     const stmt = db.prepare(
       `
-    SELECT
-      id,
-      name,
-      name_ar,
-      barcode,
-      price,
-      is_outofstock,
-      has_addons,
-      image,
-      image_local
-    FROM items
-    WHERE name LIKE ? OR name_ar LIKE ? OR barcode = ?
-    LIMIT 50
-  `
+  SELECT
+    i.id,
+    i.name,
+    i.name_ar,
+    i.barcode,
+    i.price,
+    i.is_outofstock,
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM item_addon_groups iag
+        WHERE iag.item_id = i.id
+      ) THEN 1
+      ELSE 0
+    END AS has_addons,
+    i.image,
+    i.image_local
+  FROM items i
+  WHERE i.name LIKE ? OR i.name_ar LIKE ? OR i.barcode = ?
+  LIMIT 50
+`
     );
 
     return stmt.all(`%${q}%`, `%${q}%`, q);
@@ -87,24 +94,31 @@ export function registerCatalogHandlers(ipcMain: IpcMain) {
 
       // FIX: Added image and image_local here
       const sql = `
-        SELECT
-          id,
-          name,
-          name_ar,
-          barcode,
-          price,
-          is_outofstock,
-          has_addons,  
-          updated_at,
-          category_id,
-          subcategory_id,
-          image,
-          image_local
-        FROM items
-        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY name COLLATE NOCASE ASC
-        LIMIT 500
-      `;
+  SELECT
+    i.id,
+    i.name,
+    i.name_ar,
+    i.barcode,
+    i.price,
+    i.is_outofstock,
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM item_addon_groups iag
+        WHERE iag.item_id = i.id
+      ) THEN 1
+      ELSE 0
+    END AS has_addons,
+    i.updated_at,
+    i.category_id,
+    i.subcategory_id,
+    i.image,
+    i.image_local
+  FROM items i
+  ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+  ORDER BY i.name COLLATE NOCASE ASC
+  LIMIT 500
+`;
 
       return db.prepare(sql).all(...params);
     }

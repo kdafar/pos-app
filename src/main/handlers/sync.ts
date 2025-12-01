@@ -273,6 +273,34 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
     // 1. Run bootstrap logic
     const payload = await bootstrap(url);
 
+    const cat = payload?.catalog || {};
+    console.log('[sync:bootstrap] payload snapshot', {
+      branch: payload?.branch || null,
+      items: Array.isArray(cat.items) ? cat.items.length : 0,
+      item_variations: Array.isArray(cat.item_variations)
+        ? cat.item_variations.length
+        : 0,
+      item_addon_groups: Array.isArray(cat.item_addon_groups)
+        ? cat.item_addon_groups.length
+        : 0,
+      addons: Array.isArray(cat.addons) ? cat.addons.length : 0,
+      promos: Array.isArray(cat.promos) ? cat.promos.length : 0,
+    });
+
+    // Optional: sample a specific item to see its addon groups
+    try {
+      const sampleItemId = '66'; // e.g. Burger Smash truffle
+      const itemAddonGroups =
+        Array.isArray(cat.item_addon_groups) && cat.item_addon_groups.length
+          ? cat.item_addon_groups.filter((g: any) => g.item_id === sampleItemId)
+          : [];
+      console.log('[sync:bootstrap] item addon groups for item', sampleItemId, {
+        itemAddonGroups,
+      });
+    } catch (e) {
+      console.warn('[sync:bootstrap] debug item_addon_groups failed', e);
+    }
+
     // 2. Save Meta
     if (payload?.branch?.id) setMeta('branch_id', String(payload.branch.id));
     if (payload?.branch?.name)
@@ -335,7 +363,20 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
     configureApi(base, { id: device_id, branch_id }, token);
 
     console.log('[Sync] Manual sync: running FULL bootstrap…');
-    await bootstrap(base);
+
+    //  capture payload
+    const payload: any = await bootstrap(base);
+
+    //  safe snapshot of catalog
+    const cat = payload?.catalog || {};
+    console.log('[Sync] Manual bootstrap snapshot', {
+      items: Array.isArray(cat.items) ? cat.items.length : 0,
+      item_addon_groups: Array.isArray(cat.item_addon_groups)
+        ? cat.item_addon_groups.length
+        : 0,
+      addons: Array.isArray(cat.addons) ? cat.addons.length : 0,
+    });
+
     setMeta('bootstrap.done', '1');
 
     console.log('[Sync] Manual sync: running incremental pull…');

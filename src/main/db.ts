@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { app } from 'electron';
 import { createRequire } from 'node:module';
+import crypto from 'node:crypto';
 
 const requiredb = createRequire(import.meta.url);
 const Database = requiredb('better-sqlite3') as typeof import('better-sqlite3');
@@ -12,9 +13,9 @@ db.pragma('foreign_keys = ON');
 // ---------- helpers ----------
 function hasColumn(table: string, name: string): boolean {
   try {
-    const rows = db
-      .prepare(`PRAGMA table_info(${table})`)
-      .all() as Array<{ name: string }>;
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
     return rows.some((r) => r.name === name);
   } catch {
     return false;
@@ -343,6 +344,7 @@ export function migrate() {
   ensureColumn('orders', 'status_code INTEGER', 'status_code');
   ensureColumn('orders', 'email TEXT', 'email');
   ensureColumn('orders', 'state_id TEXT', 'state_id');
+  ensureColumn('orders', 'city_id TEXT', 'city_id');
   ensureColumn('orders', 'block_id TEXT', 'block_id');
   ensureColumn('orders', 'block TEXT', 'block');
   ensureColumn('orders', 'address_type TEXT', 'address_type');
@@ -355,26 +357,47 @@ export function migrate() {
   ensureColumn('orders', 'promocode TEXT', 'promocode');
   ensureColumn('orders', 'discount_amount REAL DEFAULT 0', 'discount_amount');
   ensureColumn('orders', 'discount_pr REAL DEFAULT 0', 'discount_pr');
-  ensureColumn('orders', 'void_delivery_fee INTEGER DEFAULT 0', 'void_delivery_fee');
+  ensureColumn(
+    'orders',
+    'void_delivery_fee INTEGER DEFAULT 0',
+    'void_delivery_fee'
+  );
   ensureColumn('orders', 'table_id TEXT', 'table_id');
   ensureColumn('orders', 'covers INTEGER', 'covers');
+  ensureColumn('orders', 'delivery_fee REAL DEFAULT 0', 'delivery_fee');
 
-  ensureColumn('orders', 'printed_at INTEGER', 'printed_at');    // ms since epoch
+  ensureColumn('orders', 'printed_at INTEGER', 'printed_at'); // ms since epoch
   ensureColumn('orders', 'is_locked INTEGER DEFAULT 0', 'is_locked');
-  ensureColumn('orders', 'user_id INTEGER', 'user_id');          // who completed/printed
+  ensureColumn('orders', 'user_id INTEGER', 'user_id'); // who completed/printed
 
   // ---- image cache fields on items
-  ensureColumn('items', 'image_local TEXT', 'image_local');      // absolute local path
-  ensureColumn('items', 'image_etag TEXT', 'image_etag');        // optional: server ETag
-  ensureColumn('items', 'image_mtime INTEGER', 'image_mtime'); 
+  ensureColumn('items', 'image_local TEXT', 'image_local'); // absolute local path
+  ensureColumn('items', 'image_etag TEXT', 'image_etag'); // optional: server ETag
+  ensureColumn('items', 'image_mtime INTEGER', 'image_mtime');
 
   ensureColumn('orders', 'created_by_user_id TEXT', 'created_by_user_id');
   ensureColumn('orders', 'completed_by_user_id TEXT', 'completed_by_user_id');
-  ensureColumn('orders', 'printed_by_user_id TEXT',  'printed_by_user_id');
+  ensureColumn('orders', 'printed_by_user_id TEXT', 'printed_by_user_id');
 
-  ensureColumn('orders', 'payment_link_url TEXT',        'payment_link_url');
-  ensureColumn('orders', 'payment_link_status TEXT',     'payment_link_status');  // pending|paid|expired|failed
-  ensureColumn('orders', 'payment_verified_at INTEGER',  'payment_verified_at'); 
+  ensureColumn('orders', 'payment_link_url TEXT', 'payment_link_url');
+  ensureColumn('orders', 'payment_link_status TEXT', 'payment_link_status'); // pending|paid|expired|failed
+  ensureColumn('orders', 'payment_verified_at INTEGER', 'payment_verified_at');
+  ensureColumn(
+    'orders',
+    'payment_link_verified_at INTEGER',
+    'payment_link_verified_at'
+  );
+
+  ensureColumn('order_lines', 'variation_id TEXT', 'variation_id');
+  ensureColumn('order_lines', 'variation TEXT', 'variation');
+  ensureColumn('order_lines', 'variation_price REAL', 'variation_price');
+  ensureColumn('order_lines', 'addons_id TEXT', 'addons_id');
+  ensureColumn('order_lines', 'addons_name TEXT', 'addons_name');
+  ensureColumn('order_lines', 'addons_price TEXT', 'addons_price');
+  ensureColumn('order_lines', 'addons_qty TEXT', 'addons_qty');
+  ensureColumn('order_lines', 'notes TEXT', 'notes'); // safe even if already exists
+  ensureColumn('order_lines', 'updated_at INTEGER', 'updated_at');
+  ensureColumn('order_lines', 'is_locked INTEGER DEFAULT 0', 'is_locked');
 
   // Phase 3: indexes (only after columns are present)
   db.exec(`
@@ -417,7 +440,9 @@ export function migrate() {
 }
 
 export function getMeta(key: string): string | null {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as any;
+  const row = db
+    .prepare('SELECT value FROM meta WHERE key = ?')
+    .get(key) as any;
   return row?.value ?? null;
 }
 
@@ -445,7 +470,11 @@ export function getCurrentUserId(): string | null {
   return (getMeta('pos.current_user_id') as string) || null;
 }
 
-export function logPosAction(action: string, orderId?: string | null, meta: any = {}): void {
+export function logPosAction(
+  action: string,
+  orderId?: string | null,
+  meta: any = {}
+): void {
   const userId = getCurrentUserId();
   const stmt = db.prepare(`
     INSERT INTO pos_action_log (id, order_id, user_id, action, meta_json, created_at)

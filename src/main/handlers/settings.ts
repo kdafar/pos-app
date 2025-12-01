@@ -94,6 +94,10 @@ export function registerSettingsHandlers(ipcMain: IpcMain) {
   ipcMain.handle('settings:all', async () => getAllSettings());
   ipcMain.handle('settings:getAll', async () => getAllSettings()); // alias
 
+  ipcMain.handle('meta:list', () => {
+    return db.prepare('SELECT key, value FROM meta ORDER BY key').all();
+  });
+
   // POS user info
   ipcMain.handle('settings:getPosUser', async () => {
     return getCurrentPosUserFromDb();

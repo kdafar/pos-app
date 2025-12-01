@@ -135,10 +135,8 @@ function getOrderRow(services: MainServices, orderId: string): any | null {
 
 function getOrderCityId(services: MainServices, order: any): string | null {
   const cid = order?.city_id ?? null;
-  if (cid != null && cid !== '') return String(cid);
-
-  const metaCid = services.meta.get('cart.city_id');
-  return metaCid ? String(metaCid) : null;
+  if (cid == null || cid === '') return null;
+  return String(cid);
 }
 
 function getDeliveryFeeForCity(
@@ -156,7 +154,7 @@ function getDeliveryFeeForCity(
 /**
  * Compute delivery fee for an order.
  * Only applies to delivery orders (order_type === 1) and honors the
- * void_delivery_fee flags (order-level first, then cart meta).
+ * void_delivery_fee flags.
  */
 export function computeDeliveryFee(services: MainServices, order: any): number {
   if (Number(order?.order_type) !== 1) return 0;
@@ -164,7 +162,7 @@ export function computeDeliveryFee(services: MainServices, order: any): number {
   // Prefer persisted flag
   if (Number(order?.void_delivery_fee) === 1) return 0;
 
-  // Fallback to cart meta for open orders
+  // Fallback meta flag (legacy)
   const voidFeeMeta =
     (services.meta.get('cart.void_delivery_fee') || '') === '1';
   if (voidFeeMeta) return 0;
@@ -181,6 +179,7 @@ export function recalcOrderTotals(
 ): Totals {
   const db = services.rawDb;
 
+  // 1) Subtotal from lines
   const sums = db
     .prepare(
       `
@@ -191,29 +190,80 @@ export function recalcOrderTotals(
     )
     .get(orderId) as { subtotal: number };
 
+  let subtotal = Number(sums?.subtotal || 0);
+  subtotal = +subtotal.toFixed(3);
+
+  // 2) Load order row
   const order = getOrderRow(services, orderId);
-  const subtotal = Number(sums?.subtotal || 0);
 
+  // 3) Discount (promo OR manual)
   const promo = resolvePromoByCode(services, order?.promocode ?? null);
-  const discount_total = computePromoDiscount(subtotal, promo);
+  const promoDiscount = computePromoDiscount(subtotal, promo);
 
-  const delivery_fee = computeDeliveryFee(services, order);
-  const tax_total = 0; // adjust if you add tax logic
+  // Manual discount already stored on order (amount or percentage)
+  let manualDiscount = 0;
 
-  const grand_total = +(subtotal - discount_total + delivery_fee).toFixed(3);
+  if (order?.discount_amount != null && order.discount_amount !== '') {
+    const d = Number(order.discount_amount);
+    if (Number.isFinite(d) && d > 0) {
+      manualDiscount = +d.toFixed(3);
+    }
+  } else if (order?.discount_pr != null && order.discount_pr !== '') {
+    const pr = Number(order.discount_pr);
+    if (Number.isFinite(pr) && pr > 0) {
+      manualDiscount = +(subtotal * (pr / 100)).toFixed(3);
+    }
+  }
 
+  // If there is a promo, prefer its discount; otherwise use manual.
+  const discount_amount = promo ? promoDiscount : manualDiscount;
+  const discount_total = discount_amount; // keep both in sync
+
+  // 4) Delivery fee
+  let delivery_fee = 0;
+
+  // Prefer per-order value if present & non-zero
+  if (order && order.delivery_fee != null && order.delivery_fee !== '') {
+    const df = Number(order.delivery_fee);
+    if (Number.isFinite(df) && df !== 0) {
+      delivery_fee = df;
+    }
+  }
+
+  // If still zero, compute from city/settings
+  if (delivery_fee === 0) {
+    delivery_fee = computeDeliveryFee(services, order);
+  }
+
+  delivery_fee = +delivery_fee.toFixed(3);
+
+  // 5) Tax (none for now – hook here later)
+  const tax_total = 0;
+
+  // 6) Grand total
+  const grand_total = +(subtotal - discount_amount + delivery_fee).toFixed(3);
+
+  // 7) Persist to orders
   db.prepare(
     `
       UPDATE orders
-      SET subtotal = ?, tax_total = ?, discount_total = ?, delivery_fee = ?, grand_total = ?
+      SET subtotal        = ?,
+          tax_total       = ?,
+          discount_total  = ?,
+          discount_amount = ?,
+          delivery_fee    = ?,
+          grand_total     = ?,
+          updated_at      = ?
       WHERE id = ?
     `
   ).run(
     subtotal,
     tax_total,
     discount_total,
+    discount_amount,
     delivery_fee,
     grand_total,
+    Date.now(),
     orderId
   );
 

@@ -120,9 +120,44 @@ export function registerOrdersHandlers(
 
     const lines = rawDb
       .prepare(
-        `SELECT * FROM order_lines WHERE order_id = ? ORDER BY rowid ASC`
+        `
+      SELECT
+        id,
+        order_id,
+        item_id,
+        name,
+        name_ar,
+        unit_price,
+        qty,
+        tax_amount,
+        discount_amount,
+        line_total,
+        variation,
+        variation_price,
+        addons_id,
+        addons_name,
+        addons_price,
+        addons_qty,
+        notes
+      FROM order_lines
+      WHERE order_id = ?
+      ORDER BY rowid ASC
+    `
       )
       .all(orderId) as any[];
+
+    // Debug snapshot: see if variation/addons are there
+    console.log('[orders:getOrderWithLines] lines snapshot', {
+      order_id: orderId,
+      count: lines.length,
+      sample: lines.slice(0, 3).map((l) => ({
+        id: l.id,
+        name: l.name,
+        variation: l.variation,
+        addons_name: l.addons_name,
+        notes: l.notes,
+      })),
+    });
 
     if (order.table_id && hasColumn('tables', 'label')) {
       const t = rawDb
@@ -242,14 +277,61 @@ export function registerOrdersHandlers(
 
   ipcMain.handle('orders:start', async () => {
     if (isPosLocked()) throw new Error('POS is locked');
-    const id = crypto.randomUUID();
-    const ts = nowMs();
-    const number = allocUniqueOrderNumber(services);
-    const orderType = 2;
 
     const deviceId = store.get('device_id');
     const branchId = Number(store.get('branch_id') || 0);
     const { id: userId } = getCurrentPosUser();
+
+    let existing: any = null;
+
+    // 🔍 Look for any open/pending order with ZERO lines for this device/branch
+    try {
+      const whereParts: string[] = [`o.status IN ('open','pending')`];
+      const params: any = {};
+
+      if (branchId) {
+        whereParts.push('o.branch_id = @branch_id');
+        params.branch_id = branchId;
+      }
+      if (deviceId) {
+        whereParts.push('o.device_id = @device_id');
+        params.device_id = deviceId;
+      }
+
+      const where = whereParts.length
+        ? `WHERE ${whereParts.join(' AND ')}`
+        : '';
+
+      existing = rawDb
+        .prepare(
+          `
+          SELECT o.id, COUNT(ol.id) AS line_count
+          FROM orders o
+          LEFT JOIN order_lines ol ON ol.order_id = o.id
+          ${where}
+          GROUP BY o.id
+          HAVING line_count = 0
+          ORDER BY o.opened_at DESC, o.created_at DESC
+          LIMIT 1
+        `
+        )
+        .get(params) as any;
+    } catch (e) {
+      console.error('[orders:start] empty-order check SQL error:', e);
+      // If query fails, we just fall back to normal creation
+    }
+
+    // ♻️ If we found an empty open/pending order, REUSE it instead of creating a new one
+    if (existing?.id) {
+      console.log('[orders:start] reusing existing empty order:', existing.id);
+      return getOrderWithLines(existing.id);
+    }
+
+    // ── Normal order creation as before ─────────────────────────
+    const id = crypto.randomUUID();
+    const ts = nowMs();
+    const number = allocUniqueOrderNumber(services);
+    const orderType = 2;
 
     const cols = [
       'id',
@@ -283,6 +365,7 @@ export function registerOrdersHandlers(
         )})`
       )
       .run(...vals);
+
     log('orders.start', id, { number, order_type: orderType });
     return getOrderWithLines(id);
   });
@@ -391,6 +474,167 @@ export function registerOrdersHandlers(
   );
 
   ipcMain.handle(
+    'orders:addLineWithAddons',
+    async (
+      _e,
+      orderId: string,
+      itemId: string,
+      qty: number = 1,
+      payload: any
+    ) => {
+      if (isPosLocked()) throw new Error('POS is locked');
+
+      // Allow adding even if locked for dine-in (same as addLine)
+      const order = assertOrderEditable(orderId, {
+        allowAddOnLockedDineIn: true,
+      });
+
+      if (qty <= 0) throw new Error('Quantity must be > 0');
+
+      // Base item
+      const item = rawDb
+        .prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`)
+        .get(itemId) as any;
+      if (!item) throw new Error('Item not found');
+
+      // (Optional) variation support — for now we ignore; you can extend later
+      const variationId = payload?.variation_id || null;
+      let variationName: string | null = null;
+      let variationPrice: number | null = null;
+
+      if (variationId) {
+        const v = rawDb
+          .prepare(
+            `SELECT id, name, price, sale_price FROM variations WHERE id = ?`
+          )
+          .get(variationId) as any;
+        if (v) {
+          variationName = v.name || null;
+          variationPrice = Number(v.sale_price || v.price || 0);
+        }
+      }
+
+      const basePrice =
+        variationPrice != null ? variationPrice : Number(item.price || 0);
+
+      // Build addons snapshot
+      const selections = Array.isArray(payload?.addons) ? payload.addons : [];
+
+      const addonIds: string[] = [];
+      const addonNames: string[] = [];
+      const addonPrices: number[] = [];
+      const addonQtys: number[] = [];
+
+      for (const sel of selections) {
+        if (!sel?.addon_id) continue;
+        const a = rawDb
+          .prepare(`SELECT id, name, price FROM addons WHERE id = ?`)
+          .get(sel.addon_id) as any;
+        if (!a) continue;
+
+        const q = Number(sel.qty || 1) || 1;
+        const price = Number(a.price || 0);
+
+        addonIds.push(a.id);
+        addonPrices.push(price);
+        addonQtys.push(q);
+
+        // Nice label: "Ketchup" or "Ketchup ×2"
+        const label = q > 1 ? `${a.name} ×${q}` : a.name;
+        addonNames.push(label);
+      }
+
+      // Extra per-unit from addons
+      let addonsExtraPerUnit = 0;
+      addonPrices.forEach((price, idx) => {
+        const q = addonQtys[idx] || 1;
+        addonsExtraPerUnit += price * q;
+      });
+
+      const perUnitTotal = basePrice + addonsExtraPerUnit;
+      const lineTotal = +(perUnitTotal * qty).toFixed(3);
+
+      // IMPORTANT: we always insert a NEW line (no merging),
+      // so different addon combos stay as separate rows.
+      const id = crypto.randomUUID();
+
+      rawDb
+        .prepare(
+          `
+          INSERT INTO order_lines (
+            id,
+            order_id,
+            item_id,
+            name,
+            name_ar,
+            unit_price,
+            qty,
+            tax_amount,
+            discount_amount,
+            line_total,
+            variation_id,
+            variation,
+            variation_price,
+            addons_id,
+            addons_name,
+            addons_price,
+            addons_qty,
+            notes,
+            temp_line_id
+          ) VALUES (
+            @id,
+            @order_id,
+            @item_id,
+            @name,
+            @name_ar,
+            @unit_price,
+            @qty,
+            0,
+            0,
+            @line_total,
+            @variation_id,
+            @variation,
+            @variation_price,
+            @addons_id,
+            @addons_name,
+            @addons_price,
+            @addons_qty,
+            NULL,
+            NULL
+          )
+        `
+        )
+        .run({
+          id,
+          order_id: orderId,
+          item_id: item.id,
+          name: item.name,
+          name_ar: item.name_ar ?? null,
+          unit_price: perUnitTotal, // base + addons (per unit)
+          qty,
+          line_total: lineTotal,
+          variation_id: variationId,
+          variation: variationName,
+          variation_price: variationPrice,
+          addons_id: addonIds.length > 0 ? JSON.stringify(addonIds) : null,
+          addons_name: addonNames.length > 0 ? addonNames.join(', ') : null,
+          addons_price:
+            addonPrices.length > 0 ? JSON.stringify(addonPrices) : null,
+          addons_qty: addonQtys.length > 0 ? JSON.stringify(addonQtys) : null,
+        });
+
+      log('orders.addLineWithAddons', orderId, {
+        item_id: item.id,
+        qty,
+        variation_id: variationId,
+        addons: selections,
+      });
+
+      return recalcAndGet(orderId);
+    }
+  );
+
+  ipcMain.handle(
     'orders:setLineQty',
     async (_e, lineId: string, qty: number) => {
       if (isPosLocked()) throw new Error('POS is locked');
@@ -484,12 +728,35 @@ export function registerOrdersHandlers(
   );
 
   ipcMain.handle('orders:close', async (_e, orderId: string) => {
-    recalcOrderTotals(services, orderId);
+    const ts = nowMs();
+    const order = getOrderRow(orderId);
+    if (!order) throw new Error('Order not found');
+
+    const cols: string[] = ['status = ?', 'updated_at = ?'];
+    const params: any[] = ['closed', ts];
+
+    // Mark final timestamps when available
+    if (hasColumn('orders', 'completed_at')) {
+      cols.push('completed_at = ?');
+      params.push(ts);
+    } else if (hasColumn('orders', 'closed_at')) {
+      cols.push('closed_at = ?');
+      params.push(ts);
+    }
+
+    // For safety: once closed, lock it
+    if (hasColumn('orders', 'is_locked')) {
+      cols.push('is_locked = 1');
+    }
+
+    params.push(orderId);
+
     rawDb
-      .prepare(
-        `UPDATE orders SET status = 'closed', updated_at = ? WHERE id = ?`
-      )
-      .run(nowMs(), orderId);
+      .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
+      .run(...params);
+
+    log('orders.close', orderId, { status: 'closed' });
+
     return getOrderWithLines(orderId);
   });
 
@@ -518,31 +785,64 @@ export function registerOrdersHandlers(
     'orders:complete',
     async (_e, orderId: string, customer: any) => {
       if (isPosLocked()) throw new Error('POS is locked');
+
       assertOrderEditable(orderId);
+
       const order = getOrderRow(orderId);
       if (!order) throw new Error('Order not found');
 
       const type = Number(order.order_type || 0);
       const errors: string[] = [];
+
       if (!customer.full_name?.trim()) errors.push('Customer name is required');
       if (type === 1 && !customer.address)
         errors.push('Address is required for delivery');
       if (type === 3 && !order.table_id)
         errors.push('Table must be assigned for dine-in');
+
       if (errors.length) throw new Error(errors.join('\n'));
 
       const ts = nowMs();
       const { id: userId } = getCurrentPosUser();
+
+      // 1) 🔹 Persist customer + GEO fields so recalc can see city_id
+      rawDb
+        .prepare(
+          `
+          UPDATE orders SET
+            full_name   = ?,
+            mobile      = ?,
+            address     = ?,
+            note        = ?,
+            state_id    = ?,
+            city_id     = ?,
+            block_id    = ?,
+            block       = ?,
+            landmark    = ?
+          WHERE id = ?
+        `
+        )
+        .run(
+          customer.full_name,
+          customer.mobile ?? '',
+          customer.address ?? '',
+          customer.note ?? '',
+          customer.state_id ?? null,
+          customer.city_id ?? null,
+          customer.block_id ?? null,
+          customer.block ?? null,
+          customer.landmark ?? null,
+          orderId
+        );
+
+      // 2) 🔹 Now recalc with the correct city_id → will set delivery_fee, discount_total, grand_total
       const totals = recalcOrderTotals(services, orderId);
 
-      const isDineIn = type === 3;
+      // 3) 🔹 Mark order as prepared + set payment + totals
+      const newStatus = 'prepared';
 
       const cols = [
         'status = ?',
-        'full_name = ?',
-        'mobile = ?',
-        'address = ?',
-        'note = ?',
         'payment_method_id = ?',
         'payment_method_slug = ?',
         'subtotal = ?',
@@ -551,12 +851,7 @@ export function registerOrdersHandlers(
       ];
 
       const params: any[] = [
-        // Status: keep as-is for dine-in, 'completed' for others
-        isDineIn ? order.status || 'open' : 'completed',
-        customer.full_name,
-        customer.mobile ?? '',
-        customer.address ?? '',
-        customer.note ?? '',
+        newStatus,
         customer.payment_method_id,
         customer.payment_method_slug ?? '',
         totals.subtotal,
@@ -564,24 +859,11 @@ export function registerOrdersHandlers(
         ts,
       ];
 
-      // Only set completed/closed timestamps for non-dine-in
-      if (!isDineIn) {
-        if (hasColumn('orders', 'completed_at')) {
-          cols.push('completed_at = ?');
-          params.push(ts);
-        } else if (hasColumn('orders', 'closed_at')) {
-          cols.push('closed_at = ?');
-          params.push(ts);
-        }
-      }
-
       if (hasColumn('orders', 'completed_by_user_id')) {
         cols.push('completed_by_user_id = ?');
         params.push(userId);
       }
 
-      // Lock order for ALL types, but our addLine special-case
-      // allows more items *only* for dine-in.
       if (hasColumn('orders', 'is_locked')) {
         cols.push('is_locked = 1');
       }
@@ -597,16 +879,7 @@ export function registerOrdersHandlers(
         throw new Error('Database error during completion: ' + err.message);
       }
 
-      // IMPORTANT CHANGE:
-      // - For dine-in: DO NOT free the table here.
-      // - For others: keep old behavior.
-      if (order.table_id && !isDineIn) {
-        rawDb
-          .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
-          .run(order.table_id);
-      }
-
-      log('orders.complete', orderId, { customer, totals });
+      log('orders.complete', orderId, { customer, totals, status: newStatus });
       return recalcAndGet(orderId);
     }
   );

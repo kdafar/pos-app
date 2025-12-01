@@ -123,20 +123,24 @@ export function Layout() {
   }, []);
 
   // Auto-collapse sidebar when on POS ("/")
+  const hasAutoCollapsedRef = useRef(false);
+
+  // Auto-collapse once when entering POS ("/"), but allow manual toggle
   useEffect(() => {
     const onPosScreen = location.pathname === '/';
 
-    if (onPosScreen && !collapsed) {
+    if (onPosScreen && !collapsed && !hasAutoCollapsedRef.current) {
       toggleCollapsed();
+      hasAutoCollapsedRef.current = true;
     }
 
-    // if in future you want auto-expand when leaving POS:
-    // if (!onPosScreen && collapsed) {
-    //   toggleCollapsed();
-    // }
+    // When leaving POS, reset so next time we can auto-collapse again
+    if (!onPosScreen) {
+      hasAutoCollapsedRef.current = false;
+    }
   }, [location.pathname, collapsed, toggleCollapsed]);
 
-  // Auto sync every 10s when online & paired
+  // Auto sync (throttled) when online & paired
   useEffect(() => {
     if (!sync) return;
 
@@ -148,9 +152,18 @@ export function Layout() {
 
     if (!canAutoSync) return;
 
+    const AUTO_SYNC_MIN_INTERVAL = 60_000; // 60 seconds between real syncs
+
     const id = window.setInterval(async () => {
-      // avoid overlapping runs
+      // 1) avoid overlapping runs
       if (syncingRef.current) return;
+
+      // 2) don't spam when user not looking at the app
+      if (typeof document !== 'undefined' && !document.hasFocus()) return;
+
+      // 3) throttle based on last_sync_at
+      const last = Number(sync.last_sync_at || 0);
+      if (last && Date.now() - last < AUTO_SYNC_MIN_INTERVAL) return;
 
       try {
         syncingRef.current = true;
@@ -171,7 +184,7 @@ export function Layout() {
     sync?.paired,
     sync?.token_present,
     sync?.base_url,
-    // do NOT include `syncing` here, we use syncingRef instead
+    sync?.last_sync_at, // include so we re-evaluate after each status update
   ]);
 
   // no manual toggle anymore, mode is controlled by main process

@@ -98,11 +98,10 @@ export default function OrderSide({
   const handleClose = async () => {
     if (!currentOrder) return;
 
-    // For Dine-in, "Close" here means "Cancel/Delete" if empty,
-    // OR if user really wants to force quit.
-    // To release table we use handleReleaseTable.
+    // For Dine-in with a table and items, this button does NOT use handleClose.
+    // It will use handleReleaseTable instead (see JSX below).
 
-    // If it's dine-in and has table, we clear table before closing ONLY if it was just created (empty)
+    // If it's dine-in and has table but NO items: just free the table & close the empty order.
     if (
       currentOrder.order_type === 3 &&
       currentOrder.table_id &&
@@ -110,20 +109,25 @@ export default function OrderSide({
     ) {
       try {
         await window.api.invoke('orders:clearTable', currentOrder.id);
-      } catch {}
+      } catch (e) {
+        console.error('Failed to clear table on empty dine-in order:', e);
+      }
     }
 
     try {
+      // If there are items, close == final close (not cancel) and print first
       if (orderLines.length > 0) {
-        await window.api.invoke('orders:cancel', currentOrder.id);
-      } else {
-        await window.api.invoke('orders:close', currentOrder.id);
+        try {
+          await handlePrint(currentOrder.id);
+        } catch (e) {
+          console.error('Print before close failed (continuing):', e);
+        }
       }
+
+      // Final close (non-dine, or dine-in without table)
+      await window.api.invoke('orders:close', currentOrder.id);
     } catch (e) {
-      console.error('Failed to close/cancel/delete order:', e);
-      try {
-        await window.api.invoke('orders:close', currentOrder.id);
-      } catch {}
+      console.error('Failed to close order:', e);
     }
 
     await focusNextActive();
@@ -141,7 +145,15 @@ export default function OrderSide({
       )
     )
       return;
+
     try {
+      // 🧾 Print BEFORE finalizing & freeing the table
+      try {
+        await handlePrint(currentOrder.id);
+      } catch (e) {
+        console.error('Print before release failed (continuing):', e);
+      }
+
       await window.api.invoke('orders:releaseTable', currentOrder.id);
       await focusNextActive();
       await onRefreshTables();
@@ -367,54 +379,57 @@ export default function OrderSide({
               </div>
             </div>
 
-            <div className='grid grid-cols-2 gap-2'>
-              {/* Close/Release order */}
-              {currentOrder.order_type === 3 &&
-              currentOrder.table_id &&
-              orderLines.length > 0 ? (
-                <button
-                  type='button'
-                  onClick={handleReleaseTable}
-                  className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
-                    theme === 'dark'
-                      ? 'bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30'
-                      : 'bg-rose-100 text-rose-700 border border-rose-300 hover:bg-rose-200'
-                  }`}
-                >
-                  <LogOut size={16} /> Release Table
-                </button>
-              ) : (
-                <button
-                  type='button'
-                  onClick={handleClose}
-                  className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
-                    theme === 'dark'
-                      ? 'bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30'
-                      : 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
-                  }`}
-                  title={
-                    orderLines.length > 0
-                      ? 'Cancel this order'
-                      : 'Delete this empty order'
-                  }
-                >
-                  <X size={16} /> Close
-                </button>
-              )}
-
-              {/* Place order (checkout) */}
+            {/* BUTTONS – match online POS style */}
+            <div className='flex gap-3'>
+              {/* Place Order (black) */}
               <button
                 type='button'
                 onClick={() => setShowCheckout(true)}
                 disabled={orderLines.length === 0}
-                className={`px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
-                  theme === 'dark'
-                    ? 'bg-gray-900 hover:bg-black text-white disabled:opacity-50 disabled:cursor-not-allowed'
-                    : 'bg-gray-900 hover:bg-black text-white disabled:opacity-50 disabled:cursor-not-allowed'
-                }`}
+                className={`
+                  flex-1 h-11 rounded-lg text-sm font-semibold
+                  flex items-center justify-center gap-1.5
+                  bg-black text-white
+                  hover:bg-gray-900
+                  disabled:opacity-40 disabled:cursor-not-allowed
+                `}
               >
                 <Check size={18} />
                 {currentOrder.order_type === 3 ? 'Update / Pay' : 'Place Order'}
+              </button>
+
+              {/* Close / Release (blue) */}
+              <button
+                type='button'
+                onClick={
+                  currentOrder.order_type === 3 &&
+                  currentOrder.table_id &&
+                  orderLines.length > 0
+                    ? handleReleaseTable
+                    : handleClose
+                }
+                className={`
+                  flex-1 h-11 rounded-lg text-sm font-semibold
+                  flex items-center justify-center gap-1.5
+                  bg-blue-600 text-white
+                  hover:bg-blue-700
+                `}
+                title={
+                  currentOrder.order_type === 3 &&
+                  currentOrder.table_id &&
+                  orderLines.length > 0
+                    ? 'Finish and release table'
+                    : orderLines.length > 0
+                    ? 'Cancel this order'
+                    : 'Delete this empty order'
+                }
+              >
+                <X size={16} />
+                {currentOrder.order_type === 3 &&
+                currentOrder.table_id &&
+                orderLines.length > 0
+                  ? 'Close & Release'
+                  : 'Close Order'}
               </button>
             </div>
           </div>

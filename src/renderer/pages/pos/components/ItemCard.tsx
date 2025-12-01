@@ -12,12 +12,10 @@ export function ItemCard({
   item: Item;
   theme: 'light' | 'dark';
   onAddItem: (it: Item) => void;
-  /** Optional: if provided and item.has_addons is true, this will be called instead of onAddItem */
   onSelectWithAddons?: (it: Item) => void;
 }) {
   const [localImageFailed, setLocalImageFailed] = useState(false);
 
-  // Sources
   const localSrc = item.image_local ? fileUrl(item.image_local) : null;
   const remoteSrc = item.image || null;
   const activeSrc = localSrc && !localImageFailed ? localSrc : remoteSrc;
@@ -28,16 +26,14 @@ export function ItemCard({
 
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
   const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
-  const hasAddons = !!item.has_addons; // number|bool → bool
+  const hasAddons = !!item.has_addons;
 
   const handleClick = () => {
     if (item.is_outofstock === 1) return;
 
     if (hasAddons && onSelectWithAddons) {
-      // Open addons selection (modal, drawer, etc.)
       onSelectWithAddons(item);
     } else {
-      // Simple add to order
       onAddItem(item);
     }
   };
@@ -47,7 +43,7 @@ export function ItemCard({
       key={item.id}
       onClick={handleClick}
       disabled={item.is_outofstock === 1}
-      className={`group relative p-3 rounded-xl border text-left transition
+      className={`group relative flex flex-col rounded-xl border text-left transition
         ${
           item.is_outofstock === 1
             ? theme === 'dark'
@@ -56,86 +52,81 @@ export function ItemCard({
             : theme === 'dark'
             ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-blue-500/40'
             : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-md'
-        }`}
+        } p-2.5`}
     >
-      <div className='mb-2'>
-        <div
-          className={`relative w-full h-24 rounded-lg mb-2 overflow-hidden border ${
+      {/* IMAGE + ADDONS BADGE */}
+      <div
+        className={`relative w-full h-24 rounded-lg overflow-hidden border mb-2
+          ${
             theme === 'dark'
               ? 'bg-slate-900 border-white/5'
               : 'bg-gray-100 border-gray-200'
           }`}
-        >
-          {activeSrc ? (
-            <img
-              src={activeSrc}
-              alt={item.name}
-              loading='lazy'
-              className='w-full h-full object-cover object-center'
-              onError={(e) => {
-                if (activeSrc === localSrc) {
-                  setLocalImageFailed(true);
-                } else {
-                  e.currentTarget.style.display = 'none';
-                  e.currentTarget.parentElement?.classList.add(
-                    'flex',
-                    'items-center',
-                    'justify-center'
-                  );
-                }
-              }}
+      >
+        {activeSrc ? (
+          <img
+            src={activeSrc}
+            alt={item.name}
+            loading='lazy'
+            className='w-full h-full object-cover object-center'
+            onError={(e) => {
+              if (activeSrc === localSrc) {
+                setLocalImageFailed(true);
+              } else {
+                e.currentTarget.style.display = 'none';
+                e.currentTarget.parentElement?.classList.add(
+                  'flex',
+                  'items-center',
+                  'justify-center'
+                );
+              }
+            }}
+          />
+        ) : (
+          <div className='w-full h-full flex items-center justify-center'>
+            <Package
+              size={30}
+              className={theme === 'dark' ? 'text-slate-600' : 'text-gray-400'}
             />
-          ) : (
-            <div className='w-full h-full flex items-center justify-center'>
-              <Package
-                size={30}
-                className={
-                  theme === 'dark' ? 'text-slate-600' : 'text-gray-400'
-                }
-              />
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        <h3 className={`font-semibold ${text} line-clamp-2 leading-snug`}>
-          {item.name}
-        </h3>
-        <p className={`text-xs ${textMuted} line-clamp-1`}>{item.name_ar}</p>
+        {hasAddons && (
+          <span
+            className={`absolute left-1.5 bottom-1.5 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shadow-sm
+              ${
+                theme === 'dark'
+                  ? 'bg-indigo-500/90 text-white'
+                  : 'bg-indigo-600 text-white'
+              }`}
+          >
+            <Puzzle size={11} />
+            Add-ons
+          </span>
+        )}
       </div>
 
-      <div className='flex items-center justify-between gap-1'>
-        <span
-          className={`text-[11px] ${
-            theme === 'dark'
-              ? 'text-slate-500 bg-white/5'
-              : 'text-gray-500 bg-gray-100'
-          } px-1.5 py-0.5 rounded`}
+      {/* TITLE */}
+      <div className='flex-1 min-h-[2.3rem] mb-1'>
+        <h3
+          className={`font-semibold ${text} text-[13px] leading-snug line-clamp-2`}
         >
-          {item.barcode || '—'}
-        </span>
+          {item.name}
+        </h3>
+        <p className={`text-[11px] ${textMuted} line-clamp-1`}>
+          {item.name_ar}
+        </p>
+      </div>
 
-        <div className='flex items-center gap-1.5'>
-          {hasAddons && (
-            <span
-              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium
-                ${
-                  theme === 'dark'
-                    ? 'bg-indigo-500/15 text-indigo-200 border border-indigo-500/40'
-                    : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                }`}
-            >
-              <Puzzle size={11} />
-              Add-ons
-            </span>
-          )}
-          <span
-            className={`text-[15px] font-bold ${
-              theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
-            }`}
-          >
-            {item.price.toFixed(3)}
-          </span>
-        </div>
+      {/* PRICE ONLY */}
+      <div className='mt-1 flex items-center justify-end'>
+        <span
+          className={`text-[15px] font-bold ${
+            theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
+          }`}
+        >
+          {item.price.toFixed(3)}
+        </span>
       </div>
 
       {item.is_outofstock === 1 && (
