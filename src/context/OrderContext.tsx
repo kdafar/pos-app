@@ -1,7 +1,23 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+} from 'react';
 import {
-  Item, Category, Order, OrderLine, TableInfo, State, City, Block, Promo, OrderType
+  Item,
+  Category,
+  Order,
+  OrderLine,
+  TableInfo,
+  State,
+  City,
+  Block,
+  Promo,
+  OrderType,
 } from '../types';
+import { useToast } from '../renderer/components/ToastProvider';
 
 // Define the shape of the context state
 interface OrderContextType {
@@ -53,7 +69,9 @@ interface OrderContextType {
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
-export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   // Data
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -69,11 +87,17 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // UI State
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
+    null
+  );
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<
+    string | null
+  >(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [showPromoDialog, setShowPromoDialog] = useState(false);
+
+  const toast = useToast();
 
   // Initial Load
   useEffect(() => {
@@ -83,14 +107,16 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           window.api.invoke('catalog:listCategories'),
           window.api.invoke('catalog:listSubcategories'),
           window.api.invoke('geo:listStates'),
-          window.api.invoke('catalog:listPromos')
+          window.api.invoke('catalog:listPromos'),
         ]);
         setCategories(cats || []);
         setSubcategories(subs || []);
         setStates(sts || []);
         setPromos(prms || []);
         await Promise.all([loadItems(), loadActiveOrders()]);
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     };
     loadInitialData();
   }, []);
@@ -98,9 +124,15 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Actions
   const loadItems = async () => {
     try {
-      const filter = { q: searchQuery || null, categoryId: selectedCategoryId, subcategoryId: selectedSubcategoryId };
-      setItems(await window.api.invoke('catalog:listItems', filter) || []);
-    } catch (e) { console.error(e); }
+      const filter = {
+        q: searchQuery || null,
+        categoryId: selectedCategoryId,
+        subcategoryId: selectedSubcategoryId,
+      };
+      setItems((await window.api.invoke('catalog:listItems', filter)) || []);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const loadActiveOrders = async () => {
@@ -113,7 +145,9 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setCurrentOrder(null);
         setOrderLines([]);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const selectOrder = async (orderId: string) => {
@@ -122,7 +156,9 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setCurrentOrder(order);
       setOrderLines(lines || []);
       if (order?.order_type === 3) await loadTables();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const createNewOrder = async (orderType: OrderType = 2) => {
@@ -131,7 +167,9 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       await window.api.invoke('orders:setType', newOrder.id, orderType);
       await loadActiveOrders();
       await selectOrder(newOrder.id);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const changeOrderType = async (type: OrderType) => {
@@ -142,26 +180,43 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setCurrentOrder(updated.order);
       setOrderLines(updated.lines || []);
       if (type === 3) await loadTables();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const addItemToOrder = async (item: Item, qty = 1) => {
     if (!currentOrder || item.is_outofstock) return;
     try {
-      const { totals, lines } = await window.api.invoke('orders:addLine', currentOrder.id, item.id, qty);
+      const { totals, lines } = await window.api.invoke(
+        'orders:addLine',
+        currentOrder.id,
+        item.id,
+        qty
+      );
       setOrderLines(lines);
       setCurrentOrder({ ...currentOrder, ...totals });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const applyPromoCode = async (code: string) => {
     if (!currentOrder) return;
     try {
-      const { order, totals } = await window.api.invoke('orders:applyPromo', currentOrder.id, code);
+      const { order, totals } = await window.api.invoke(
+        'orders:applyPromo',
+        currentOrder.id,
+        code
+      );
       setCurrentOrder({ ...currentOrder, ...order, ...totals });
       setShowPromoDialog(false);
     } catch (e) {
-      alert('Invalid or expired promo code');
+      toast({
+        tone: 'danger',
+        title: 'Invalid or expired promo code',
+        message: 'Please check the promo code details or contact support.',
+      });
       console.error(e);
     }
   };
@@ -169,25 +224,43 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const removePromoCode = async () => {
     if (!currentOrder) return;
     try {
-      const { order, totals } = await window.api.invoke('orders:removePromo', currentOrder.id);
+      const { order, totals } = await window.api.invoke(
+        'orders:removePromo',
+        currentOrder.id
+      );
       setCurrentOrder({ ...currentOrder, ...order, ...totals });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const loadTables = async () => {
-    try { setTables(await window.api.invoke('tables:list') || []); }
-    catch (e) { console.error(e); }
+    try {
+      setTables((await window.api.invoke('tables:list')) || []);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const assignTable = async (t: TableInfo, covers: number) => {
     if (!currentOrder) return;
     try {
-      await window.api.invoke('orders:setTable', currentOrder.id, { table_id: t.id, covers });
+      await window.api.invoke('orders:setTable', currentOrder.id, {
+        table_id: t.id,
+        covers,
+      });
       const { order } = await window.api.invoke('orders:get', currentOrder.id);
       setCurrentOrder(order);
       setShowTablePicker(false);
       await loadTables();
-    } catch (e) { console.error(e); alert('Could not assign table'); }
+    } catch (e) {
+      console.error(e);
+      toast({
+        tone: 'danger',
+        title: 'Could not assign table',
+        message: 'Please try again later to assign table.',
+      });
+    }
   };
 
   const clearTable = async () => {
@@ -197,14 +270,16 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const { order } = await window.api.invoke('orders:get', currentOrder.id);
       setCurrentOrder(order);
       await loadTables();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const loadCities = async (stateId: string) => {
     const c = await window.api.invoke('geo:listCities', stateId);
     setCities(c || []);
   };
-  
+
   const loadBlocks = async (cityId: string) => {
     const b = await window.api.invoke('geo:listBlocks', cityId);
     setBlocks(b || []);
@@ -212,19 +287,39 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Filters
   const filteredSubcategories = useMemo(
-    () => subcategories.filter(sub => !selectedCategoryId || sub.category_id === selectedCategoryId),
+    () =>
+      subcategories.filter(
+        (sub) => !selectedCategoryId || sub.category_id === selectedCategoryId
+      ),
     [subcategories, selectedCategoryId]
   );
 
   // Reload items when filters change
-  useEffect(() => { loadItems(); }, [searchQuery, selectedCategoryId, selectedSubcategoryId]);
+  useEffect(() => {
+    loadItems();
+  }, [searchQuery, selectedCategoryId, selectedSubcategoryId]);
 
   const value = {
-    items, categories, subcategories, activeOrders, currentOrder, orderLines, tables, states, cities, blocks, promos,
-    searchQuery, setSearchQuery,
-    selectedCategoryId, 
-    setSelectedCategoryId: (id: string | null) => { setSelectedCategoryId(id); setSelectedSubcategoryId(null); },
-    selectedSubcategoryId, setSelectedSubcategoryId,
+    items,
+    categories,
+    subcategories,
+    activeOrders,
+    currentOrder,
+    orderLines,
+    tables,
+    states,
+    cities,
+    blocks,
+    promos,
+    searchQuery,
+    setSearchQuery,
+    selectedCategoryId,
+    setSelectedCategoryId: (id: string | null) => {
+      setSelectedCategoryId(id);
+      setSelectedSubcategoryId(null);
+    },
+    selectedSubcategoryId,
+    setSelectedSubcategoryId,
     filteredSubcategories,
     ui: {
       showCheckout,
@@ -232,23 +327,30 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       showPromoDialog,
     },
     actions: {
-      loadItems, loadActiveOrders, selectOrder, createNewOrder, changeOrderType, addItemToOrder,
-      applyPromoCode, removePromoCode,
-      loadTables, assignTable, clearTable,
-      loadCities, loadBlocks,
+      loadItems,
+      loadActiveOrders,
+      selectOrder,
+      createNewOrder,
+      changeOrderType,
+      addItemToOrder,
+      applyPromoCode,
+      removePromoCode,
+      loadTables,
+      assignTable,
+      clearTable,
+      loadCities,
+      loadBlocks,
       openCheckout: () => setShowCheckout(true),
       closeCheckout: () => setShowCheckout(false),
       openTablePicker: () => setShowTablePicker(true),
       closeTablePicker: () => setShowTablePicker(false),
       openPromoDialog: () => setShowPromoDialog(true),
       closePromoDialog: () => setShowPromoDialog(false),
-    }
+    },
   };
 
   return (
-    <OrderContext.Provider value={value}>
-      {children}
-    </OrderContext.Provider>
+    <OrderContext.Provider value={value}>{children}</OrderContext.Provider>
   );
 };
 

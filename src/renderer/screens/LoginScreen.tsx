@@ -1,360 +1,557 @@
 // src/renderer/screens/LoginScreen.tsx
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardFooter,
+  Chip,
+  Input,
+  Switch,
+  Divider,
+} from '@heroui/react';
+import { BrandHeader } from '../components/BrandHeader';
+import { Wifi, WifiOff, Link2, RefreshCcw } from 'lucide-react';
+import { useConfirmDialog } from '../components/ConfirmDialogProvider';
 
-type PosMode = 'live' | 'offline'
+type PosMode = 'live' | 'offline';
 
 type SyncStatus = {
-  mode: PosMode
-  last_sync_at: number
-  base_url: string
-  cursor: number
-  paired: boolean
-  token_present: boolean
-  device_id: string | null
-  branch_name: string
-  branch_id: number
-  unsynced: number
-}
+  mode: PosMode;
+  last_sync_at: number;
+  base_url: string;
+  cursor: number;
+  paired: boolean;
+  token_present: boolean;
+  device_id: string | null;
+  branch_name: string;
+  branch_id: number;
+  unsynced: number;
+};
 
 const fmtTime = (ms?: number) => {
-  if (!ms) return '—'
+  if (!ms) return '—';
   try {
-    const d = new Date(Number(ms))
-    return d.toLocaleString()
+    const d = new Date(Number(ms));
+    return d.toLocaleString();
   } catch {
-    return '—'
+    return '—';
   }
-}
+};
 
 export function LoginScreen() {
-  const [users, setUsers] = useState<{ id: number; name: string; role?: string }[]>([])
-  const [login, setLogin] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPwd, setShowPwd] = useState(false)
-  const [rememberLogin, setRememberLogin] = useState(true)
+  const [users, setUsers] = useState<
+    { id: number; name: string; role?: string; email?: string }[]
+  >([]);
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [rememberLogin, setRememberLogin] = useState(true);
+  const confirm = useConfirmDialog();
 
-  const [err, setErr] = useState<string | null>(null)
-  const [branch, setBranch] = useState<{ id: number | null; name: string }>({ id: null, name: '' })
+  const [err, setErr] = useState<string | null>(null);
+  const [branch, setBranch] = useState<{ id: number | null; name: string }>({
+    id: null,
+    name: '',
+  });
 
-  const [pwdLoading, setPwdLoading] = useState(false)
-  const [capsOn, setCapsOn] = useState(false)
+  const [pwdLoading, setPwdLoading] = useState(false);
+  const [capsOn, setCapsOn] = useState(false);
 
-  // Sync/mode UI state — backed by main process (no index.ts changes needed)
-  const [mode, setMode] = useState<PosMode>('live')
-  const [syncOn, setSyncOn] = useState<boolean>(true)
-  const [syncRunning, setSyncRunning] = useState(false)
-  const [status, setStatus] = useState<SyncStatus | null>(null)
+  const [mode, setMode] = useState<PosMode>('live');
+  const [syncOn, setSyncOn] = useState<boolean>(true);
+  const [syncRunning, setSyncRunning] = useState(false);
+  const [status, setStatus] = useState<SyncStatus | null>(null);
 
-  const nav = useNavigate()
-  const hasUsers = useMemo(() => users.length > 0, [users])
+  // 🔹 NEW: loading state for Unpair button
+  const [unpairLoading, setUnpairLoading] = useState(false);
+
+  const nav = useNavigate();
+  const hasUsers = useMemo(() => users.length > 0, [users]);
 
   useEffect(() => {
-    ;(async () => {
-      // Prefill remembered login
-      const saved = localStorage.getItem('pos.last_login')
-      if (saved) setLogin(saved)
+    (async () => {
+      const saved = localStorage.getItem('pos.last_login');
+      if (saved) setLogin(saved);
 
-      // Branch + users
-      const s = await (window as any).pos.auth.status()
-      setBranch({ id: s.branch_id ?? null, name: s.branch_name ?? '' })
+      const s = await (window as any).pos.auth.status();
+      setBranch({ id: s.branch_id ?? null, name: s.branch_name ?? '' });
 
-      const list = await (window as any).pos.auth.listUsers()
-      setUsers(Array.isArray(list) ? list : [])
+      const list = await (window as any).pos.auth.listUsers();
+      setUsers(Array.isArray(list) ? list : []);
 
-      // Load status from main
       try {
-        const st = (await (window as any).api.invoke('sync:status')) as SyncStatus
-        const m: PosMode = st?.mode === 'offline' ? 'offline' : 'live'
-        setMode(m)
-        setSyncOn(m === 'live')
-        setStatus(st)
+        const st = (await (window as any).api.invoke(
+          'sync:status'
+        )) as SyncStatus;
+        const m: PosMode = st?.mode === 'offline' ? 'offline' : 'live';
+        setMode(m);
+        setSyncOn(m === 'live');
+        setStatus(st);
       } catch {
-        setMode('live')
-        setSyncOn(true)
+        setMode('live');
+        setSyncOn(true);
       }
-    })()
-  }, [])
+    })();
+  }, []);
 
   const refreshStatus = async () => {
     try {
-      const st = (await (window as any).api.invoke('sync:status')) as SyncStatus
-      setStatus(st)
-      setMode(st.mode === 'offline' ? 'offline' : 'live')
-      setSyncOn(st.mode === 'live')
+      const st = (await (window as any).api.invoke(
+        'sync:status'
+      )) as SyncStatus;
+      setStatus(st);
+      setMode(st.mode === 'offline' ? 'offline' : 'live');
+      setSyncOn(st.mode === 'live');
     } catch {}
-  }
+  };
 
-  // Toggle = map ON→live, OFF→offline and tell main
   const toggleSync = async (val: boolean) => {
-    setSyncOn(val)
-    const newMode: PosMode = val ? 'live' : 'offline'
-    setMode(newMode)
+    setSyncOn(val);
+    const newMode: PosMode = val ? 'live' : 'offline';
+    setMode(newMode);
     try {
-      await (window as any).api.invoke('sync:setMode', newMode)
-      if (val) await doManualSync()
-      else await refreshStatus()
+      await (window as any).api.invoke('sync:setMode', newMode);
+      if (val) await doManualSync();
+      else await refreshStatus();
     } catch (e: any) {
-      setErr(e?.message || 'Failed to change mode')
+      setErr(e?.message || 'Failed to change mode');
     }
-  }
+  };
 
-  // Dropdown selector -> same IPC
   const changeMode = async (val: PosMode) => {
-    setMode(val)
-    setSyncOn(val === 'live')
+    setMode(val);
+    setSyncOn(val === 'live');
     try {
-      await (window as any).api.invoke('sync:setMode', val)
-      await refreshStatus()
+      await (window as any).api.invoke('sync:setMode', val);
+      await refreshStatus();
     } catch (e: any) {
-      setErr(e?.message || 'Failed to change mode')
+      setErr(e?.message || 'Failed to change mode');
     }
-  }
+  };
 
-  // Manual sync (works only in live mode; main will throw otherwise)
   const doManualSync = async () => {
-    setErr(null)
-    setSyncRunning(true)
+    setErr(null);
+    setSyncRunning(true);
     try {
-      await (window as any).api.invoke('sync:run')
+      const res = await (window as any).api.invoke('sync:run');
+      if (res?.reason === 'not_configured') {
+        // optional message
+      } else if (res?.reason === 'offline') {
+        // ignore
+      } else if (res?.reason === 'error') {
+        setErr(res.message || 'Sync failed');
+      }
     } catch (e: any) {
-      setErr(e?.message || 'Sync failed')
+      setErr(e?.message || 'Sync failed');
     } finally {
-      setSyncRunning(false)
-      await refreshStatus()
+      setSyncRunning(false);
+      await refreshStatus();
     }
-  }
+  };
 
   const doPassword = async () => {
-    setErr(null)
-    setPwdLoading(true)
+    setErr(null);
+    setPwdLoading(true);
     try {
       if (rememberLogin) {
-        localStorage.setItem('pos.last_login', login.trim())
+        localStorage.setItem('pos.last_login', login.trim());
       } else {
-        localStorage.removeItem('pos.last_login')
+        localStorage.removeItem('pos.last_login');
       }
-      await (window as any).pos.auth.loginWithPassword(login.trim(), password)
-      nav('/', { replace: true })
+      await (window as any).pos.auth.loginWithPassword(login.trim(), password);
+      nav('/', { replace: true });
     } catch (e: any) {
-      setErr(e?.message || 'Invalid credentials')
+      setErr(e?.message || 'Invalid credentials');
     } finally {
-      setPwdLoading(false)
+      setPwdLoading(false);
     }
-  }
+  };
 
   const onPwdKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') doPassword()
-    setCapsOn((e.nativeEvent as KeyboardEvent).getModifierState?.('CapsLock') ?? false)
-  }
+    if (e.key === 'Enter') doPassword();
+    setCapsOn(
+      (e.nativeEvent as KeyboardEvent).getModifierState?.('CapsLock') ?? false
+    );
+  };
 
-  const paired = !!status?.paired
-  const baseUrl = status?.base_url || ''
-  const unsynced = status?.unsynced ?? 0
-  const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+  const doUnpair = async () => {
+    const ok = await confirm({
+      title: 'Unpair this device?',
+      message: (
+        <div className='space-y-1 text-sm'>
+          <p>
+            This will disconnect this POS from the online server and clear the
+            paired branch for this machine.
+          </p>
+          <p className='text-xs text-slate-500'>
+            You can pair again later using a new code from the admin panel.
+          </p>
+        </div>
+      ),
+      confirmLabel: 'Yes, unpair',
+      cancelLabel: 'Keep paired',
+      tone: 'danger',
+    });
+
+    if (!ok) return;
+
+    setErr(null);
+    setUnpairLoading(true);
+
+    try {
+      await (window as any).api.invoke('auth:unpair');
+
+      setStatus(null);
+      setBranch({ id: null, name: '' });
+      setMode('live');
+      setSyncOn(true);
+
+      nav('/pair', { replace: true });
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to unpair device');
+    } finally {
+      setUnpairLoading(false);
+    }
+  };
+
+  const paired = !!status?.paired;
+  const baseUrl = status?.base_url || '';
+  const unsynced = status?.unsynced ?? 0;
+  const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+  const handleQuickUserClick = (u: { name: string; email?: string }) => {
+    if (u.email) {
+      setLogin(u.email);
+    } else {
+      setLogin(u.name);
+    }
+    setPassword('');
+    setErr(null);
+    const el = document.querySelector<HTMLInputElement>(
+      'input[type="password"]'
+    );
+    if (el) el.focus();
+  };
 
   return (
-    <div className="min-h-screen grid place-items-center bg-background">
-      <div
-        className="
-          w-[720px] max-w-[92vw]
-          bg-card bg-content1/60 backdrop-blur-md
-          border border-border/60 border-divider
-          rounded-2xl shadow-lg p-6
-        "
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-xl grid place-items-center bg-primary/10 text-primary font-semibold">POS</div>
-            <div>
-              <h3 className="text-xl font-semibold tracking-tight">Operator Login</h3>
-              <div className="text-xs text-muted-foreground">
-                Branch: <span className="text-foreground">{branch.name || '-'}</span>
-                {branch.id ? <span className="opacity-60"> (#{branch.id})</span> : null}
-              </div>
-            </div>
-          </div>
+    <div className='min-h-screen flex items-center justify-center bg-slate-100 px-4'>
+      <Card className='w-full max-w-5xl shadow-2xl border border-slate-200 bg-white'>
+        {/* HEADER */}
+        <CardHeader className='flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-200 pb-4'>
+          <BrandHeader
+            title='Majestic POS'
+            subtitle={`Branch: ${branch.name || '-'}${
+              branch.id ? ` (ID ${branch.id})` : ''
+            }`}
+            align='left'
+          />
 
-          {/* RIGHT TOP: Status + Sync + Mode */}
-          <div className="flex items-center gap-3">
-            {/* Paired pill */}
-            <span
-              className={`text-xs px-2 py-1 rounded-full border ${
-                paired ? 'border-green-500/40 bg-green-500/10 text-green-400' : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-              }`}
-              title={paired ? `Device ${status?.device_id || ''}` : 'Not paired'}
+          <div className='flex flex-wrap gap-2 justify-end'>
+            <Chip
+              variant='bordered'
+              color={mode === 'live' ? 'success' : 'warning'}
+              size='sm'
+              className='font-medium'
+            >
+              {mode === 'live' ? 'Mode: Live' : 'Mode: Offline'}
+            </Chip>
+            <Chip
+              variant='bordered'
+              color={paired ? 'success' : 'warning'}
+              size='sm'
+              startContent={<Link2 className='w-3 h-3' />}
             >
               {paired ? 'Paired' : 'Not paired'}
-            </span>
-
-            {/* Online pill */}
-            <span
-              className={`text-xs px-2 py-1 rounded-full border ${
-                online ? 'border-blue-500/40 bg-blue-500/10 text-blue-300' : 'border-zinc-500/40 bg-zinc-700/30 text-zinc-300'
-              }`}
-              title={online ? 'Network online' : 'Network offline'}
-            >
-              {online ? 'Online' : 'Offline (browser)'}
-            </span>
-
-            {/* Divider */}
-            <div className="w-px h-8 bg-border/60" />
-
-            {/* Sync toggle */}
-            <label className="flex items-center gap-2 text-xs cursor-pointer select-none" title="Enable/disable syncing (sets mode to Live/Offline)">
-              <span className="opacity-80">Sync</span>
-              <input type="checkbox" className="accent-primary h-4 w-4" checked={syncOn} onChange={(e) => toggleSync(e.target.checked)} />
-              <span
-                className={`ml-1 inline-block h-2.5 w-2.5 rounded-full ${syncOn ? 'bg-green-500/90' : 'bg-zinc-500/70'}`}
-                aria-hidden
-              />
-            </label>
-
-            {/* Mode selector */}
-            <div className="flex items-center gap-2 text-xs" title="Connection mode">
-              <span className="opacity-80">Mode</span>
-              <select className="input h-8 px-2 py-1 text-xs w-[128px]" value={mode} onChange={(e) => changeMode(e.target.value as PosMode)}>
-                <option value="live">Live (Sync)</option>
-                <option value="offline">Offline only</option>
-              </select>
-            </div>
-
-            {/* Sync button */}
-            <button
-              className="btn btn-outline h-8"
-              onClick={doManualSync}
-              disabled={syncRunning || mode !== 'live'}
-              title={mode !== 'live' ? 'Switch mode to Live to sync' : 'Run pull + push now'}
-            >
-              {syncRunning ? 'Syncing…' : 'Sync now'}
-            </button>
-          </div>
-        </div>
-
-        {/* Body */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Left: Password login */}
-          <div className="p-4 rounded-xl border border-border/60">
-            <div className="text-sm font-medium mb-2">Sign in</div>
-
-            <label className="text-xs text-muted-foreground">Email</label>
-            <input
-              className="input w-full mb-2"
-              value={login}
-              onChange={(e) => setLogin(e.target.value)}
-              placeholder="email@example.com"
-              type="email"
-              autoCapitalize="none"
-              autoCorrect="off"
-            />
-
-            <label className="text-xs text-muted-foreground">Password</label>
-            <div className="flex gap-2 items-center mb-2">
-              <input
-                className="input w-full"
-                type={showPwd ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={onPwdKeyDown}
-                placeholder="••••••••"
-                autoCapitalize="none"
-                autoCorrect="off"
-              />
-              <button
-                className="btn btn-ghost h-10 px-3"
-                onClick={() => setShowPwd((v) => !v)}
-                title={showPwd ? 'Hide password' : 'Show password'}
-              >
-                {showPwd ? 'Hide' : 'Show'}
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between mb-2">
-              {capsOn && <div className="text-xs text-yellow-500">Caps Lock is ON</div>}
-              <label className="text-xs flex items-center gap-2 ml-auto">
-                <input
-                  type="checkbox"
-                  className="accent-primary h-3.5 w-3.5"
-                  checked={rememberLogin}
-                  onChange={(e) => setRememberLogin(e.target.checked)}
-                />
-                Remember email
-              </label>
-            </div>
-
-            <button className="btn w-full" onClick={doPassword} disabled={pwdLoading || !login.trim() || !password}>
-              {pwdLoading ? 'Signing in…' : 'Login'}
-            </button>
-
-            <div className="text-[11px] text-muted-foreground mt-2">
-              Tip: Staff must belong to this paired branch. Admins can log in from any branch.
-            </div>
-          </div>
-
-          {/* Right: Helpful status panel */}
-          <div className="p-4 rounded-xl border border-border/60">
-            <div className="text-sm font-medium mb-2">Status & Tips</div>
-
-            <div className="text-xs mb-2 text-muted-foreground">
-              <div>
-                <span className="opacity-80">Server:</span>{' '}
-                <span className="text-foreground">{baseUrl ? baseUrl.replace(/^https?:\/\//, '') : '—'}</span>
-              </div>
-              <div>
-                <span className="opacity-80">Last sync:</span> <span className="text-foreground">{fmtTime(status?.last_sync_at)}</span>
-              </div>
-              <div>
-                <span className="opacity-80">Outbox:</span>{' '}
-                <span className={unsynced > 0 ? 'text-amber-300' : 'text-foreground'}>{unsynced} pending</span>
-              </div>
-            </div>
-
-            <div className="text-xs text-muted-foreground mb-3">
-              <div className="opacity-80 mb-1">Active users</div>
-              <ul className="text-sm text-muted-foreground max-h-28 overflow-auto pr-1 space-y-1">
-                {hasUsers ? (
-                  users.map((u) => (
-                    <li key={u.id} className="flex items-center justify-between">
-                      <span>• {u.name}</span>
-                      {u.role ? (
-                        <span className="text-foreground/70 text-[11px] px-2 py-0.5 rounded bg-muted">{u.role}</span>
-                      ) : null}
-                    </li>
-                  ))
+            </Chip>
+            <Chip
+              variant='bordered'
+              color={online ? 'primary' : 'default'}
+              size='sm'
+              startContent={
+                online ? (
+                  <Wifi className='w-3 h-3' />
                 ) : (
-                  <li className="opacity-70">No users synced yet</li>
-                )}
-              </ul>
+                  <WifiOff className='w-3 h-3' />
+                )
+              }
+            >
+              {online ? 'Online' : 'Offline (device)'}
+            </Chip>
+          </div>
+        </CardHeader>
+
+        <CardBody className='pt-5 pb-4'>
+          <div className='grid gap-6 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]'>
+            {/* LEFT: LOGIN */}
+            <div className='space-y-5'>
+              <div>
+                <div className='text-base font-semibold mb-1.5 text-slate-900'>
+                  Sign in
+                </div>
+                <p className='text-xs text-slate-500 mb-4'>
+                  Staff tap their name below and enter password. Admins can type
+                  email manually.
+                </p>
+
+                <Input
+                  label='Email'
+                  variant='bordered'
+                  size='lg'
+                  radius='md'
+                  value={login}
+                  onChange={(e) => setLogin(e.target.value)}
+                  placeholder='staff@restaurant.com'
+                  type='email'
+                  classNames={{
+                    label: 'text-xs text-slate-600',
+                    input: 'text-sm',
+                  }}
+                />
+
+                <div className='mt-4 space-y-2'>
+                  <Input
+                    label='Password'
+                    variant='bordered'
+                    size='lg'
+                    radius='md'
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type={showPwd ? 'text' : 'password'}
+                    onKeyDown={onPwdKeyDown}
+                    placeholder='Enter password'
+                    classNames={{
+                      label: 'text-xs text-slate-600',
+                      input: 'text-sm',
+                    }}
+                    endContent={
+                      <button
+                        type='button'
+                        className='text-xs text-slate-500 hover:text-slate-900'
+                        onClick={() => setShowPwd((v) => !v)}
+                      >
+                        {showPwd ? 'Hide' : 'Show'}
+                      </button>
+                    }
+                  />
+
+                  <div className='flex items-center justify-between'>
+                    <span className='text-[11px] text-slate-500'>
+                      {capsOn && (
+                        <span className='text-amber-500'>Caps Lock is ON</span>
+                      )}
+                    </span>
+                    <div className='flex items-center gap-2 text-xs text-slate-700'>
+                      <input
+                        type='checkbox'
+                        className='accent-primary h-4 w-4'
+                        checked={rememberLogin}
+                        onChange={(e) => setRememberLogin(e.target.checked)}
+                      />
+                      Remember email on this device
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  fullWidth
+                  color='primary'
+                  size='lg'
+                  radius='md'
+                  className='mt-4 font-medium'
+                  isDisabled={pwdLoading || !login.trim() || !password}
+                  isLoading={pwdLoading}
+                  onPress={doPassword}
+                >
+                  {pwdLoading ? 'Signing in…' : 'Login'}
+                </Button>
+
+                <p className='text-[11px] text-slate-500 mt-3'>
+                  Staff can only log into their own branch. Admins may log in
+                  from any paired branch.
+                </p>
+              </div>
+
+              {/* QUICK USERS */}
+              <div>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='text-sm font-semibold text-slate-900'>
+                    Quick users
+                  </div>
+                  {hasUsers && (
+                    <span className='text-[11px] text-slate-500'>
+                      Tap your name → we fill email.
+                    </span>
+                  )}
+                </div>
+                <div className='flex flex-wrap gap-2 max-h-24 overflow-auto pr-1'>
+                  {hasUsers ? (
+                    users.map((u) => (
+                      <Chip
+                        key={u.id}
+                        size='sm'
+                        variant='flat'
+                        className='cursor-pointer bg-slate-100 hover:bg-slate-200 transition'
+                        onClick={() => handleQuickUserClick(u)}
+                      >
+                        <span className='truncate max-w-[130px]'>{u.name}</span>
+                        {u.role && (
+                          <span className='ml-2 text-[10px] text-slate-600'>
+                            {u.role}
+                          </span>
+                        )}
+                      </Chip>
+                    ))
+                  ) : (
+                    <span className='text-[11px] text-slate-500'>
+                      No users synced yet. Pair this device and run sync.
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="text-[11px] leading-relaxed text-muted-foreground space-y-1">
-              <div>• If the server is unreachable, switch Mode to <b>Offline</b> to continue taking orders.</div>
-              <div>• When back online, switch to <b>Live</b> and press <b>Sync now</b> to push pending orders.</div>
+            {/* RIGHT: STATUS / SYNC */}
+            <div className='space-y-4'>
+              <div className='rounded-xl border border-slate-200 bg-slate-50 p-4'>
+                <div className='text-base font-semibold mb-3 text-slate-900'>
+                  Device status
+                </div>
+
+                <div className='space-y-2 text-xs text-slate-700 mb-4'>
+                  <div className='flex justify-between gap-2'>
+                    <span className='opacity-80'>Server</span>
+                    <span className='text-right truncate max-w-[220px]'>
+                      {baseUrl
+                        ? baseUrl.replace(/^https?:\/\//, '')
+                        : 'Not configured'}
+                    </span>
+                  </div>
+                  <div className='flex justify-between gap-2'>
+                    <span className='opacity-80'>Last sync</span>
+                    <span className='text-right'>
+                      {fmtTime(status?.last_sync_at)}
+                    </span>
+                  </div>
+                  <div className='flex justify-between gap-2 items-center'>
+                    <span className='opacity-80'>Outbox</span>
+                    <Chip
+                      size='sm'
+                      variant='flat'
+                      color={unsynced > 0 ? 'warning' : 'success'}
+                      className='text-[11px]'
+                    >
+                      {unsynced > 0 ? `${unsynced} pending` : 'Up to date'}
+                    </Chip>
+                  </div>
+                </div>
+
+                <Divider className='my-2 bg-slate-200' />
+
+                <div className='flex flex-wrap items-center gap-3 text-xs mt-1'>
+                  <Switch
+                    size='sm'
+                    isSelected={syncOn}
+                    onValueChange={toggleSync}
+                    aria-label='Sync toggle'
+                  >
+                    Sync
+                  </Switch>
+
+                  <div className='flex items-center gap-2'>
+                    <span className='opacity-80'>Mode</span>
+                    <select
+                      className='bg-white border border-slate-300 rounded-md px-2 py-1 text-[11px] text-slate-800'
+                      value={mode}
+                      onChange={(e) => changeMode(e.target.value as PosMode)}
+                    >
+                      <option value='live'>Live (sync)</option>
+                      <option value='offline'>Offline only</option>
+                    </select>
+                  </div>
+
+                  <Button
+                    size='sm'
+                    radius='md'
+                    variant='bordered'
+                    startContent={<RefreshCcw className='w-3 h-3' />}
+                    className='ml-auto text-xs'
+                    isDisabled={syncRunning || mode !== 'live'}
+                    isLoading={syncRunning}
+                    onPress={doManualSync}
+                  >
+                    Sync now
+                  </Button>
+                </div>
+
+                {/* 🔹 NEW: Unpair button */}
+                <div className='mt-3 flex justify-end'>
+                  <Button
+                    size='sm'
+                    radius='md'
+                    color='danger'
+                    variant='light'
+                    className='text-[11px]'
+                    isLoading={unpairLoading}
+                    onPress={doUnpair}
+                  >
+                    Unpair device
+                  </Button>
+                </div>
+              </div>
+
+              <div className='rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-700 space-y-1.5'>
+                <div className='font-semibold text-xs text-slate-900 mb-1'>
+                  Shift tips
+                </div>
+                <div>
+                  • If internet or server is down, switch mode to <b>Offline</b>{' '}
+                  and continue.
+                </div>
+                <div>
+                  • When back online, set mode to <b>Live</b> and press{' '}
+                  <b>Sync now</b> until outbox is 0.
+                </div>
+                <div>
+                  • Use <b>Pair device</b> if this machine is moved to another
+                  restaurant/server.
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Error */}
-        {err && (
-          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{err}</div>
-        )}
+          {err && (
+            <div className='mt-4 rounded-lg border border-red-500/40 bg-red-50 px-3 py-2 text-sm text-red-600'>
+              {err}
+            </div>
+          )}
+        </CardBody>
 
-        {/* Footer actions */}
-        <div className="flex flex-wrap gap-2 justify-between mt-5">
-          <button className="btn" onClick={() => window.history.back()}>
+        <CardFooter className='flex flex-wrap gap-2 justify-between border-t border-slate-200 pt-3 pb-4 px-6'>
+          <Button
+            variant='light'
+            size='sm'
+            onPress={() => window.history.back()}
+          >
             Back
-          </button>
-          <div className="flex gap-2">
-            <button className="btn btn-ghost" onClick={() => nav('/pair')} title="Re-run pairing wizard">
+          </Button>
+          <div className='flex gap-2'>
+            <Button variant='light' size='sm' onPress={() => nav('/pair')}>
               Pair device
-            </button>
-            <button className="btn btn-outline" onClick={() => window.location.reload()} title="Reload UI">
+            </Button>
+            <Button
+              variant='bordered'
+              size='sm'
+              onPress={() => window.location.reload()}
+              startContent={<RefreshCcw className='w-3 h-3' />}
+            >
               Reload
-            </button>
+            </Button>
           </div>
-        </div>
-      </div>
+        </CardFooter>
+      </Card>
     </div>
-  )
+  );
 }

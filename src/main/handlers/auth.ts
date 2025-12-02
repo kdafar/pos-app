@@ -200,8 +200,9 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     store.delete('auth.user_id');
     store.delete('auth.session_id');
 
-    meta.delete('pos.current_user_id');
-    meta.delete('pos.current_user_json');
+    // instead of meta.delete(...)
+    meta.set('pos.current_user_id', null);
+    meta.set('pos.current_user_json', null);
 
     return { ok: true };
   });
@@ -213,7 +214,7 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
       throw new Error('baseUrl and pairCode are required');
     }
 
-    // Persist config in our KV store
+    // Persist config in KV store
     store.set('server.base_url', baseUrl);
     if (deviceName) store.set('tmp.device_name', deviceName);
     if (branchId != null) {
@@ -225,9 +226,6 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     const mid = await readOrCreateMachineId();
     store.set('machine_id', mid);
 
-    // NOTE:
-    // Low-level pairing + bootstrap is handled in sync handlers (sync:pair, sync:bootstrap).
-    // Here we just persist data & return whatever device_id we already know.
     const device_id =
       getDeviceId() ??
       store.get('device_id') ??
@@ -302,8 +300,9 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     store.delete('tmp.device_name');
     store.delete('tmp.branch_id');
 
-    meta.delete('pos.current_user_id');
-    meta.delete('pos.current_user_json');
+    // instead of meta.delete(...)
+    meta.set('pos.current_user_id', null);
+    meta.set('pos.current_user_json', null);
 
     return { ok: true };
   });

@@ -2,7 +2,6 @@ import { ipcMain } from 'electron';
 import db from '../db';
 
 /* ========== meta helpers ========== */
-// This meta is for sync_state (branch_id, base_url, etc.), separate from meta table in db.ts
 function getMeta(key: string): string | undefined {
   try {
     return db
@@ -45,40 +44,53 @@ function firstExistingTable(candidates: string[]): string | null {
 }
 
 /* ========== timestamp column pick ========== */
-/**
- * Pick the "best" timestamp column that exists in orders.
- * Matches your migration:
- *   opened_at INTEGER, closed_at INTEGER, created_at TEXT, updated_at INTEGER, printed_at INTEGER ...
- */
 function pickOrderTsColumn(): string {
   const candidates = [
-    'completed_at',   // future-proof if we ever add it
-    'paid_at',        // future-proof
-    'opened_at',      // current main operational ts in our migration
-    'created_at_ms',  // legacy possibilities
+    'completed_at',
+    'paid_at',
+    'opened_at',
+    'created_at_ms',
     'created_ms',
-    'created_at',     // fallback to created_at text
+    'created_at',
   ];
 
   for (const col of candidates) {
     if (tableHasColumn('orders', col)) return col;
   }
 
-  // Ultimate fallback – our migration always creates opened_at, so this should not be hit on fresh DBs
   return 'opened_at';
 }
 
 /* ========== operational time rules ========== */
-/**
- * We support either:
- *  - branch_availability_rules(branch_id, day_of_week(0-6), is_open, open_at 'HH:MM:SS', close_at 'HH:MM:SS')
- *  - times(day TEXT or INT, always_close TINYINT, open 'HH:MM', close 'HH:MM')
- * If neither exists, we fallback to 00:00 → 23:59.
- */
+
 type Rule = { is_open: number; open_at: string; close_at: string };
 
+/** Parse '9:00am' / '1:00am' → 'HH:MM:SS' (24h) */
+function parseAmPmToHHMMSS(input: string | null | undefined): string {
+  if (!input) return '00:00:00';
+  const s = String(input).trim().toLowerCase();
+
+  const m = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  if (!m) {
+    // if already something like "09:00" just append ":00"
+    if (/^\d{1,2}:\d{2}$/.test(s)) return `${s}:00`;
+    if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s;
+    return '00:00:00';
+  }
+
+  let hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  const ampm = m[3].toLowerCase();
+
+  if (ampm === 'pm' && hh !== 12) hh += 12;
+  if (ampm === 'am' && hh === 12) hh = 0;
+
+  const pad = (x: number) => String(x).padStart(2, '0');
+  return `${pad(hh)}:${pad(mm)}:00`;
+}
+
 function getRuleForDay(jsDow: number): Rule | null {
-  // Prefer branch rules
+  // 1) branch_availability_rules (if present)
   if (tableExists('branch_availability_rules')) {
     const branchId = Number(getMeta('branch_id') ?? 0) || null;
     const row = db
@@ -100,10 +112,43 @@ function getRuleForDay(jsDow: number): Rule | null {
     }
   }
 
-  // Fallback: times table
+  // 2) Your new 'time' table (day, open_time, close_time, always_close)
+  if (tableExists('time')) {
+    const names = [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ];
+    const dayName = names[jsDow];
+
+    const r = db
+      .prepare(
+        `SELECT open_time, close_time, always_close
+         FROM time
+         WHERE day = ?
+         LIMIT 1`
+      )
+      .get(dayName) as any;
+
+    if (r) {
+      return {
+        is_open: r.always_close ? 0 : 1,
+        open_at: parseAmPmToHHMMSS(r.open_time),
+        close_at: parseAmPmToHHMMSS(r.close_time),
+      };
+    }
+  }
+
+  // 3) Legacy 'times' table (number / string / name)
   if (tableExists('times')) {
     const byNum = db
-      .prepare(`SELECT always_close, open, close FROM times WHERE day IN (?, ?) LIMIT 1`)
+      .prepare(
+        `SELECT always_close, open, close FROM times WHERE day IN (?, ?) LIMIT 1`
+      )
       .get(jsDow, String(jsDow)) as any;
     if (byNum) {
       return {
@@ -113,9 +158,19 @@ function getRuleForDay(jsDow: number): Rule | null {
       };
     }
 
-    const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const names = [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ];
     const byName = db
-      .prepare(`SELECT always_close, open, close FROM times WHERE day = ? LIMIT 1`)
+      .prepare(
+        `SELECT always_close, open, close FROM times WHERE day = ? LIMIT 1`
+      )
       .get(names[jsDow]) as any;
     if (byName) {
       return {
@@ -126,6 +181,7 @@ function getRuleForDay(jsDow: number): Rule | null {
     }
   }
 
+  // 4) Fallback: always open day
   return { is_open: 1, open_at: '00:00:00', close_at: '23:59:59' };
 }
 
@@ -138,7 +194,11 @@ function hhmmssToMs(base: Date, t: string): number {
 }
 
 /** Returns {startMs, endMs, alwaysClose} for the given calendar day (local). Handles cross-midnight close. */
-function getOperationalDayRange(baseDay: Date): { startMs: number; endMs: number; alwaysClose: boolean } {
+function getOperationalDayRange(baseDay: Date): {
+  startMs: number;
+  endMs: number;
+  alwaysClose: boolean;
+} {
   const jsDow = baseDay.getDay(); // 0=Sun
   const rule = getRuleForDay(jsDow);
   if (!rule) {
@@ -160,7 +220,6 @@ function getOperationalDayRange(baseDay: Date): { startMs: number; endMs: number
   const startMs = hhmmssToMs(baseDay, rule.open_at || '00:00:00');
   const closeTodayMs = hhmmssToMs(baseDay, rule.close_at || '23:59:59');
 
-  // If close <= open, it spills to the next day
   if (closeTodayMs <= startMs) {
     const nextDay = new Date(baseDay);
     nextDay.setDate(baseDay.getDate() + 1);
@@ -171,11 +230,18 @@ function getOperationalDayRange(baseDay: Date): { startMs: number; endMs: number
   return { startMs, endMs: closeTodayMs, alwaysClose: false };
 }
 
-/** Default range (like your PHP): if now >= today's open → [todayOpen, now], else use yesterdayOpen → now. */
-function defaultOperationalWindow(now = new Date()): { fromMs: number; toMs: number } {
+/** Default range: if now in today's window → [open, now], else yesterday's open → now. */
+function defaultOperationalWindow(now = new Date()): {
+  fromMs: number;
+  toMs: number;
+} {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
-  const { startMs: todayStart, endMs: todayEnd, alwaysClose } = getOperationalDayRange(today);
+  const {
+    startMs: todayStart,
+    endMs: todayEnd,
+    alwaysClose,
+  } = getOperationalDayRange(today);
   const nowMs = now.getTime();
 
   if (!alwaysClose && nowMs >= todayStart && nowMs <= todayEnd) {
@@ -188,10 +254,9 @@ function defaultOperationalWindow(now = new Date()): { fromMs: number; toMs: num
   return { fromMs: yStart, toMs: nowMs };
 }
 
-/* ========== helpers to classify orders (sold/cancelled/inside/outside) ========== */
+/* ========== helpers to classify orders ========== */
 
 function isSold(row: any): boolean {
-  // For our offline DB we mainly rely on grand_total > 0
   if (row?.paid_at) return true;
   if (row?.completed_at) return true;
   const gt = Number(row?.grand_total ?? 0);
@@ -213,32 +278,20 @@ function insideOperational(tsMs: number): boolean {
 
   if (!alwaysClose && tsMs >= startMs && tsMs <= endMs) return true;
 
-  // Check yesterday spillover window
   const y = new Date(d0);
   y.setDate(d0.getDate() - 1);
-  const { startMs: yStart, endMs: yEnd, alwaysClose: yClose } = getOperationalDayRange(y);
+  const {
+    startMs: yStart,
+    endMs: yEnd,
+    alwaysClose: yClose,
+  } = getOperationalDayRange(y);
   if (!yClose && tsMs >= yStart && tsMs <= yEnd) return true;
 
   return false;
 }
 
-/* ========== category resolver (based on our migration) ========== */
-function resolveCategoryName(catId: any): string {
-  // In our migration: categories(id, name, name_ar, ...)
-  try {
-    const r = db
-      .prepare(`SELECT COALESCE(name, name_ar) AS n FROM categories WHERE id = ?`)
-      .get(catId) as any;
-    if (r?.n) return String(r.n);
-  } catch {
-    // ignore
-  }
-  return String(catId ?? 'No Category');
-}
-
 /* ---- helper: turn any date column to ms safely (supports INTEGER ms or TEXT datetime) ---- */
 function msExpr(col: string, alias = 'o') {
-  // typeof(..)='integer' → already ms; else STRFTIME('%s')*1000
   return `(CASE WHEN typeof(${alias}.${col}) = 'integer'
            THEN ${alias}.${col}
            ELSE CAST(STRFTIME('%s', ${alias}.${col}) AS INTEGER) * 1000
@@ -251,16 +304,30 @@ export function registerOperationalReportHandlers() {
   ipcMain.handle(
     'report:sales:preview',
     (_evt, opts?: { from?: number; to?: number }) => {
-      // Default to the operational window you already implemented
       const def = defaultOperationalWindow(new Date());
-      const fromMs = Number.isFinite(opts?.from) ? Number(opts!.from) : def.fromMs;
+      const fromMs = Number.isFinite(opts?.from)
+        ? Number(opts!.from)
+        : def.fromMs;
       const toMs = Number.isFinite(opts?.to) ? Number(opts!.to) : def.toMs;
 
-      const tsCol = pickOrderTsColumn(); // e.g., opened_at | created_at
+      const tsCol = pickOrderTsColumn();
       const tsMs = msExpr(tsCol, 'o');
       const branchId = Number(getMeta('branch_id') ?? 0) || 0;
       const hasBranch = tableHasColumn('orders', 'branch_id');
-      const andBranch = hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : '';
+      const andBranch =
+        hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : '';
+
+      const orderNumberCol = tableHasColumn('orders', 'order_number')
+        ? 'o.order_number'
+        : tableHasColumn('orders', 'number')
+        ? 'o.number'
+        : 'o.id';
+
+      const fullNameCol = tableHasColumn('orders', 'customer_name')
+        ? 'o.customer_name'
+        : tableHasColumn('orders', 'full_name')
+        ? 'o.full_name'
+        : `' '`;
 
       type Row = {
         id: string;
@@ -274,9 +341,10 @@ export function registerOperationalReportHandlers() {
         ts_ms: number;
         payment_method_slug?: string | null;
         payment_method_id?: string | null;
+        order_number?: string | null;
+        full_name?: string | null;
       };
 
-      // ------- Base orders set -------
       const orders = db
         .prepare(
           `
@@ -290,8 +358,18 @@ export function registerOperationalReportHandlers() {
           o.delivery_fee,
           o.grand_total,
           ${tsMs} AS ts_ms,
-          ${tableHasColumn('orders', 'payment_method_slug') ? 'o.payment_method_slug' : 'NULL'} AS payment_method_slug,
-          ${tableHasColumn('orders', 'payment_method_id') ? 'o.payment_method_id' : 'NULL'} AS payment_method_id
+          ${orderNumberCol} AS order_number,
+          ${fullNameCol} AS full_name,
+          ${
+            tableHasColumn('orders', 'payment_method_slug')
+              ? 'o.payment_method_slug'
+              : 'NULL'
+          } AS payment_method_slug,
+          ${
+            tableHasColumn('orders', 'payment_method_id')
+              ? 'o.payment_method_id'
+              : 'NULL'
+          } AS payment_method_id
         FROM orders o
         WHERE ${tsMs} >= @fromMs AND ${tsMs} < @toMs
         ${andBranch}
@@ -299,22 +377,56 @@ export function registerOperationalReportHandlers() {
         )
         .all({ fromMs, toMs, branch_id: branchId }) as Row[];
 
-      // ------- Footer tallies (like PHP) -------
       let total_order = 0;
       let inside_hours_count = 0;
       let outside_hours_count = 0;
       let canceled_order_count = 0;
 
-      let gross_sales_total = 0; // sum(subtotal) for sold
-      let discounts = 0; // sum(discount_total or discount_amount)
-      let delivery_fees = 0; // sum(delivery_fee)
-      let grand_total = 0; // sum(grand_total) for sold
-      let outside_hours_total = 0; // sum(grand_total) for sold outside op hours
-      let cancelled_total = 0; // sum(grand_total or subtotal) for cancelled
+      let gross_sales_total = 0;
+      let discounts = 0;
+      let delivery_fees = 0;
+      let grand_total = 0;
+      let outside_hours_total = 0;
+      let cancelled_total = 0;
+
+      const decoratedOrders: Array<{
+        id: string;
+        order_number: string;
+        full_name: string;
+        ts_ms: number;
+        payment_method_id?: string;
+        order_type: number;
+        status: string | number;
+        operational_status: 'inside' | 'outside';
+        discount_amount?: number;
+        discount_total?: number;
+        delivery_fee?: number;
+        grand_total: number;
+      }> = [];
 
       for (const r of orders) {
         const ts = Number(r.ts_ms || 0);
         const inside = insideOperational(ts);
+
+        const decorated = {
+          id: String(r.id),
+          order_number: String(r.order_number ?? r.id ?? ''),
+          full_name: String(r.full_name ?? ''),
+          ts_ms: ts,
+          payment_method_id: r.payment_method_id ?? undefined,
+          order_type: Number(r.order_type ?? 0),
+          status: r.status ?? '',
+          operational_status: inside ? 'inside' : 'outside',
+          discount_amount:
+            r.discount_amount != null ? Number(r.discount_amount) : undefined,
+          discount_total:
+            r.discount_total != null ? Number(r.discount_total) : undefined,
+          delivery_fee:
+            r.delivery_fee != null ? Number(r.delivery_fee) : undefined,
+          grand_total: Number(r.grand_total ?? 0),
+        };
+
+        decoratedOrders.push(decorated);
 
         if (isCancelled(r)) {
           canceled_order_count += 1;
@@ -327,149 +439,173 @@ export function registerOperationalReportHandlers() {
           if (inside) inside_hours_count += 1;
           else outside_hours_count += 1;
 
-const preRaw = Number(r.subtotal ?? 0);
-const pre    = preRaw !== 0 ? preRaw : Number(r.grand_total ?? 0);
+          const preRaw = Number(r.subtotal ?? 0);
+          const pre = preRaw !== 0 ? preRaw : Number(r.grand_total ?? 0);
 
-const disc = Number(r.discount_total ?? r.discount_amount ?? 0);
-const delv = Number(r.delivery_fee ?? 0);
-const gtot = Number(r.grand_total ?? 0);
+          const disc = Number(r.discount_total ?? r.discount_amount ?? 0);
+          const delv = Number(r.delivery_fee ?? 0);
+          const gtot = Number(r.grand_total ?? 0);
 
-gross_sales_total += pre;
-discounts         += disc;
-delivery_fees     += delv;
-grand_total       += gtot;
-if (!inside) outside_hours_total += gtot;
+          gross_sales_total += pre;
+          discounts += disc;
+          delivery_fees += delv;
+          grand_total += gtot;
+          if (!inside) outside_hours_total += gtot;
         }
       }
 
-      // ------- Payments breakdown (sold only) -------
-    // ------- Payments breakdown (sold only) -------
-    const payments = (() => {
-      const rows: Array<{ id: string; name: string; total: number }> = [];
+      /* ---------- Payments, orderTypes, categories unchanged from previous answer ---------- */
+      const payments = (() => {
+        const rows: Array<{ id: string; name: string; total: number }> = [];
 
-      const hasPmTable  = tableExists('payment_methods');
-      const hasSlugCol  = tableHasColumn('orders', 'payment_method_slug');
-      const hasIdCol    = tableHasColumn('orders', 'payment_method_id');
+        const hasPmTable = tableExists('payment_methods');
+        const hasSlugCol = tableHasColumn('orders', 'payment_method_slug');
+        const hasIdCol = tableHasColumn('orders', 'payment_method_id');
 
-      // helper: run query and push normalized rows
-      const run = (sql: string) => {
-        const result = db
-          .prepare(sql)
-          .all({ fromMs, toMs, branch_id: branchId }) as Array<{
-          id: string;
-          name: string;
-          total: number;
-        }>;
-        for (const r of result) {
-          rows.push({
-            id: String(r.id ?? ''),
-            name: String(r.name ?? 'Unknown'),
-            total: Number(r.total ?? 0),
-          });
-        }
-        return result.length;
-      };
+        const run = (sql: string) => {
+          const result = db
+            .prepare(sql)
+            .all({ fromMs, toMs, branch_id: branchId }) as Array<{
+            id: string;
+            name: string;
+            total: number;
+          }>;
+          for (const r of result) {
+            rows.push({
+              id: String(r.id ?? ''),
+              name: String(r.name ?? 'Unknown'),
+              total: Number(r.total ?? 0),
+            });
+          }
+          return result.length;
+        };
 
-      let used = 0;
+        let used = 0;
 
-      // 1) Try slug-based grouping ONLY if there is at least one non-empty slug
-      if (hasSlugCol) {
-        const hasSlugData = !!db
-          .prepare(`
+        if (hasSlugCol) {
+          const hasSlugData = !!db
+            .prepare(
+              `
             SELECT 1
             FROM orders
             WHERE payment_method_slug IS NOT NULL
               AND payment_method_slug != ''
               AND COALESCE(grand_total,0) > 0
             LIMIT 1
-          `)
-          .get();
+          `
+            )
+            .get();
 
-        if (hasSlugData) {
-          used = run(`
+          if (hasSlugData) {
+            used = run(`
             SELECT
               COALESCE(pm.slug, s.payment_method_slug, 'unknown') AS id,
               COALESCE(pm.name_en, pm.name_ar, pm.slug, s.payment_method_slug, 'Unknown') AS name,
               ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
             FROM orders s
-            ${hasPmTable ? 'LEFT JOIN payment_methods pm ON pm.slug = s.payment_method_slug' : ''}
-            WHERE ${msExpr(tsCol,'s')} >= @fromMs AND ${msExpr(tsCol,'s')} < @toMs
+            ${
+              hasPmTable
+                ? 'LEFT JOIN payment_methods pm ON pm.slug = s.payment_method_slug'
+                : ''
+            }
+            WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(
+              tsCol,
+              's'
+            )} < @toMs
               ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
               AND COALESCE(s.grand_total,0) > 0
             GROUP BY 1, 2
             ORDER BY total DESC
           `);
+          }
         }
-      }
 
-      // 2) If nothing from slug path, try payment_method_id → payment_methods.id
-      if (!used && hasIdCol) {
-        used = run(`
+        if (!used && hasIdCol) {
+          used = run(`
           SELECT
             CAST(COALESCE(s.payment_method_id, 0) AS TEXT) AS id,
             COALESCE(pm.name_en, pm.name_ar, pm.slug, CAST(s.payment_method_id AS TEXT), 'Unknown') AS name,
             ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
           FROM orders s
-          ${hasPmTable ? 'LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id' : ''}
-          WHERE ${msExpr(tsCol,'s')} >= @fromMs AND ${msExpr(tsCol,'s')} < @toMs
+          ${
+            hasPmTable
+              ? 'LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id'
+              : ''
+          }
+          WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(
+            tsCol,
+            's'
+          )} < @toMs
             ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
             AND COALESCE(s.grand_total,0) > 0
           GROUP BY 1, 2
           ORDER BY total DESC
         `);
-      }
+        }
 
-      // 3) Optional: fallback to payments table (order_payments / payments), same as before
-      if (!used) {
-        const payTbl = firstExistingTable(['order_payments', 'payments']);
-        if (payTbl && tableHasColumn(payTbl, 'order_id') && tableHasColumn(payTbl, 'amount')) {
-          const hasPmOnPay = tableHasColumn(payTbl, 'payment_method_id');
-          const base = db
-            .prepare(
-              `
+        if (!used) {
+          const payTbl = firstExistingTable(['order_payments', 'payments']);
+          if (
+            payTbl &&
+            tableHasColumn(payTbl, 'order_id') &&
+            tableHasColumn(payTbl, 'amount')
+          ) {
+            const hasPmOnPay = tableHasColumn(payTbl, 'payment_method_id');
+            const base = db
+              .prepare(
+                `
               SELECT
                 CAST(COALESCE(p.payment_method_id, 0) AS TEXT) AS id,
                 ROUND(SUM(COALESCE(p.amount,0)), 3) AS total
               FROM ${payTbl} p
               JOIN orders o ON o.id = p.order_id
-              WHERE ${msExpr(tsCol,'o')} >= @fromMs AND ${msExpr(tsCol,'o')} < @toMs
+              WHERE ${msExpr(tsCol, 'o')} >= @fromMs AND ${msExpr(
+                  tsCol,
+                  'o'
+                )} < @toMs
                 ${hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : ''}
               GROUP BY ${hasPmOnPay ? 'p.payment_method_id' : '1'}
               ORDER BY total DESC
             `
-            )
-            .all({ fromMs, toMs, branch_id: branchId }) as Array<{ id: string; total: number }>;
+              )
+              .all({ fromMs, toMs, branch_id: branchId }) as Array<{
+              id: string;
+              total: number;
+            }>;
 
-          for (const r of base) {
-            let name = r.id;
-            if (hasPmTable && r.id) {
-              try {
-                const nm = db
-                  .prepare(
-                    `SELECT COALESCE(name_en, name_ar, slug) FROM payment_methods WHERE id = ?`
-                  )
-                  .pluck()
-                  .get(r.id);
-                if (nm) name = String(nm);
-              } catch {}
+            for (const r of base) {
+              let name = r.id;
+              if (hasPmTable && r.id) {
+                try {
+                  const nm = db
+                    .prepare(
+                      `SELECT COALESCE(name_en, name_ar, slug) FROM payment_methods WHERE id = ?`
+                    )
+                    .pluck()
+                    .get(r.id);
+                  if (nm) name = String(nm);
+                } catch {}
+              }
+              rows.push({
+                id: String(r.id ?? ''),
+                name,
+                total: Number(r.total ?? 0),
+              });
             }
-            rows.push({
-              id: String(r.id ?? ''),
-              name,
-              total: Number(r.total ?? 0),
-            });
           }
         }
-      }
 
-      return rows;
-    })();
+        return rows;
+      })();
 
-
-      // ------- Order type breakdown (sold only) -------
       const orderTypes = (() => {
         if (!tableHasColumn('orders', 'order_type')) {
-          return [] as Array<{ order_type: number; label: string; count: number; total: number }>;
+          return [] as Array<{
+            order_type: number;
+            label: string;
+            count: number;
+            total: number;
+          }>;
         }
 
         const rows = db
@@ -493,7 +629,8 @@ if (!inside) outside_hours_total += gtot;
           total: number;
         }>;
 
-        const label = (k: number) => (k === 1 ? 'Delivery' : k === 3 ? 'Dine-in' : 'Pickup');
+        const label = (k: number) =>
+          k === 1 ? 'Delivery' : k === 3 ? 'Dine-in' : 'Pickup';
 
         return rows.map((r) => ({
           order_type: r.k,
@@ -503,23 +640,30 @@ if (!inside) outside_hours_total += gtot;
         }));
       })();
 
-      // ------- Categories (sold only) -------
       const categories = (() => {
         const linesTable = firstExistingTable(['order_lines']);
         const itemTbl = firstExistingTable(['items']);
         if (!linesTable || !itemTbl) {
-          return [] as Array<{ item: string; sold: number; total: number }>;
+          return [] as Array<{
+            item: string;
+            sold: number;
+            total: number;
+          }>;
         }
 
-        // Our migration: items(category_id TEXT, ...)
         if (!tableHasColumn(itemTbl, 'category_id')) {
-          return [] as Array<{ item: string; sold: number; total: number }>;
+          return [] as Array<{
+            item: string;
+            sold: number;
+            total: number;
+          }>;
         }
 
         const hasCats = tableExists('categories');
-        const joinCat = hasCats ? `LEFT JOIN categories c ON c.id = it.category_id` : '';
+        const joinCat = hasCats
+          ? `LEFT JOIN categories c ON c.id = it.category_id`
+          : '';
 
-        // In our migration: categories(name, name_ar)
         const itemNameSelect = hasCats
           ? `COALESCE(c.name, c.name_ar, 'Uncategorized') AS item`
           : `CAST(it.category_id AS TEXT) AS item`;
@@ -559,8 +703,67 @@ if (!inside) outside_hours_total += gtot;
         }>;
       })();
 
+      // ---------- Items aggregate for "By Item" tab ----------
+      const aggregates = (() => {
+        const linesTable = firstExistingTable(['order_lines']);
+        const itemTbl = firstExistingTable(['items']);
+        if (!linesTable || !itemTbl) {
+          return [] as Array<{
+            item: string;
+            sold: number;
+            total: number;
+          }>;
+        }
+
+        const hasNameEn = tableHasColumn(itemTbl, 'name_en');
+        const hasNameAr = tableHasColumn(itemTbl, 'name_ar');
+        const hasName = tableHasColumn(itemTbl, 'name');
+
+        const itemNameExpr =
+          hasNameEn || hasNameAr
+            ? `COALESCE(it.name, it.name_ar, 'Unknown Item')`
+            : hasName
+            ? `COALESCE(it.name, 'Unknown Item')`
+            : `CAST(it.id AS TEXT)`;
+
+        const sql = `
+          SELECT
+            ${itemNameExpr} AS item,
+            SUM(COALESCE(l.qty, 0)) AS sold,
+            ROUND(
+              SUM(
+                COALESCE(
+                  l.line_total,
+                  COALESCE(l.qty, 0) * COALESCE(l.unit_price, 0)
+                )
+              ),
+              3
+            ) AS total
+          FROM ${linesTable} l
+          JOIN orders o ON o.id = l.order_id
+          JOIN ${itemTbl} it ON it.id = l.item_id
+          WHERE ${msExpr(tsCol, 'o')} >= @fromMs
+            AND ${msExpr(tsCol, 'o')} < @toMs
+            ${hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : ''}
+            AND COALESCE(o.grand_total, 0) > 0
+          GROUP BY item
+          ORDER BY total DESC, sold DESC
+          LIMIT 100
+        `;
+
+        return db
+          .prepare(sql)
+          .all({ fromMs, toMs, branch_id: branchId }) as Array<{
+          item: string;
+          sold: number;
+          total: number;
+        }>;
+      })();
+
       const footer = {
-        date: `${new Date(fromMs).toLocaleString()} to ${new Date(toMs).toLocaleString()}`,
+        date: `${new Date(fromMs).toLocaleString()} to ${new Date(
+          toMs
+        ).toLocaleString()}`,
         total_order,
         inside_hours_count,
         outside_hours_count,
@@ -573,7 +776,16 @@ if (!inside) outside_hours_total += gtot;
         cancelled_total: +cancelled_total.toFixed(3),
       };
 
-      return { fromMs, toMs, footer, payments, orderTypes, categories } as const;
+      return {
+        fromMs,
+        toMs,
+        footer,
+        payments,
+        orderTypes,
+        categories,
+        orders: decoratedOrders,
+        aggregates,
+      } as const;
     }
   );
 }

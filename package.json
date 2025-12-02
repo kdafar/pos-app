@@ -1,12 +1,52 @@
 {
   "name": "pos-app",
   "productName": "POS App",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "POS App",
   "private": true,
   "main": "out/main/index.js",
   "author": "Majestic",
   "type": "module",
+  "build": {
+    "appId": "com.majestic.pos",
+    "productName": "POS App",
+    "directories": {
+      "output": "release/${version}",
+      "buildResources": "build"
+    },
+    "files": [
+      "package.json",
+      "out/main/**",
+      "out/preload/**",
+      "out/renderer/**"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/keytar/**/*",
+      "node_modules/bufferutil/**/*",
+      "node_modules/utf-8-validate/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "icon": "build/icon.icns"
+    },
+    "nsis": {
+      "oneClick": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kdafar",
+        "repo": "pos-app"
+      }
+    ]
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -27,6 +67,7 @@
     "bwip-js": "^3.4.5",
     "cmdk": "^1.1.1",
     "dayjs": "^1.11.18",
+    "electron-updater": "^6.6.2",
     "framer-motion": "^12.23.24",
     "i18next": "^25.6.0",
     "keytar": "^7.9.0",
@@ -73,5 +114,9 @@
   "optionalDependencies": {
     "bufferutil": "^4.0.9",
     "utf-8-validate": "^6.0.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kdafar/pos-app.git"
   }
 }

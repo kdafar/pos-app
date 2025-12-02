@@ -14,6 +14,7 @@ import {
 import { Order, State, City, Block, Promo, Customer } from '../types';
 import { CommandSelect } from './CommandSelect';
 import { PromoDialog } from './PromoDialog';
+import { useToast } from '../../../components/ToastProvider'; // adjust path if needed
 
 declare global {
   interface Window {
@@ -91,7 +92,7 @@ export function CheckoutModal({
   const [localStates, setLocalStates] = useState<State[]>(states || []);
   const [localCities, setLocalCities] = useState<City[]>(cities || []);
   const [localBlocks, setLocalBlocks] = useState<Block[]>(blocks || []);
-
+  const toast = useToast();
   useEffect(() => {
     if (states?.length) setLocalStates(states);
   }, [states]);
@@ -315,11 +316,19 @@ export function CheckoutModal({
           if (url) {
             await window.api.invoke('shell:openExternal', url);
           } else {
-            alert('Payment link created but no URL returned from server.');
+            toast({
+              tone: 'danger',
+              title: 'Payment link created but no URL returned from server',
+              message: 'Please check connection/logs or contact support.',
+            });
           }
         } catch (err) {
           console.error('payments:createLink failed', err);
-          alert('Could not create payment link. Check connection/logs.');
+          toast({
+            tone: 'danger',
+            title: 'Could not create payment link',
+            message: 'Please check connection/logs or contact support.',
+          });
         }
       }
 
@@ -344,7 +353,15 @@ export function CheckoutModal({
       await onAfterComplete();
     } catch (err) {
       console.error(err);
-      alert((err as Error).message || 'Failed to complete order');
+
+      const message =
+        (err as any)?.message || 'Failed to complete order. Please try again.';
+
+      toast({
+        tone: 'danger',
+        title: 'Failed to complete order',
+        message,
+      });
     }
   };
 

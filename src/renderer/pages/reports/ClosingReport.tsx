@@ -1,12 +1,51 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useThemeTokens } from '../../hooks/useThemeTokens';
-import { Printer, RefreshCcw, CalendarClock } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  Printer,
+  RefreshCcw,
+  Clock,
+  Moon,
+  XCircle,
+  DollarSign,
+} from 'lucide-react';
 
-type PaymentRow = { id: string; name: string; total: number };
-type OrderTypeRow = { order_type: number; label: string; count: number; total: number };
-type CategoryRow = { item: string; sold: number; total: number };
-type Footer = {
-  date: string;
+import { useThemeTokens } from '../../hooks/useThemeTokens';
+import { useStore } from '../../src/store';
+
+type BackendOrderRow = {
+  id: string;
+  order_number: string;
+  full_name: string;
+  ts_ms: number;
+  payment_method_id?: string;
+  order_type: number;
+  status: number | string;
+  operational_status: 'inside' | 'outside';
+  discount_amount?: number;
+  discount_total?: number;
+  delivery_fee?: number;
+  grand_total: number;
+};
+
+type AggregateRow = {
+  item: string;
+  sold: number;
+  total: number;
+};
+
+type PaymentRow = {
+  id: string;
+  name: string;
+  total: number;
+};
+
+type OrderTypeRow = {
+  order_type: number;
+  label: string;
+  count: number;
+  total: number;
+};
+
+type FooterStats = {
   total_order: number;
   inside_hours_count: number;
   outside_hours_count: number;
@@ -17,271 +56,522 @@ type Footer = {
   delivery_fees: number;
   outside_hours_total: number;
   cancelled_total: number;
-};
-type SalesPreview = {
-  fromMs: number; toMs: number;
-  footer: Footer;
-  payments: PaymentRow[];
-  orderTypes: OrderTypeRow[];
-  categories: CategoryRow[];
+  date?: string;
 };
 
-function fmt(n: number) { return (Number(n) || 0).toFixed(3); }
+type ReportData = {
+  orders: BackendOrderRow[];
+  aggregates?: AggregateRow[];
+  payments: PaymentRow[];
+  orderTypes: OrderTypeRow[];
+  categories: AggregateRow[];
+  footer: FooterStats;
+  fromMs: number;
+  toMs: number;
+};
+
+const ORDER_TYPES: Record<number, string> = {
+  1: 'Delivery',
+  2: 'Takeaway',
+  3: 'Dine-in',
+  4: 'Drive-thru',
+};
+
+const STATUS_MAP: Record<any, string> = {
+  1: 'Pending',
+  2: 'Accepted',
+  3: 'Preparing',
+  4: 'Ready',
+  5: 'Completed',
+  9: 'Cancelled',
+  99: 'Cancelled',
+};
+
+const CANCELLED_IDS = [9, 99, 'cancelled', 'canceled'];
+
+const fmt = (n: number | undefined | null) => (Number(n) || 0).toFixed(3);
+
 function toLocalInput(ms: number) {
   const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return '';
   const pad = (x: number) => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
 }
-function fromLocalInput(s: string) { return new Date(s).getTime(); }
+
+function fromLocalInput(s: string) {
+  if (!s) return NaN;
+  const d = new Date(s);
+  return d.getTime();
+}
 
 export default function ClosingReport() {
   const { theme } = useThemeTokens();
-  const [data, setData] = useState<SalesPreview | null>(null);
+  const user = useStore((s: any) => s.user);
+
+  const canEditRange =
+    !!user &&
+    (user.is_admin === true ||
+      user.is_admin === 1 ||
+      String(user.role || '').toLowerCase() === 'admin');
+
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<0 | 1 | 2 | 3 | 5>(0);
   const [fromStr, setFromStr] = useState('');
   const [toStr, setToStr] = useState('');
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const muted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
-  const panel = theme === 'dark' ? 'bg-slate-900/60 border-white/10' : 'bg-white border-gray-200';
-  const chipBg = theme === 'dark' ? 'bg-white/10 text-white' : 'bg-gray-900 text-white';
+  const [data, setData] = useState<ReportData | null>(null);
 
-  const load = async (opts?: {from?: number; to?: number}) => {
+  const isDark =
+    theme === 'dark' ||
+    theme === 'night' ||
+    String(theme || '')
+      .toLowerCase()
+      .includes('dark');
+
+  const cardBase = isDark
+    ? 'bg-slate-800 border-slate-700'
+    : 'bg-white border-gray-200';
+  const textMain = isDark ? 'text-slate-100' : 'text-slate-900';
+  const textMuted = isDark ? 'text-slate-400' : 'text-slate-500';
+  const pageBg = isDark ? 'bg-slate-950' : 'bg-slate-50';
+
+  const loadReport = async (opts?: { from?: number; to?: number }) => {
     setLoading(true);
     try {
-      const resp = await window.api.invoke('report:sales:preview', opts);
-      setData(resp);
-      setFromStr(toLocalInput(resp.fromMs));
-      setToStr(toLocalInput(resp.toMs));
-    } finally { setLoading(false); }
+      const resp = (await window.api.invoke(
+        'report:sales:preview',
+        opts
+      )) as ReportData;
+
+      if (resp) {
+        setData(resp);
+        if (!fromStr && resp.fromMs) setFromStr(toLocalInput(resp.fromMs));
+        if (!toStr && resp.toMs) setToStr(toLocalInput(resp.toMs));
+      }
+    } catch (e) {
+      console.error('Report load failed', e);
+    } finally {
+      setLoading(false);
+    }
   };
-  useEffect(() => { load(); }, []);
 
-  const periodLabel = useMemo(() => data ? `${new Date(data.fromMs).toLocaleString()} → ${new Date(data.toMs).toLocaleString()}` : '', [data]);
+  const handleRefresh = () => {
+    if (!canEditRange) {
+      loadReport();
+      return;
+    }
 
-  const refresh = async () => {
-    await load({
-      from: fromStr ? fromLocalInput(fromStr) : undefined,
-      to:   toStr   ? fromLocalInput(toStr)   : undefined,
+    const f = fromLocalInput(fromStr);
+    const t = fromLocalInput(toStr);
+    loadReport({
+      from: isNaN(f) ? undefined : f,
+      to: isNaN(t) ? undefined : t,
     });
   };
 
-  const printNow = async () => {
-    window.print?.();
+  useEffect(() => {
+    loadReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const getRowClass = (order: BackendOrderRow) => {
+    const s = String(order.status).toLowerCase();
+    if (CANCELLED_IDS.includes(order.status) || s === 'cancelled') {
+      return isDark ? 'bg-red-900/30 text-red-200' : 'bg-red-50 text-red-900';
+    }
+    if (order.operational_status === 'outside') {
+      return isDark
+        ? 'bg-blue-900/30 text-blue-200'
+        : 'bg-blue-50 text-blue-900';
+    }
+    return 'border-b border-gray-100 dark:border-gray-700';
   };
 
-  const f = data?.footer;
+  const renderDailyTable = () => (
+    <div className='overflow-x-auto'>
+      <table className='w-full text-sm text-left'>
+        <thead
+          className={`text-xs uppercase ${
+            isDark ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-600'
+          }`}
+        >
+          <tr>
+            <th className='px-4 py-3'>#</th>
+            <th className='px-4 py-3'>Client</th>
+            <th className='px-4 py-3'>Date</th>
+            <th className='px-4 py-3'>Order #</th>
+            <th className='px-4 py-3'>Type</th>
+            <th className='px-4 py-3'>Status</th>
+            <th className='px-4 py-3'>Op. Status</th>
+            <th className='px-4 py-3 text-right'>Discount</th>
+            <th className='px-4 py-3 text-right'>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data?.orders.map((order, idx) => (
+            <tr key={order.id} className={getRowClass(order)}>
+              <td className='px-4 py-3'>{idx + 1}</td>
+              <td className='px-4 py-3 font-medium'>
+                {order.full_name || '-'}
+              </td>
+              <td className='px-4 py-3 whitespace-nowrap'>
+                {new Date(order.ts_ms).toLocaleString()}
+              </td>
+              <td className='px-4 py-3'>{order.order_number}</td>
+              <td className='px-4 py-3'>
+                {ORDER_TYPES[order.order_type] || order.order_type}
+              </td>
+              <td className='px-4 py-3'>
+                {STATUS_MAP[order.status] || order.status}
+              </td>
+              <td className='px-4 py-3'>
+                {order.operational_status === 'inside' ? (
+                  <span className='px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'>
+                    Inside
+                  </span>
+                ) : (
+                  <span className='px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'>
+                    Outside
+                  </span>
+                )}
+              </td>
+              <td className='px-4 py-3 text-right'>
+                {fmt(order.discount_total ?? order.discount_amount ?? 0)}
+              </td>
+              <td className='px-4 py-3 text-right font-bold'>
+                {fmt(order.grand_total)}
+              </td>
+            </tr>
+          ))}
+          {!data?.orders?.length && (
+            <tr>
+              <td colSpan={9} className='p-8 text-center opacity-50'>
+                No orders found
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderAggregateTable = (rows: any[], colName: string) => (
+    <div className='overflow-x-auto max-w-4xl mx-auto'>
+      <table className='w-full text-sm text-left'>
+        <thead
+          className={`text-xs uppercase ${
+            isDark ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-600'
+          }`}
+        >
+          <tr>
+            <th className='px-4 py-3'>{colName}</th>
+            <th className='px-4 py-3 text-right'>Count / Sold</th>
+            <th className='px-4 py-3 text-right'>Total Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr
+              key={idx}
+              className='border-b border-gray-100 dark:border-gray-700'
+            >
+              <td className='px-4 py-3 font-medium'>
+                {row.item || row.name || row.label || 'Unknown'}
+              </td>
+              <td className='px-4 py-3 text-right'>
+                {row.sold ?? row.count ?? 0}
+              </td>
+              <td className='px-4 py-3 text-right font-bold'>
+                {fmt(row.total)}
+              </td>
+            </tr>
+          ))}
+          {!rows.length && (
+            <tr>
+              <td colSpan={3} className='p-8 text-center opacity-50'>
+                No data available
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const dateInputClass = `px-3 py-2 rounded border bg-transparent border-gray-300 dark:border-gray-600 w-48 ${
+    !canEditRange ? 'opacity-60 cursor-not-allowed' : ''
+  }`;
 
   return (
-    <div className="p-4 md:p-6 space-y-12">
-      {/* PRINT CSS */}
+    <div className={`p-4 md:p-6 space-y-6 ${textMain} min-h-screen ${pageBg}`}>
       <style>{`
         @media print {
           .no-print { display: none !important; }
           .print-only { display: block !important; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #ccc; padding: 6px; font-size: 12px; }
-          h1,h2,h3 { margin: 6px 0; }
-        }
-        @media screen {
-          .print-only { display: none; }
+          body { -webkit-print-color-adjust: exact; }
         }
       `}</style>
 
-      {/* ===== Screen UI ===== */}
-      <header className="no-print flex items-center justify-between gap-3">
+      {/* Header */}
+      <header className='no-print flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
         <div>
-          <h1 className={`text-2xl font-semibold ${text}`}>Sales Report (Operational)</h1>
-          <div className={`text-sm ${muted}`}>Matches PHP logic: operational window, inside/outside, payments, order types, categories</div>
+          <h1 className='text-2xl font-bold'>Sales Reports</h1>
+          <p className={`text-sm ${textMuted}`}>
+            {data?.footer.date || 'Loading...'}
+          </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button onClick={refresh} disabled={loading}
-            className={`px-3 py-2 rounded-lg text-sm inline-flex items-center gap-1.5 ${chipBg}`} title="Refresh">
-            <RefreshCcw size={16}/> Refresh
+        <div className='flex items-center gap-2'>
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className='px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2'
+          >
+            <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Loading...' : 'Refresh'}
           </button>
-          <button onClick={printNow}
-            className={`px-3 py-2 rounded-lg text-sm inline-flex items-center gap-1.5 ${chipBg}`} title="Print">
-            <Printer size={16}/> Print
+          <button
+            onClick={() => window.print()}
+            className='px-4 py-2 bg-gray-200 text-gray-800 dark:bg-slate-700 dark:text-white rounded-lg hover:opacity-80 flex items-center gap-2'
+          >
+            <Printer size={16} /> Print
           </button>
         </div>
       </header>
 
-      {/* Filters */}
-      <section className={`no-print border ${panel} rounded-xl p-4`}>
-        <div className={`flex items-center gap-3 ${muted} mb-3`}>
-          <CalendarClock size={16}/> <span>Report period</span>
-          {data && <span className="text-xs opacity-70">(default: operational window)</span>}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-            <label className={`block text-xs ${muted} mb-1`}>From</label>
-            <input type="datetime-local"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-white/10 bg-white dark:bg-white/5"
-              value={fromStr} onChange={e => setFromStr(e.target.value)}
-            />
+      {/* Filter Bar */}
+      <div className={`no-print p-4 rounded-xl border ${cardBase} shadow-sm`}>
+        <div className='flex flex-col xl:flex-row gap-4 justify-between'>
+          <div className='flex flex-col sm:flex-row gap-3 items-end'>
+            <div>
+              <label className='text-xs font-semibold mb-1 block'>
+                Start Date
+              </label>
+              <input
+                type='datetime-local'
+                value={fromStr}
+                onChange={(e) => {
+                  if (!canEditRange) return;
+                  setFromStr(e.target.value);
+                }}
+                readOnly={!canEditRange}
+                className={dateInputClass}
+              />
+            </div>
+            <div>
+              <label className='text-xs font-semibold mb-1 block'>
+                End Date
+              </label>
+              <input
+                type='datetime-local'
+                value={toStr}
+                onChange={(e) => {
+                  if (!canEditRange) return;
+                  setToStr(e.target.value);
+                }}
+                readOnly={!canEditRange}
+                className={dateInputClass}
+              />
+            </div>
           </div>
-          <div>
-            <label className={`block text-xs ${muted} mb-1`}>To</label>
-            <input type="datetime-local"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-white/10 bg-white dark:bg-white/5"
-              value={toStr} onChange={e => setToStr(e.target.value)}
-            />
-          </div>
-          <div className="flex items-end">
-            <button onClick={refresh} disabled={loading}
-              className={`w-full px-3 py-2 rounded-lg ${chipBg}`}>Apply</button>
-          </div>
-        </div>
-        {data && <div className={`text-xs mt-2 ${muted}`}>Previewing: {periodLabel}</div>}
-      </section>
 
-      {/* Footer cards */}
-      <section className="no-print grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
-        {[
-          ['Total Orders', f?.total_order ?? 0],
-          ['Inside Hours', f?.inside_hours_count ?? 0],
-          ['Outside Hours', f?.outside_hours_count ?? 0],
-          ['Cancelled Count', f?.canceled_order_count ?? 0],
-          ['Gross Sales', f ? fmt(f.gross_sales_total) : '0.000'],
-          ['Discounts', f ? `-${fmt(f.discounts)}` : '0.000'],
-          ['Delivery Fees', f ? fmt(f.delivery_fees) : '0.000'],
-          ['Grand Total', f ? fmt(f.grand_total) : '0.000'],
-        ].map(([label, val]) => (
-          <div key={label as string} className={`border ${panel} rounded-xl p-3`}>
-            <div className={`text-xs ${muted}`}>{label}</div>
-            <div className={`text-lg font-semibold ${text}`}>{val as any}</div>
+          <div className='flex flex-wrap gap-2'>
+            <button
+              onClick={() => setActiveTab(0)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 0
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
+              }`}
+            >
+              Daily Report
+            </button>
+            <button
+              onClick={() => setActiveTab(1)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 1
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
+              }`}
+            >
+              By Item
+            </button>
+            <button
+              onClick={() => setActiveTab(5)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 5
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
+              }`}
+            >
+              By Category
+            </button>
+            <button
+              onClick={() => setActiveTab(2)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 2
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
+              }`}
+            >
+              By Payment
+            </button>
+            <button
+              onClick={() => setActiveTab(3)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 3
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
+              }`}
+            >
+              By Order Type
+            </button>
           </div>
-        ))}
-      </section>
+        </div>
+      </div>
 
-      {/* Breakdowns */}
-      <section className="no-print grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className={`border ${panel} rounded-xl p-4`}>
-          <h3 className={`font-semibold ${text} mb-3`}>By Payment Method</h3>
-          <table className="w-full text-sm">
-            <tbody>
-              {(data?.payments ?? []).map(p => (
-                <tr key={p.id} className="border-b border-gray-100 dark:border-white/5">
-                  <td className="py-2">{p.name}</td>
-                  <td className="py-2 text-right font-medium">{fmt(p.total)}</td>
+      {/* Summary Cards */}
+      <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6'>
+        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-500 to-cyan-400 p-6 text-white shadow-lg'>
+          <div className='flex justify-between items-start z-10 relative'>
+            <div>
+              <h3 className='text-sm font-medium opacity-90 mb-1'>
+                Orders Inside Hours
+              </h3>
+              <h2 className='text-3xl font-bold'>
+                {data?.footer.inside_hours_count || 0}
+              </h2>
+            </div>
+            <Clock className='opacity-40' size={32} />
+          </div>
+        </div>
+
+        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 p-6 text-white shadow-lg'>
+          <div className='flex justify-between items-start z-10 relative'>
+            <div>
+              <h3 className='text-sm font-medium opacity-90 mb-1'>
+                Orders Outside Hours
+              </h3>
+              <h2 className='text-3xl font-bold'>
+                {data?.footer.outside_hours_count || 0}
+              </h2>
+            </div>
+            <Moon className='opacity-40' size={32} />
+          </div>
+        </div>
+
+        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-orange-500 to-red-500 p-6 text-white shadow-lg'>
+          <div className='flex justify-between items-start z-10 relative'>
+            <div>
+              <h3 className='text-sm font-medium opacity-90 mb-1'>
+                Cancelled Orders
+              </h3>
+              <h2 className='text-3xl font-bold'>
+                {data?.footer.canceled_order_count || 0}
+              </h2>
+            </div>
+            <XCircle className='opacity-40' size={32} />
+          </div>
+        </div>
+
+        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 p-6 text-white shadow-lg'>
+          <div className='flex justify-between items-start z-10 relative'>
+            <div>
+              <h3 className='text-sm font-medium opacity-90 mb-1'>
+                Total Earning
+              </h3>
+              <h2 className='text-3xl font-bold'>
+                {fmt(data?.footer.grand_total)}
+              </h2>
+            </div>
+            <DollarSign className='opacity-40' size={32} />
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content: tab tables */}
+      <div
+        className={`border rounded-xl shadow-sm overflow-hidden ${cardBase}`}
+      >
+        {activeTab === 0 && renderDailyTable()}
+        {activeTab === 1 &&
+          renderAggregateTable(data?.aggregates || [], 'Item')}
+        {activeTab === 5 &&
+          renderAggregateTable(data?.categories || [], 'Category')}
+        {activeTab === 2 &&
+          renderAggregateTable(data?.payments || [], 'Payment Method')}
+        {activeTab === 3 &&
+          renderAggregateTable(data?.orderTypes || [], 'Order Type')}
+      </div>
+
+      {/* ALWAYS-VISIBLE FOOTER TOTALS (like online report) */}
+      {data?.footer && (
+        <div
+          className={`border rounded-xl shadow-sm overflow-hidden ${cardBase}`}
+        >
+          <div className='overflow-x-auto'>
+            <table className='w-full text-sm'>
+              <tbody>
+                <tr className={isDark ? 'bg-slate-900/40' : 'bg-gray-50'}>
+                  <td className='px-4 py-3 font-semibold text-right'>
+                    Gross Sales Total
+                  </td>
+                  <td className='px-4 py-3 font-semibold text-right'>
+                    {fmt(data.footer.gross_sales_total)}
+                  </td>
                 </tr>
-              ))}
-              {(data?.payments?.length ?? 0) === 0 && (
-                <tr><td className={`py-2 ${muted}`}>No data</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className={`border ${panel} rounded-xl p-4`}>
-          <h3 className={`font-semibold ${text} mb-3`}>By Order Type</h3>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs">
-                <th className="text-left py-1">Type</th>
-                <th className="text-right py-1">Count</th>
-                <th className="text-right py-1">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.orderTypes ?? []).map(t => (
-                <tr key={t.order_type} className="border-b border-gray-100 dark:border-white/5">
-                  <td className="py-2">{t.label}</td>
-                  <td className="py-2 text-right">{t.count}</td>
-                  <td className="py-2 text-right font-medium">{fmt(t.total)}</td>
+                <tr>
+                  <td className='px-4 py-3 font-semibold text-right'>
+                    Discounts
+                  </td>
+                  <td className='px-4 py-3 font-semibold text-right text-red-500'>
+                    - {fmt(data.footer.discounts)}
+                  </td>
                 </tr>
-              ))}
-              {(data?.orderTypes?.length ?? 0) === 0 && (
-                <tr><td className={`py-2 ${muted}`} colSpan={3}>No data</td></tr>
-              )}
-            </tbody>
-          </table>
+                <tr>
+                  <td className='px-4 py-3 font-semibold text-right'>
+                    Delivery fees
+                  </td>
+                  <td className='px-4 py-3 font-semibold text-right'>
+                    {fmt(data.footer.delivery_fees)}
+                  </td>
+                </tr>
+                <tr className={isDark ? 'bg-blue-900/30' : 'bg-blue-100'}>
+                  <td className='px-4 py-3 font-semibold text-right'>
+                    Total (Grand Total of All Sales) (Net Sales)
+                  </td>
+                  <td className='px-4 py-3 font-semibold text-right'>
+                    {fmt(data.footer.grand_total)}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td className='px-4 py-3 text-right italic text-sm'>
+                    Outside Hours Sales Total (Informational)
+                  </td>
+                  <td className='px-4 py-3 text-right font-semibold'>
+                    {fmt(data.footer.outside_hours_total)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className='px-4 py-3 text-right italic text-sm'>
+                    Cancelled Orders Total (From Inside Hours) (Informational)
+                  </td>
+                  <td className='px-4 py-3 text-right font-semibold text-red-500'>
+                    - {fmt(data.footer.cancelled_total)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </section>
-
-      {/* Categories */}
-      <section className="no-print border rounded-xl p-4"
-               style={{ borderColor: theme==='dark' ? 'rgba(255,255,255,0.1)' : '#e5e7eb' }}>
-        <h3 className={`font-semibold ${text} mb-3`}>By Category</h3>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs">
-              <th className="text-left py-1">Category</th>
-              <th className="text-right py-1">Sold</th>
-              <th className="text-right py-1">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(data?.categories ?? []).map((c, i) => (
-              <tr key={i} className="border-b border-gray-100 dark:border-white/5">
-                <td className="py-2">{c.item}</td>
-                <td className="py-2 text-right">{c.sold}</td>
-                <td className="py-2 text-right font-medium">{fmt(c.total)}</td>
-              </tr>
-            ))}
-            {(data?.categories?.length ?? 0) === 0 && (
-              <tr><td className={`py-2 ${muted}`} colSpan={3}>No data</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      {/* ===== Print-only layout ===== */}
-      {data && (
-        <section className="print-only">
-          <h1>Sales Report (Operational)</h1>
-          <div><strong>Period:</strong> {new Date(data.fromMs).toLocaleString()} → {new Date(data.toMs).toLocaleString()}</div>
-
-          <h3 style={{marginTop: '10px'}}>Summary</h3>
-          <table>
-            <tbody>
-              <tr><td>Total Orders</td><td style={{textAlign:'right'}}>{f?.total_order ?? 0}</td></tr>
-              <tr><td>Inside Hours</td><td style={{textAlign:'right'}}>{f?.inside_hours_count ?? 0}</td></tr>
-              <tr><td>Outside Hours</td><td style={{textAlign:'right'}}>{f?.outside_hours_count ?? 0}</td></tr>
-              <tr><td>Cancelled Count</td><td style={{textAlign:'right'}}>{f?.canceled_order_count ?? 0}</td></tr>
-              <tr><td>Gross Sales</td><td style={{textAlign:'right'}}>{f ? fmt(f.gross_sales_total) : '0.000'}</td></tr>
-              <tr><td>Discounts</td><td style={{textAlign:'right'}}>-{f ? fmt(f.discounts) : '0.000'}</td></tr>
-              <tr><td>Delivery Fees</td><td style={{textAlign:'right'}}>{f ? fmt(f.delivery_fees) : '0.000'}</td></tr>
-              <tr><td><strong>Grand Total</strong></td><td style={{textAlign:'right'}}><strong>{f ? fmt(f.grand_total) : '0.000'}</strong></td></tr>
-            </tbody>
-          </table>
-
-          <h3 style={{marginTop: '12px'}}>By Payment Method</h3>
-          <table>
-            <thead><tr><th>Method</th><th style={{textAlign:'right'}}>Total</th></tr></thead>
-            <tbody>
-              {data.payments.length ? data.payments.map(p => (
-                <tr key={p.id}><td>{p.name}</td><td style={{textAlign:'right'}}>{fmt(p.total)}</td></tr>
-              )) : <tr><td colSpan={2}>No data</td></tr>}
-            </tbody>
-          </table>
-
-          <h3 style={{marginTop: '12px'}}>By Order Type</h3>
-          <table>
-            <thead><tr><th>Type</th><th style={{textAlign:'right'}}>Count</th><th style={{textAlign:'right'}}>Total</th></tr></thead>
-            <tbody>
-              {data.orderTypes.length ? data.orderTypes.map(t => (
-                <tr key={t.order_type}><td>{t.label}</td><td style={{textAlign:'right'}}>{t.count}</td><td style={{textAlign:'right'}}>{fmt(t.total)}</td></tr>
-              )) : <tr><td colSpan={3}>No data</td></tr>}
-            </tbody>
-          </table>
-
-          <h3 style={{marginTop: '12px'}}>By Category</h3>
-          <table>
-            <thead><tr><th>Category</th><th style={{textAlign:'right'}}>Sold</th><th style={{textAlign:'right'}}>Total</th></tr></thead>
-            <tbody>
-              {data.categories.length ? data.categories.map((c,i)=>(
-                <tr key={i}><td>{c.item}</td><td style={{textAlign:'right'}}>{c.sold}</td><td style={{textAlign:'right'}}>{fmt(c.total)}</td></tr>
-              )) : <tr><td colSpan={3}>No data</td></tr>}
-            </tbody>
-          </table>
-        </section>
       )}
     </div>
   );
 }
 
 declare global {
-  interface Window { api: { invoke: (ch: string, ...args: any[]) => Promise<any> } }
+  interface Window {
+    api: { invoke: (channel: string, ...args: any[]) => Promise<any> };
+  }
 }

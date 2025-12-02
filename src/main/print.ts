@@ -70,7 +70,8 @@ type LineRow = {
   item_notes?: string | null;
   qty: number;
   price: number;
-  addons_json?: string | null; // optional JSON [{name,name_ar,qty,price}]
+  addons_json?: string | null;
+  is_locked?: number | null;
 };
 
 // ---- helpers --------------------------------------------------------------
@@ -178,6 +179,7 @@ function getLines(orderId: string): LineRow[] {
       ol.notes      AS item_notes,
       ol.qty,
       ol.unit_price AS price,
+      ol.is_locked  AS is_locked,     -- 🔹 add this
 
       -- raw addon fields in order_lines
       ol.addons_name,
@@ -209,7 +211,6 @@ function getLines(orderId: string): LineRow[] {
 
       addons.push({
         name,
-        // if you later add Arabic names, set name_ar here
         qty: Number(qtys[i] || 1) || 1,
         price: Number(prices[i] || 0) || 0,
       });
@@ -225,6 +226,7 @@ function getLines(orderId: string): LineRow[] {
       qty: Number(r.qty || 0),
       price: Number(r.price || 0),
       addons_json: addons.length ? JSON.stringify(addons) : null,
+      is_locked: r.is_locked ?? 0, // 🔹 0 or 1
     };
   });
 
@@ -302,87 +304,126 @@ function renderReceiptHTML(opts: {
   const fmt = (n?: number | null) => Number(n || 0).toFixed(3);
 
   // ---- items & addons ----
+  // ---- items & addons ----
   let itemsHtml = '';
+
+  // For fallback subtotal if order.subtotal is null
   let computedSubtotal = 0;
-
   for (const L of lines) {
-    const lineTotal = L.qty * L.price;
-    computedSubtotal += lineTotal;
+    computedSubtotal += L.qty * L.price;
+  }
 
-    const name =
-      lang === 'ar'
-        ? L.item_name_ar || L.item_name
-        : L.item_name || L.item_name_ar || '';
+  // 🔹 Split into main (locked) and added-later (unlocked)
+  const mainLines = lines.filter((L: any) => Number(L.is_locked ?? 0) === 1);
+  const addedLines = lines.filter((L: any) => Number(L.is_locked ?? 0) !== 1);
 
-    const optParts: string[] = [];
-    if (L.variation) optParts.push(`[${L.variation}]`);
-    if (L.size) optParts.push(`(${L.size})`);
+  const hasSplit = mainLines.length > 0 && addedLines.length > 0;
 
-    itemsHtml += `
-      <tr>
-        <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:left;">
-          ${name} ${optParts.join(' ') || ''}
-          ${
-            L.item_notes
-              ? `<br><small>* ${String(L.item_notes).replace(
-                  /\n/g,
-                  '<br>'
-                )}</small>`
-              : ''
-          }
-        </td>
-        <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:right;">
-          ${L.qty}
-        </td>
-        <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:right;">
-          ${fmt(lineTotal)}
-        </td>
-      </tr>
-    `;
+  const sectionLabelMain = lang === 'ar' ? 'الطلب الرئيسي' : 'Main order';
+  const sectionLabelAdded =
+    lang === 'ar' ? 'الطلبات المضافة لاحقاً' : 'Added later';
 
-    // (Addons still optional: addons_json can be wired later if you want)
-    if (L.addons_json) {
-      try {
-        const addons: Array<{
-          name?: string;
-          name_ar?: string;
-          qty?: number;
-          price?: number;
-        }> = JSON.parse(L.addons_json);
+  function renderLinesSection(label: string | null, section: LineRow[]) {
+    if (!section.length) return;
 
-        for (const a of addons) {
-          const aname =
-            lang === 'ar'
-              ? a.name_ar || a.name || ''
-              : a.name || a.name_ar || '';
-          const aqty = a.qty ?? 1;
-          const aprice = a.price ?? 0;
-          const addonTotal = aprice * aqty;
-
-          itemsHtml += `
-            <tr>
-              <td style="font-size:13px;font-family:'Open Sans',sans-serif;color:#000;line-height:15px;vertical-align:top;text-align:right;">
-                ${aname}
-              </td>
-              <td style="font-size:13px;font-family:'Open Sans',sans-serif;color:#000;line-height:15px;vertical-align:top;text-align:right;">
-                ${aqty}
-              </td>
-              <td style="font-size:13px;font-family:'Open Sans',sans-serif;color:#000;line-height:15px;vertical-align:top;text-align:right;">
-                ${fmt(addonTotal)}
-              </td>
-            </tr>
-          `;
-        }
-      } catch {
-        // ignore JSON errors
-      }
+    if (label) {
+      itemsHtml += `
+        <tr>
+          <td colspan="3"
+              style="font-size:14px;font-family:'Open Sans',sans-serif;font-weight:bold;padding-top:4px;padding-bottom:2px;border-top:1px solid #000;">
+            ${label}
+          </td>
+        </tr>
+      `;
     }
 
-    itemsHtml += `
-      <tr>
-        <td colspan="3"><hr></td>
-      </tr>
-    `;
+    for (const L of section) {
+      const lineTotal = L.qty * L.price;
+
+      const name =
+        lang === 'ar'
+          ? L.item_name_ar || L.item_name
+          : L.item_name || L.item_name_ar || '';
+
+      const optParts: string[] = [];
+      if (L.variation) optParts.push(`[${L.variation}]`);
+      if (L.size) optParts.push(`(${L.size})`);
+
+      itemsHtml += `
+        <tr>
+          <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:left;">
+            ${name} ${optParts.join(' ') || ''}
+            ${
+              L.item_notes
+                ? `<br><small>* ${String(L.item_notes).replace(
+                    /\n/g,
+                    '<br>'
+                  )}</small>`
+                : ''
+            }
+          </td>
+          <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:right;">
+            ${L.qty}
+          </td>
+          <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:right;">
+            ${fmt(lineTotal)}
+          </td>
+        </tr>
+      `;
+
+      // Addons (unchanged)
+      if (L.addons_json) {
+        try {
+          const addons: Array<{
+            name?: string;
+            name_ar?: string;
+            qty?: number;
+            price?: number;
+          }> = JSON.parse(L.addons_json);
+
+          for (const a of addons) {
+            const aname =
+              lang === 'ar'
+                ? a.name_ar || a.name || ''
+                : a.name || a.name_ar || '';
+            const aqty = a.qty ?? 1;
+            const aprice = a.price ?? 0;
+            const addonTotal = aprice * aqty;
+
+            itemsHtml += `
+              <tr>
+                <td style="font-size:13px;font-family:'Open Sans',sans-serif;color:#000;line-height:15px;vertical-align:top;text-align:right;">
+                  ${aname}
+                </td>
+                <td style="font-size:13px;font-family:'Open Sans',sans-serif;color:#000;line-height:15px;vertical-align:top;text-align:right;">
+                  ${aqty}
+                </td>
+                <td style="font-size:13px;font-family:'Open Sans',sans-serif;color:#000;line-height:15px;vertical-align:top;text-align:right;">
+                  ${fmt(addonTotal)}
+                </td>
+              </tr>
+            `;
+          }
+        } catch {
+          // ignore JSON errors
+        }
+      }
+
+      itemsHtml += `
+        <tr>
+          <td colspan="3"><hr></td>
+        </tr>
+      `;
+    }
+  }
+
+  if (hasSplit) {
+    // 🔸 “Main order” and “Added later” shown separately
+    renderLinesSection(sectionLabelMain, mainLines);
+    renderLinesSection(sectionLabelAdded, addedLines);
+  } else {
+    // No split (e.g. take-away), just show as one block
+    renderLinesSection(null, lines);
   }
 
   // ---- totals from ORDER row (with fallback) ----

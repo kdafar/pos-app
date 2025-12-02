@@ -310,6 +310,14 @@ export function migrate() {
       updated_at    TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS time (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      day TEXT NOT NULL,          -- 'Sunday', 'Monday', ...
+      open_time TEXT NOT NULL,    -- e.g. '9:00am'
+      close_time TEXT NOT NULL,   -- e.g. '1:00am'
+      always_close INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS pos_action_log (
       id TEXT PRIMARY KEY,
       order_id TEXT NULL,

@@ -22,6 +22,8 @@ import {
   markOrdersSynced,
 } from '../utils/orderNumbers';
 
+import type { MainServices } from '../types/common';
+
 /* ------------------------------------------------------------------
  * 🛡️ ROBUST LOCAL HELPERS
  * ------------------------------------------------------------------ */
@@ -239,9 +241,14 @@ async function getSyncStatus(): Promise<SyncStatus> {
  * Register sync-related IPC handlers
  * ------------------------------------------------------------------ */
 
-export function registerSyncHandlers(ipcMain: IpcMain) {
+export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
+  const { store } = services;
   ipcMain.handle('sync:configure', async (_e, baseUrl: string) => {
-    const device_id = getMeta('device_id') ?? '';
+    const device_id =
+      getMeta('device_id') ||
+      store.get('device_id') ||
+      store.get('server.device_id') ||
+      '';
     const branch_id = Number(getMeta('branch_id') ?? 0);
     const token = await loadSecret('device_token');
     if (!device_id || !token) throw new Error('Not paired');
@@ -342,21 +349,33 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
   ipcMain.handle('sync:run', async () => {
     console.log('[Sync] Manual sync:run triggered');
 
-    if ((getMeta('pos.mode') || 'live') !== 'live') {
-      throw new Error('Offline mode: Sync disabled');
+    const mode = getMeta('pos.mode') || 'live';
+
+    // 1) Offline mode → just log + no-op
+    if (mode !== 'live') {
+      console.log('[Sync] Skipping manual sync: offline mode');
+      return { ok: false, reason: 'offline' as const };
     }
 
     const base = getMeta('server.base_url') || '';
-    const device_id = getMeta('device_id') || '';
+    const device_id =
+      getMeta('device_id') ||
+      store.get('device_id') ||
+      store.get('server.device_id') ||
+      '';
     const branch_id = Number(getMeta('branch_id') || 0);
     const token = await loadSecret('device_token');
 
+    // 2) Not configured → just log + no-op
     if (!base || !device_id || !token) {
-      throw new Error(
-        'Not configured for sync (missing URL, device ID, or token)'
+      console.log(
+        '[Sync] Skipping manual sync: not configured (missing URL, device ID, or token)',
+        { hasBase: !!base, hasDeviceId: !!device_id, hasToken: !!token }
       );
+      return { ok: false, reason: 'not_configured' as const };
     }
 
+    // 3) Normal path: do full sync
     ensureOrderNumberDedupeTriggers();
     normalizeDuplicateOrderNumbers();
 
@@ -364,10 +383,8 @@ export function registerSyncHandlers(ipcMain: IpcMain) {
 
     console.log('[Sync] Manual sync: running FULL bootstrap…');
 
-    //  capture payload
     const payload: any = await bootstrap(base);
 
-    //  safe snapshot of catalog
     const cat = payload?.catalog || {};
     console.log('[Sync] Manual bootstrap snapshot', {
       items: Array.isArray(cat.items) ? cat.items.length : 0,

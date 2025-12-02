@@ -39,18 +39,42 @@ export function registerOrdersHandlers(
   const getCurrentPosUser = () => {
     const rawId = store.get('auth.user_id');
     const id = rawId != null && rawId !== '' ? String(rawId) : null;
-    if (!id) return { id: null, isAdmin: true };
+
+    if (!id) {
+      return {
+        id: null,
+        isAdmin: true,
+        name: null,
+        mobile: null,
+        email: null,
+      };
+    }
+
     try {
       const u = rawDb
-        .prepare(`SELECT role FROM pos_users WHERE id = ?`)
+        .prepare(`SELECT role, name, mobile, email FROM pos_users WHERE id = ?`)
         .get(id) as any;
+
       const role = (u?.role || '').toLowerCase();
       const isAdmin = ['admin', 'owner', 'manager', 'super_admin'].includes(
         role
       );
-      return { id, isAdmin };
+
+      return {
+        id,
+        isAdmin,
+        name: u?.name ?? null,
+        mobile: u?.mobile ?? null,
+        email: u?.email ?? null,
+      };
     } catch {
-      return { id, isAdmin: true };
+      return {
+        id,
+        isAdmin: true,
+        name: null,
+        mobile: null,
+        email: null,
+      };
     }
   };
 
@@ -118,9 +142,10 @@ export function registerOrdersHandlers(
     const order = getOrderRow(orderId);
     if (!order) return null;
 
-    const lines = rawDb
-      .prepare(
-        `
+    // detect if order_lines has is_locked column
+    const lineHasLock = hasColumn('order_lines', 'is_locked');
+
+    const selectSql = `
       SELECT
         id,
         order_id,
@@ -138,24 +163,22 @@ export function registerOrdersHandlers(
         addons_name,
         addons_price,
         addons_qty,
-        notes
+        notes,
+        ${lineHasLock ? 'is_locked' : '0 AS is_locked'}
       FROM order_lines
       WHERE order_id = ?
       ORDER BY rowid ASC
-    `
-      )
-      .all(orderId) as any[];
+    `;
 
-    // Debug snapshot: see if variation/addons are there
+    const lines = rawDb.prepare(selectSql).all(orderId) as any[];
+
     console.log('[orders:getOrderWithLines] lines snapshot', {
       order_id: orderId,
       count: lines.length,
       sample: lines.slice(0, 3).map((l) => ({
         id: l.id,
         name: l.name,
-        variation: l.variation,
-        addons_name: l.addons_name,
-        notes: l.notes,
+        is_locked: l.is_locked,
       })),
     });
 
@@ -374,13 +397,49 @@ export function registerOrdersHandlers(
     'orders:setType',
     async (_e, orderId: string, type: 1 | 2 | 3) => {
       if (isPosLocked()) throw new Error('POS is locked');
-      assertOrderEditable(orderId);
+
+      const order = getOrderRow(orderId);
+      if (!order) throw new Error('Order not found');
+
+      const currentType = Number(order.order_type || 0);
+      const status = (order.status || '').toLowerCase();
+
+      const isLocked =
+        hasColumn('orders', 'is_locked') && Number(order.is_locked ?? 0) === 1;
+
+      const hasPayment =
+        hasColumn('orders', 'payment_method_id') &&
+        order.payment_method_id != null &&
+        String(order.payment_method_id) !== '';
+
+      // ❌ 1) Do not allow changing type for a dine-in order that has a table
+      if (currentType === 3 && order.table_id && type !== 3) {
+        throw new Error(
+          'Cannot change order type for a dine-in order that has a table assigned.'
+        );
+      }
+
+      // ❌ 2) Once the order is placed/updated, do not allow type change
+      //    (i.e. anything beyond a fresh "open" order with no lock/payment)
+      if (
+        status !== 'open' || // pending / prepared / ready / completed / closed
+        isLocked ||
+        hasPayment
+      ) {
+        throw new Error(
+          'Order type cannot be changed after the order has been placed or updated.'
+        );
+      }
+
+      // ✅ If we get here, it is still a fresh editable order
       rawDb
         .prepare(
           `UPDATE orders SET order_type = ?, updated_at = ? WHERE id = ?`
         )
         .run(type, nowMs(), orderId);
-      log('orders.setType', orderId, { type });
+
+      log('orders.setType', orderId, { from: currentType, to: type });
+
       return recalcAndGet(orderId);
     }
   );
@@ -427,16 +486,28 @@ export function registerOrdersHandlers(
         hasColumn('orders', 'is_locked') &&
         Number(order.is_locked ?? 0) === 1;
 
+      // Look for an *unlocked* line of the same bare item (no variation/addons)
       let row: any = null;
 
-      // Only merge with existing line if NOT locked dine-in
-      if (!isLockedDineIn) {
-        row = rawDb
-          .prepare(
-            `SELECT id, qty, unit_price FROM order_lines WHERE order_id = ? AND item_id = ? AND variation_id IS NULL AND addons_id IS NULL`
-          )
-          .get(orderId, itemId) as any;
-      }
+      const hasLineLock = hasColumn('order_lines', 'is_locked');
+
+      const candidates = rawDb
+        .prepare(
+          `
+            SELECT id, qty, unit_price
+            ${
+              hasLineLock
+                ? ', COALESCE(is_locked, 0) AS is_locked'
+                : ', 0 AS is_locked'
+            }
+            FROM order_lines
+            WHERE order_id = ? AND item_id = ? AND variation_id IS NULL AND addons_id IS NULL
+          `
+        )
+        .all(orderId, itemId) as any[];
+
+      // Prefer an UNLOCKED line to merge into
+      row = candidates.find((l) => Number(l.is_locked || 0) === 0) || null;
 
       if (row) {
         const newQty = Number(row.qty || 0) + Number(qty || 0);
@@ -455,7 +526,8 @@ export function registerOrdersHandlers(
         const unit = Number(item.price || 0);
         rawDb
           .prepare(
-            `INSERT INTO order_lines (id, order_id, item_id, name, qty, unit_price, tax_amount, line_total, temp_line_id, name_ar) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?)`
+            `INSERT INTO order_lines (id, order_id, item_id, name, qty, unit_price, tax_amount, line_total, temp_line_id, name_ar)
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?)`
           )
           .run(
             id,
@@ -732,8 +804,104 @@ export function registerOrdersHandlers(
     const order = getOrderRow(orderId);
     if (!order) throw new Error('Order not found');
 
+    // ── 0) Basic info ──────────────────────────────────────────────────────────
+    const orderType = Number(order.order_type ?? order.type ?? 0);
+
+    // Count items in the order (we only enforce guards when there are items)
+    let itemsCount = 0;
+    try {
+      const row = rawDb
+        .prepare('SELECT COUNT(*) AS c FROM order_lines WHERE order_id = ?')
+        .get(orderId) as { c?: number };
+      itemsCount = row?.c ?? 0;
+    } catch (err) {
+      console.error('[orders:close] failed to count order_lines', err);
+    }
+
+    // ── 0.1) DELIVERY GUARD: require address if there are items ───────────────
+    if (itemsCount > 0 && orderType === 1) {
+      // Be a bit defensive with field names, in case your schema changed
+      const stateId = (order as any).state_id ?? (order as any).state ?? null;
+      const cityId = (order as any).city_id ?? (order as any).city ?? null;
+      const blockId = (order as any).block_id ?? (order as any).block ?? null;
+
+      if (!stateId || !cityId || !blockId) {
+        throw new Error(
+          'Delivery address missing. Please select State, City and Block in the checkout screen before closing this delivery order.'
+        );
+      }
+    }
+
+    // ── 0.2) DINE-IN GUARD: require table if there are items ──────────────────
+    if (itemsCount > 0 && orderType === 3) {
+      if (!order.table_id) {
+        throw new Error(
+          'Table not assigned. Please assign a table before closing this dine-in order.'
+        );
+      }
+    }
+
+    // ── 1) Auth user & default customer info ──────────────────────────────────
+    const {
+      id: userId,
+      name: userName,
+      mobile: userMobile,
+      email: userEmail,
+    } = getCurrentPosUser();
+
+    // Prepare default customer details (like quick mode)
+    let fullName = (order.full_name ?? '').toString().trim();
+    let mobile = (order.mobile ?? '').toString().trim();
+    let email = (order.email ?? '').toString().trim();
+
+    if (!fullName) {
+      fullName = userName || 'POS Customer';
+    }
+    if (!mobile) {
+      // Same spirit as Checkout quick mode: fallback mobile
+      mobile = userMobile || '55555555';
+    }
+    if (!email) {
+      email = userEmail || '';
+    }
+
     const cols: string[] = ['status = ?', 'updated_at = ?'];
     const params: any[] = ['closed', ts];
+
+    // Make sure customer fields are not empty
+    if (hasColumn('orders', 'full_name')) {
+      cols.push('full_name = ?');
+      params.push(fullName);
+    }
+    if (hasColumn('orders', 'mobile')) {
+      cols.push('mobile = ?');
+      params.push(mobile);
+    }
+    if (hasColumn('orders', 'email')) {
+      cols.push('email = ?');
+      params.push(email || null);
+    }
+
+    // ── 2) User tracking: fill created_by/completed_by if missing ─────────────
+    if (userId) {
+      if (
+        hasColumn('orders', 'completed_by_user_id') &&
+        (order.completed_by_user_id == null ||
+          String(order.completed_by_user_id) === '')
+      ) {
+        cols.push('completed_by_user_id = ?');
+        params.push(userId);
+      }
+
+      if (
+        hasColumn('orders', 'created_by_user_id') &&
+        (order.created_by_user_id == null ||
+          String(order.created_by_user_id) === '')
+      ) {
+        cols.push('created_by_user_id = ?');
+        params.push(userId);
+      }
+    }
 
     // Mark final timestamps when available
     if (hasColumn('orders', 'completed_at')) {
@@ -744,18 +912,27 @@ export function registerOrdersHandlers(
       params.push(ts);
     }
 
-    // For safety: once closed, lock it
+    // Once closed, lock it
     if (hasColumn('orders', 'is_locked')) {
       cols.push('is_locked = 1');
     }
 
+    // WHERE id = ?
     params.push(orderId);
 
     rawDb
       .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
       .run(...params);
 
-    log('orders.close', orderId, { status: 'closed' });
+    log('orders.close', orderId, {
+      status: 'closed',
+      autoFilled: {
+        full_name: fullName,
+        mobile,
+        email,
+        userId,
+      },
+    });
 
     return getOrderWithLines(orderId);
   });
@@ -839,7 +1016,7 @@ export function registerOrdersHandlers(
       const totals = recalcOrderTotals(services, orderId);
 
       // 3) 🔹 Mark order as prepared + set payment + totals
-      const newStatus = 'prepared';
+      const newStatus = type === 3 ? 'prepared' : 'completed';
 
       const cols = [
         'status = ?',
@@ -866,6 +1043,11 @@ export function registerOrdersHandlers(
 
       if (hasColumn('orders', 'is_locked')) {
         cols.push('is_locked = 1');
+      }
+
+      if (type !== 3 && hasColumn('orders', 'completed_at')) {
+        cols.push('completed_at = ?');
+        params.push(ts);
       }
 
       params.push(orderId);
@@ -1139,19 +1321,41 @@ export function registerOrdersHandlers(
   );
 
   ipcMain.handle('orders:clearTable', async (_e, orderId: string) => {
+    const order = getOrderRow(orderId);
+    if (!order) return getOrderWithLines(orderId);
+
+    // 🚫 Safety: do NOT allow clearing table if the order has any items
+    try {
+      const row = rawDb
+        .prepare('SELECT COUNT(*) AS c FROM order_lines WHERE order_id = ?')
+        .get(orderId) as { c?: number };
+
+      const count = row?.c ?? 0;
+      if (count > 0) {
+        throw new Error(
+          'Cannot remove the table from an order that already has items. Use "Close & Release" instead.'
+        );
+      }
+    } catch (err) {
+      console.error('[orders:clearTable] count check failed', err);
+      // If we can’t be sure, better not clear.
+      throw new Error('Could not verify order lines – table not cleared.');
+    }
+
     rawDb.transaction(() => {
-      const o = getOrderRow(orderId);
-      if (o?.table_id)
+      if (order.table_id) {
         rawDb
           .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
-          .run(o.table_id);
+          .run(order.table_id);
+      }
 
       rawDb
         .prepare(
           `UPDATE orders SET table_id = NULL, covers = NULL, updated_at = ? WHERE id = ?`
         )
         .run(nowMs(), orderId);
-    })();
+    });
+
     return getOrderWithLines(orderId);
   });
 

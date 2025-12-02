@@ -1,6 +1,8 @@
 import { Outlet, useLocation, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../src/store';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import packageJson from '../../../package.json';
+import { useToast } from '../components/ToastProvider';
 import {
   Cloud,
   CloudOff,
@@ -22,7 +24,6 @@ type SyncStatus = {
   branch_id: number;
 };
 
-// 👇 flexible user type (covers is_admin, role, type)
 type PosUser = {
   id: string | number;
   name?: string;
@@ -31,9 +32,12 @@ type PosUser = {
   is_admin?: boolean | number;
 };
 
+const APP_VERSION = packageJson.version;
+const APP_VENDOR = packageJson.author || 'Majestic POS';
+
 export function Layout() {
+  const toast = useToast();
   const collapsed = useStore((s) => s.collapsed);
-  const brand = useStore((s) => s.brand);
   const toggleCollapsed = useStore((s) => s.actions.toggleCollapsed);
   const location = useLocation();
   const navigate = useNavigate();
@@ -43,7 +47,6 @@ export function Layout() {
 
   useEffect(() => {
     (async () => {
-      // try persisted choice, fallback to current DOM class
       const saved = await window.api.invoke('store:get', 'ui.theme');
       const initial =
         saved === 'light' || saved === 'dark'
@@ -72,14 +75,13 @@ export function Layout() {
         const u = await window.api.invoke('auth:whoami');
         setUser(u || null);
       } catch {
-        // In dev or unpaired state, treat as null → default admin
         setUser(null);
       }
     })();
   }, []);
 
   const isAdmin = useMemo(() => {
-    if (!user) return true; // default to admin if unknown (safe for dev)
+    if (!user) return true;
     if (user.is_admin === true || user.is_admin === 1) return true;
 
     const role = String(user.role ?? user.type ?? '').toLowerCase();
@@ -92,7 +94,6 @@ export function Layout() {
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
   const pollRef = useRef<number | null>(null);
-
   const syncingRef = useRef(false);
 
   useEffect(() => {
@@ -108,10 +109,8 @@ export function Layout() {
     }
   };
 
-  // 🔁 Initial status + 5s polling (runs once)
   useEffect(() => {
     refreshStatus();
-    // poll every 5s
     pollRef.current = window.setInterval(
       refreshStatus,
       5000
@@ -122,10 +121,8 @@ export function Layout() {
     };
   }, []);
 
-  // Auto-collapse sidebar when on POS ("/")
   const hasAutoCollapsedRef = useRef(false);
 
-  // Auto-collapse once when entering POS ("/"), but allow manual toggle
   useEffect(() => {
     const onPosScreen = location.pathname === '/';
 
@@ -134,13 +131,11 @@ export function Layout() {
       hasAutoCollapsedRef.current = true;
     }
 
-    // When leaving POS, reset so next time we can auto-collapse again
     if (!onPosScreen) {
       hasAutoCollapsedRef.current = false;
     }
   }, [location.pathname, collapsed, toggleCollapsed]);
 
-  // Auto sync (throttled) when online & paired
   useEffect(() => {
     if (!sync) return;
 
@@ -152,23 +147,19 @@ export function Layout() {
 
     if (!canAutoSync) return;
 
-    const AUTO_SYNC_MIN_INTERVAL = 60_000; // 60 seconds between real syncs
+    const AUTO_SYNC_MIN_INTERVAL = 60_000;
 
     const id = window.setInterval(async () => {
-      // 1) avoid overlapping runs
       if (syncingRef.current) return;
-
-      // 2) don't spam when user not looking at the app
       if (typeof document !== 'undefined' && !document.hasFocus()) return;
 
-      // 3) throttle based on last_sync_at
       const last = Number(sync.last_sync_at || 0);
       if (last && Date.now() - last < AUTO_SYNC_MIN_INTERVAL) return;
 
       try {
         syncingRef.current = true;
         setSyncing(true);
-        await window.api.invoke('sync:run'); // your pull+push combo
+        await window.api.invoke('sync:run');
         await refreshStatus();
       } catch (e) {
         console.error('auto sync:run failed', e);
@@ -184,66 +175,25 @@ export function Layout() {
     sync?.paired,
     sync?.token_present,
     sync?.base_url,
-    sync?.last_sync_at, // include so we re-evaluate after each status update
+    sync?.last_sync_at,
   ]);
-
-  // no manual toggle anymore, mode is controlled by main process
-  // const toggleMode = async () => { ... }
 
   const runSync = async () => {
     try {
       setSyncing(true);
-      await window.api.invoke('sync:run'); // bootstrap + pull
+      await window.api.invoke('sync:run');
       await refreshStatus();
     } catch (e) {
       console.error('sync:run failed', e);
-      alert('Sync failed. Check connection/base URL/pairing.');
+      toast({
+        tone: 'danger',
+        title: 'Sync failed',
+        message: 'Check connection/base URL/pairing.',
+      });
     } finally {
       setSyncing(false);
     }
   };
-
-  const statusPill = useMemo(() => {
-    const good =
-      sync?.mode === 'live' &&
-      sync?.paired &&
-      sync?.token_present &&
-      !!sync?.base_url;
-    const warn = sync?.mode === 'offline' && sync?.paired;
-    const bad = !sync?.paired || !sync?.token_present || !sync?.base_url;
-
-    const base =
-      'px-2 py-1 rounded-lg text-[11px] font-medium border inline-flex items-center gap-1';
-
-    if (good) {
-      return (
-        <span
-          className={`${base} border-emerald-600/30 bg-emerald-500/15 text-emerald-300`}
-        >
-          <Dot /> Live
-        </span>
-      );
-    }
-
-    if (warn) {
-      return (
-        <span
-          className={`${base} border-amber-600/30 bg-amber-500/15 text-amber-300`}
-        >
-          <Dot /> Offline
-        </span>
-      );
-    }
-
-    // "bad" (not paired / missing token / no base_url)
-    return (
-      <span
-        className={`${base} border-rose-600/30 bg-rose-500/15 text-rose-300`}
-      >
-        <Dot /> Not paired
-      </span>
-    );
-  }, [sync]);
 
   const lastSyncText = useMemo(() => {
     if (!sync?.last_sync_at) return '—';
@@ -254,9 +204,8 @@ export function Layout() {
     return new Date(sync.last_sync_at).toLocaleString();
   }, [sync?.last_sync_at]);
 
-  // Base class for icon buttons
   const iconButtonClass =
-    'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-10 w-10 text-muted-foreground';
+    'inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9 text-muted-foreground';
 
   return (
     <div
@@ -264,30 +213,46 @@ export function Layout() {
       style={{ gridTemplateColumns: collapsed ? '76px 1fr' : '260px 1fr' }}
     >
       {/* Sidebar */}
-      <aside className='h-full bg-card border-r flex flex-col p-3 transition-all duration-300 min-h-0 min-w-0'>
-        {/* Brand + controls */}
-        <div
-          className={`flex items-center ${
-            collapsed ? 'justify-center' : 'justify-between'
-          } gap-2 px-2 h-10 mb-2`}
-        >
-          <div
-            className={`font-bold tracking-wide text-lg text-foreground flex items-center gap-2 overflow-hidden ${
-              collapsed ? 'hidden' : 'flex'
-            }`}
-          >
-            <span className='flex-shrink-0'>🍣</span>
-            {!collapsed && (
-              <span className='transition-opacity duration-200 whitespace-nowrap'>
-                {brand}
-              </span>
-            )}
-          </div>
-          <div className='flex items-center gap-1'>
+      <aside
+        className='
+          h-full border-r flex flex-col gap-3 p-3 min-h-0 min-w-0
+          bg-gradient-to-b from-slate-50 to-slate-100
+          dark:from-slate-950 dark:to-slate-900
+        '
+      >
+        {/* User header + controls */}
+        <div className='flex items-center gap-2 px-1'>
+          {!collapsed && (
+            <div
+              className={`
+              flex items-center gap-3 overflow-hidden
+              rounded-2xl px-3 py-2
+              bg-white/80 shadow-sm border border-slate-200
+              dark:bg-slate-900/80 dark:border-slate-800
+              flex-1
+            `}
+            >
+              {/* Avatar */}
+              <div className='w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-xs uppercase'>
+                {(user?.name || 'U').slice(0, 2)}
+              </div>
+
+              {/* Name + role */}
+              <div className='min-w-0 flex flex-col'>
+                <span className='text-sm font-semibold truncate text-foreground'>
+                  {user?.name || 'Operator'}
+                </span>
+                <span className='text-[10px] uppercase tracking-[0.16em] text-muted-foreground truncate'>
+                  {user?.role || (user?.is_admin ? 'Admin' : 'Staff')}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Controls */}
+          <div className='flex flex-col gap-1 items-center'>
             <button
-              className={`${iconButtonClass} ${
-                collapsed ? 'hidden' : 'inline-flex'
-              }`}
+              className={`${iconButtonClass} ${collapsed ? 'hidden' : ''}`}
               title='Toggle theme'
               onClick={toggleTheme}
             >
@@ -299,7 +264,7 @@ export function Layout() {
             </button>
             <button
               className={iconButtonClass}
-              title='Collapse'
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               onClick={toggleCollapsed}
             >
               {collapsed ? (
@@ -311,67 +276,48 @@ export function Layout() {
           </div>
         </div>
 
-        {/* User Info Card */}
-        {!collapsed && user && (
-          <div className='mx-1 mb-2 px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-3'>
-            <div className='w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs uppercase'>
-              {(user.name || 'U').slice(0, 2)}
-            </div>
-            <div className='min-w-0 flex-1'>
-              <div className='text-sm font-semibold truncate text-foreground'>
-                {user.name}
-              </div>
-              <div className='text-[10px] uppercase tracking-wider text-muted-foreground truncate'>
-                {user.role || 'Staff'}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Sync summary card */}
+        {/* Sync card */}
         {!collapsed && (
           <section
-            className='mx-1 mb-2 rounded-xl border bg-card/80 px-2 py-1.5 text-[11px] shadow-sm'
+            className='
+              mx-1 rounded-2xl border bg-white/90 px-3 py-2.5 text-[11px] shadow-sm
+              dark:bg-slate-900/80 dark:border-slate-800
+            '
             title={sync?.base_url || ''}
           >
-            <div className='flex items-center justify-between gap-2'>
-              <div className='flex min-w-0 items-center gap-2'>
-                {statusPill}
-                <div className='min-w-0 space-y-0.5'>
-                  <div className='flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground'>
-                    <span className='font-semibold text-foreground'>POS</span>
-                    <span>sync</span>
-                    <span className='text-xs'>•</span>
-                    <span>{sync?.mode === 'live' ? 'Live' : 'Offline'}</span>
-                  </div>
-                  <div className='flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground'>
-                    <span className='inline-flex items-center gap-1 max-w-[110px]'>
-                      <GitBranch size={11} />
-                      <span className='truncate'>
-                        {sync?.branch_name || 'No branch'}
-                      </span>
+            <div className='flex items-center justify-between gap-3'>
+              {/* LEFT: label + details */}
+              <div className='min-w-0'>
+                <div className='text-[10px] uppercase tracking-[0.22em] text-muted-foreground mb-1'>
+                  Sync
+                </div>
+                <div className='flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground'>
+                  <span className='inline-flex items-center gap-1 max-w-[140px]'>
+                    <GitBranch size={11} />
+                    <span className='truncate'>
+                      {sync?.branch_name || 'No branch'}
                     </span>
-                    <span className='inline-flex items-center gap-1 max-w-[90px]'>
-                      <Timer size={11} />
-                      <span className='truncate'>{lastSyncText}</span>
-                    </span>
-                  </div>
+                  </span>
+                  <span className='inline-flex items-center gap-1 max-w-[120px]'>
+                    <Timer size={11} />
+                    <span className='truncate'>{lastSyncText}</span>
+                  </span>
                 </div>
               </div>
 
-              <div className='flex shrink-0 flex-col gap-1 items-end'>
-                {/* Read-only mode indicator (no onClick) */}
+              {/* RIGHT: status + sync button */}
+              <div className='flex items-center gap-2 shrink-0'>
                 <div
                   className={[
-                    'inline-flex h-7 px-2 items-center justify-center gap-1 rounded-md border text-[10px]',
+                    'inline-flex h-7 px-3 items-center justify-center gap-1 rounded-full border text-[10px] font-medium',
                     sync?.mode === 'live'
                       ? 'bg-emerald-600 text-emerald-50 border-emerald-700'
                       : 'bg-muted text-foreground border-border',
                   ].join(' ')}
                   title={
                     sync?.mode === 'live'
-                      ? 'Online – controlled by connectivity'
-                      : 'Offline – controlled by connectivity'
+                      ? 'Online – syncing is enabled'
+                      : 'Offline – syncing is paused'
                   }
                 >
                   {sync?.mode === 'live' ? (
@@ -386,7 +332,7 @@ export function Layout() {
                   onClick={runSync}
                   disabled={sync?.mode !== 'live' || syncing}
                   className={[
-                    'inline-flex h-7 w-7 items-center justify-center rounded-md border text-[10px]',
+                    'inline-flex h-8 w-8 items-center justify-center rounded-full border text-[10px]',
                     'bg-foreground text-background border-border hover:bg-foreground/90',
                     'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                     'disabled:cursor-not-allowed disabled:opacity-60',
@@ -408,7 +354,11 @@ export function Layout() {
             {!sync?.paired && (
               <button
                 onClick={() => navigate('/settings')}
-                className='mt-1.5 flex h-6 w-full items-center justify-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 text-[10px] font-medium text-amber-900 hover:bg-amber-500/20 dark:text-amber-200'
+                className='
+                  mt-2 flex h-6 w-full items-center justify-center gap-1.5 rounded-md border
+                  border-amber-500/40 bg-amber-500/10 px-2 text-[10px] font-medium
+                  text-amber-900 hover:bg-amber-500/20 dark:text-amber-200
+                '
               >
                 <AlertTriangle size={11} />
                 <span className='truncate'>
@@ -420,8 +370,7 @@ export function Layout() {
         )}
 
         {/* Nav (RBAC) */}
-        <nav className='mt-4 space-y-1 flex-grow overflow-y-auto nice-scroll min-h-0'>
-          {/* Orders section – visible to everyone */}
+        <nav className='mt-1 space-y-1 flex-grow overflow-y-auto nice-scroll min-h-0'>
           <SectionLabel hidden={collapsed}>Orders</SectionLabel>
           <NavLink
             to='/'
@@ -437,18 +386,14 @@ export function Layout() {
             collapsed={collapsed}
             active={location.pathname === '/orders'}
           />
-          {/* Closing Report → admin only */}
-          {isAdmin && (
-            <NavLink
-              to='/reports/closing'
-              text='Closing Report'
-              icon='📜'
-              collapsed={collapsed}
-              active={location.pathname === '/reports/closing'}
-            />
-          )}
-
-          {/* Catalog + System → admin only */}
+          {/* Closing Report → admin only */}{' '}
+          <NavLink
+            to='/reports/closing'
+            text='Closing Report'
+            icon='📜'
+            collapsed={collapsed}
+            active={location.pathname === '/reports/closing'}
+          />
           {isAdmin && (
             <>
               <SectionLabel hidden={collapsed}>Catalog</SectionLabel>
@@ -514,7 +459,8 @@ export function Layout() {
           )}
         </nav>
 
-        <div className='mt-auto pt-2'>
+        {/* Footer / Logout */}
+        <div className='mt-2 pt-2 border-t border-slate-200 dark:border-slate-800'>
           <NavLink
             to='/logout'
             text='Logout'
@@ -522,6 +468,21 @@ export function Layout() {
             collapsed={collapsed}
             active={false}
           />
+          {/* Tiny version badge */}
+          {!collapsed && (
+            <div className='px-3 pb-1 text-[10px] text-muted-foreground/80 flex items-center justify-between'>
+              <span className='font-mono'>v{APP_VERSION}</span>
+              <span className='uppercase tracking-[0.18em] text-xs'>
+                {APP_VENDOR}
+              </span>
+            </div>
+          )}
+
+          {collapsed && (
+            <div className='flex items-center justify-center pb-1 text-[9px] text-muted-foreground/70 font-mono'>
+              v{APP_VERSION}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -547,10 +508,11 @@ function NavLink({
   active?: boolean;
 }) {
   const baseClasses =
-    'flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-200';
-  const activeClasses = 'bg-primary text-primary-foreground';
+    'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-200';
+  const activeClasses =
+    'bg-slate-900 text-slate-50 shadow-sm dark:bg-slate-100 dark:text-slate-900';
   const inactiveClasses =
-    'text-muted-foreground hover:text-foreground hover:bg-muted';
+    'text-muted-foreground hover:text-foreground hover:bg-slate-100/80 dark:hover:bg-slate-800/80';
   const collapsedClasses = 'w-10 h-10 justify-center px-0';
   const expandedClasses = 'w-full';
 
@@ -562,11 +524,7 @@ function NavLink({
       }`}
     >
       <span className='text-lg flex-shrink-0'>{icon || '•'}</span>
-      {!collapsed && (
-        <span className='text-sm font-medium transition-opacity duration-200 whitespace-nowrap'>
-          {text}
-        </span>
-      )}
+      {!collapsed && <span className='truncate'>{text}</span>}
     </Link>
   );
 }
@@ -578,18 +536,13 @@ function SectionLabel({
   children: React.ReactNode;
   hidden?: boolean;
 }) {
-  if (hidden) return <div className='h-4' />;
+  if (hidden) return <div className='h-2' />;
   return (
-    <div className='mt-3 mb-1 uppercase tracking-wide text-xs text-muted-foreground px-3'>
+    <div className='mt-3 mb-1 uppercase tracking-wide text-[10px] text-muted-foreground px-3'>
       {children}
     </div>
   );
 }
-
-/* --- Tiny atoms --- */
-const Dot = () => (
-  <span className='inline-block w-1.5 h-1.5 rounded-full bg-current' />
-);
 
 /* --- Icons --- */
 const IconPanelLeft = ({ className }: { className?: string }) => (
@@ -659,7 +612,6 @@ const IconSun = ({ className }: { className?: string }) => (
   </svg>
 );
 
-// Optional TS typing for window.api (if you don't already have it elsewhere)
 declare global {
   interface Window {
     api: { invoke: (channel: string, ...args: any[]) => Promise<any> };

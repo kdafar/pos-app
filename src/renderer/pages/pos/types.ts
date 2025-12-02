@@ -98,3 +98,9 @@ export interface Category {
   name_ar: string;
   category_id?: string | number;
 }
+
+export type SelectedAddon = {
+  id: string;
+  group_id: string;
+  qty: number;
+};

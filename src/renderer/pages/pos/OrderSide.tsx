@@ -7,6 +7,7 @@ import {
   UtensilsCrossed,
   Table2,
   LogOut,
+  Lock,
 } from 'lucide-react';
 
 import {
@@ -23,7 +24,8 @@ import { OrderLineItem } from './components/OrderLineItem';
 import { PromoDialog } from './components/PromoDialog';
 import { TablePickerModal } from './components/TablePickerModal';
 import { CheckoutModal } from './components/CheckoutModal';
-
+import { useToast } from '../../components/ToastProvider'; // adjust path if needed
+import { useConfirmDialog } from '../../components/ConfirmDialogProvider';
 declare global {
   interface Window {
     api: { invoke: (channel: string, ...args: any[]) => Promise<any> };
@@ -74,6 +76,61 @@ export default function OrderSide({
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
   const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
   const cardBg = theme === 'dark' ? 'bg-white/5' : 'bg-gray-50';
+  const toast = useToast();
+  const confirm = useConfirmDialog();
+  const isOrderLocked =
+    !!currentOrder &&
+    (((currentOrder as any).is_locked === 1 ||
+      (currentOrder as any).is_locked === true) as boolean);
+
+  const lineIsLocked = (line: any) =>
+    line?.is_locked === 1 || line?.is_locked === true;
+
+  // Only after FIRST print: there must be at least one locked line
+  const hasMainLockedLines =
+    isOrderLocked && orderLines.some((l) => lineIsLocked(l));
+
+  const pendingNewItemsCount = hasMainLockedLines
+    ? orderLines.filter((l) => !lineIsLocked(l)).length
+    : 0;
+
+  const hasPendingNewItems = pendingNewItemsCount > 0;
+
+  const handleClearCart = async () => {
+    const ok = await confirm({
+      title: 'Clear entire cart?',
+      message: (
+        <div className='space-y-1 text-[13px]'>
+          <p>
+            This will remove <b>all items</b> from the cart.
+          </p>
+          <p>This action cannot be undone.</p>
+        </div>
+      ),
+      confirmLabel: 'Clear cart',
+      cancelLabel: 'Cancel',
+      tone: 'danger',
+    });
+
+    if (!ok) return;
+
+    try {
+      await window.api.invoke('cart:clear');
+      await loadCart(); // whatever you already use to refresh cart items
+      toast({
+        tone: 'success',
+        title: 'Cart cleared',
+        message: 'All items have been removed from the cart.',
+      });
+    } catch (e: any) {
+      console.error('[handleClearCart] error:', e);
+      toast({
+        tone: 'danger',
+        title: 'Could not clear cart',
+        message: e?.message || 'Please check logs or contact support.',
+      });
+    }
+  };
 
   const handlePrint = async (orderId: string) => {
     try {
@@ -98,10 +155,45 @@ export default function OrderSide({
   const handleClose = async () => {
     if (!currentOrder) return;
 
-    // For Dine-in with a table and items, this button does NOT use handleClose.
-    // It will use handleReleaseTable instead (see JSX below).
+    // ---------- PRE-VALIDATION ----------
 
-    // If it's dine-in and has table but NO items: just free the table & close the empty order.
+    // 1) DELIVERY: require address if there are items
+    if (currentOrder.order_type === 1 && orderLines.length > 0) {
+      const asAny = currentOrder as any;
+      const hasDeliveryAddress =
+        !!asAny.state_id && !!asAny.city_id && !!asAny.block_id;
+
+      if (!hasDeliveryAddress) {
+        toast({
+          tone: 'danger',
+          title:
+            'Please enter the delivery address (State, City, Block) from "Place Order" before closing this delivery order.',
+          message: 'Please check the logs for details or contact support.',
+        });
+        // open checkout so they can fill it
+        setShowCheckout(true);
+        return;
+      }
+    }
+
+    // 2) DINE-IN: require table if there are items
+    if (currentOrder.order_type === 3 && orderLines.length > 0) {
+      if (!currentOrder.table_id) {
+        toast({
+          tone: 'danger',
+          title: 'Please assign a table before closing this dine-in order.',
+          message: 'Please check the logs for details or contact support.',
+        });
+        setShowTablePicker(true);
+        return;
+      }
+      // note: if there *is* a table and there are items,
+      // the button will use handleReleaseTable instead (see JSX),
+      // so this guard is mainly for dine-in orders with items but no table.
+    }
+
+    // ---------- SPECIAL CASE: empty dine-in with table ----------
+    // For dine-in with a table and NO items: just free the table & close empty order.
     if (
       currentOrder.order_type === 3 &&
       currentOrder.table_id &&
@@ -114,8 +206,9 @@ export default function OrderSide({
       }
     }
 
+    // ---------- NORMAL CLOSE FLOW ----------
     try {
-      // If there are items, close == final close (not cancel) and print first
+      // If there are items, print before closing
       if (orderLines.length > 0) {
         try {
           await handlePrint(currentOrder.id);
@@ -124,7 +217,6 @@ export default function OrderSide({
         }
       }
 
-      // Final close (non-dine, or dine-in without table)
       await window.api.invoke('orders:close', currentOrder.id);
     } catch (e) {
       console.error('Failed to close order:', e);
@@ -159,7 +251,11 @@ export default function OrderSide({
       await onRefreshTables();
     } catch (e) {
       console.error(e);
-      alert('Failed to release table');
+      toast({
+        tone: 'danger',
+        title: 'Failed to release table',
+        message: 'Please check the logs for details or contact support.',
+      });
     }
   };
 
@@ -170,81 +266,131 @@ export default function OrderSide({
       {/* Header */}
       <div className={`p-4 border-b ${border} shrink-0`}>
         {currentOrder ? (
-          <div>
-            <div className='flex items-center justify-between mb-3'>
-              <div>
-                <div className={`text-xs ${textMuted}`}>Order Number</div>
-                <div className={`text-xl font-bold ${text}`}>
-                  #{currentOrder.number}
+          <div className='space-y-3'>
+            {/* Top row: order info + type + lock badges */}
+            <div className='flex items-start justify-between gap-3'>
+              {/* Left: order number + table button */}
+              <div className='space-y-1.5'>
+                <div>
+                  <div className={`text-xs ${textMuted}`}>Order Number</div>
+                  <div className={`text-xl font-bold ${text}`}>
+                    #{currentOrder.number}
+                  </div>
                 </div>
+
+                {/* Table controls (dine-in) */}
+                {currentOrder.order_type === 3 && (
+                  <div className='flex items-center gap-2'>
+                    {currentOrder.table_id ? (
+                      <button
+                        onClick={() => setShowTablePicker(true)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs ${
+                          theme === 'dark'
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-600/30'
+                            : 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                        }`}
+                      >
+                        <Table2 size={14} className='inline mr-1' />
+                        {currentOrder.table_name || 'Table'} •{' '}
+                        {currentOrder.covers || 1}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowTablePicker(true)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs ${
+                          theme === 'dark'
+                            ? 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        <UtensilsCrossed size={14} className='inline mr-1' />{' '}
+                        Assign Table
+                      </button>
+                    )}
+
+                    {currentOrder.table_id && orderLines.length === 0 && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await window.api.invoke(
+                              'orders:clearTable',
+                              currentOrder.id
+                            );
+                            await onSelectOrder(currentOrder.id);
+                            await onRefreshTables();
+                          } catch (e) {
+                            console.error(e);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg border text-xs ${
+                          theme === 'dark'
+                            ? 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              <div
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${
-                  theme === 'dark'
-                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                    : 'bg-blue-100 text-blue-700 border border-blue-300'
-                }`}
-              >
-                {labelForType(currentOrder.order_type)}
+
+              {/* Right: type pill + lock / pending badges */}
+              <div className='flex flex-col items-end gap-1.5'>
+                <div
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${
+                    theme === 'dark'
+                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                      : 'bg-blue-100 text-blue-700 border-blue-300 border'
+                  }`}
+                >
+                  {labelForType(currentOrder.order_type)}
+                </div>
+
+                {hasMainLockedLines && (
+                  <div className='flex flex-wrap justify-end gap-1.5'>
+                    {/* Main order locked badge */}
+                    <div
+                      className={`
+                  inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium
+                  border
+                  ${
+                    theme === 'dark'
+                      ? 'bg-amber-500/10 text-amber-200 border-amber-400/40'
+                      : 'bg-amber-50 text-amber-700 border-amber-300'
+                  }
+                `}
+                    >
+                      <Lock size={13} />
+                      <span>Main order locked (printed)</span>
+                    </div>
+
+                    {/* New items pending badge */}
+                    {hasPendingNewItems && (
+                      <div
+                        className={`
+                    inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold
+                    border
+                    ${
+                      theme === 'dark'
+                        ? 'bg-emerald-500/10 text-emerald-200 border-emerald-400/40'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                    }
+                  `}
+                      >
+                        <span className='w-1.5 h-1.5 rounded-full bg-current inline-block' />
+                        <span>
+                          {pendingNewItemsCount} new item
+                          {pendingNewItemsCount > 1 ? 's' : ''} pending
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Table controls (dine-in) */}
-            {currentOrder.order_type === 3 && (
-              <div className='flex items-center gap-2 mb-3'>
-                {currentOrder.table_id ? (
-                  <button
-                    onClick={() => setShowTablePicker(true)}
-                    className={`px-3 py-1.5 rounded-lg border text-xs ${
-                      theme === 'dark'
-                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-600/30'
-                        : 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                    }`}
-                  >
-                    <Table2 size={14} className='inline mr-1' />
-                    {currentOrder.table_name || 'Table'} •{' '}
-                    {currentOrder.covers || 1}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setShowTablePicker(true)}
-                    className={`px-3 py-1.5 rounded-lg border text-xs ${
-                      theme === 'dark'
-                        ? 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <UtensilsCrossed size={14} className='inline mr-1' /> Assign
-                    Table
-                  </button>
-                )}
-                {currentOrder.table_id && orderLines.length === 0 && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        await window.api.invoke(
-                          'orders:clearTable',
-                          currentOrder.id
-                        );
-                        await onSelectOrder(currentOrder.id);
-                        await onRefreshTables();
-                      } catch (e) {
-                        console.error(e);
-                      }
-                    }}
-                    className={`px-3 py-1.5 rounded-lg border text-xs ${
-                      theme === 'dark'
-                        ? 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Promo section */}
+            {/* Promo section under everything, full width */}
             {currentOrder.promocode ? (
               <div
                 className={`flex items-center justify-between p-2.5 rounded-lg border ${
@@ -291,6 +437,13 @@ export default function OrderSide({
                 <Percent size={14} className='inline mr-1' /> Apply Promo Code
               </button>
             )}
+            <button
+              type='button'
+              onClick={handleClearCart}
+              className='px-3 py-2 rounded-md text-xs font-semibold bg-red-600 text-white hover:bg-red-700'
+            >
+              Clear cart
+            </button>
           </div>
         ) : (
           <div className='text-center py-3'>
@@ -449,11 +602,21 @@ export default function OrderSide({
           onApplyPromo={onApplyPromo}
           onAfterComplete={async () => {
             setShowCheckout(false);
-            // If Dine-in, we stay on the order (or refresh) but don't close it
+
             if (currentOrder.order_type === 3) {
+              // 🟢 Dine-in: keep the order on screen (e.g. for more items / partial payments)
               await onSelectOrder(currentOrder.id);
+              try {
+                await onRefreshTables();
+              } catch {}
             } else {
-              await focusNextActive();
+              // 🚚 Delivery & 🧺 Pickup:
+              // Just refresh the active orders list and tables,
+              // DO NOT auto-select another order → right side can show "No active order".
+              try {
+                await onReloadActiveOrders();
+              } catch {}
+
               try {
                 await onRefreshTables();
               } catch {}
@@ -483,7 +646,12 @@ export default function OrderSide({
               setShowTablePicker(false);
             } catch (e) {
               console.error(e);
-              alert('Could not assign table');
+              toast({
+                tone: 'danger',
+                title: 'Could not assign table',
+                message:
+                  'Please check the logs for details or contact support.',
+              });
             }
           }}
         />

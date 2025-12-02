@@ -283,6 +283,56 @@ function normOrderSeed(o: any) {
   };
 }
 
+// Sync POS working hours from online Laravel -> local SQLite `time` table
+export async function syncPosTime(): Promise<void> {
+  // ⬇ adjust client name if yours is different (`api`, `http`, etc.)
+  if (!api) {
+    throw new Error('API client not configured. Call configureApi() first.');
+  }
+
+  const res = await api.get('/time'); // Laravel route we created
+  const payload = res.data;
+
+  const rows: Array<{
+    id: number;
+    day: string;
+    open_time: string;
+    close_time: string;
+    always_close: boolean | number;
+  }> = payload?.data ?? [];
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    // nothing to sync, just return
+    return;
+  }
+
+  const upsert = db.prepare(
+    `
+    INSERT INTO time (id, day, open_time, close_time, always_close)
+    VALUES (@id, @day, @open_time, @close_time, @always_close)
+    ON CONFLICT(id) DO UPDATE SET
+      day          = excluded.day,
+      open_time    = excluded.open_time,
+      close_time   = excluded.close_time,
+      always_close = excluded.always_close
+  `
+  );
+
+  const runTxn = db.transaction((items: typeof rows) => {
+    for (const r of items) {
+      upsert.run({
+        id: r.id,
+        day: r.day,
+        open_time: r.open_time,
+        close_time: r.close_time,
+        always_close: r.always_close ? 1 : 0,
+      });
+    }
+  });
+
+  runTxn(rows);
+}
+
 /* ---------- Pairing ---------- */
 export async function pairDevice(
   baseUrl: string,
@@ -326,6 +376,12 @@ export async function bootstrap(baseUrl: string) {
 
   const device = { id: deviceId, branch_id: branchId };
   configureApi(baseUrl, device, token);
+
+  try {
+    await syncPosTime();
+  } catch (err) {
+    console.error('[SYNC] syncPosTime() failed during bootstrap:', err);
+  }
 
   const { data } = await api.get('/bootstrap');
 
@@ -913,6 +969,11 @@ export async function pullChanges() {
 
   if (changedItemIds.length) {
     await prefetchItemImages([...new Set(changedItemIds)], 6);
+  }
+  try {
+    await syncPosTime();
+  } catch (err) {
+    console.error('[SYNC] syncPosTime() failed during pullChanges:', err);
   }
 }
 

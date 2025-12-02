@@ -6,6 +6,7 @@ import OrderSide from './OrderSide';
 import { useRootTheme } from './useRootTheme';
 
 import { AddonPickerModal } from './components/AddonPickerModal';
+import { useToast } from '../../components/ToastProvider'; // adjust path if needed
 
 import {
   OrderType,
@@ -36,6 +37,14 @@ type AuthStatus = {
   branch_name?: string;
 };
 
+type PosUser = {
+  id: string | number;
+  name?: string;
+  role?: string;
+  type?: string;
+  is_admin?: boolean | number;
+};
+
 export default function OrderProcessPage() {
   const theme = useRootTheme();
 
@@ -48,7 +57,7 @@ export default function OrderProcessPage() {
   }, [defaultOrderType]);
 
   const [auth, setAuth] = useState<AuthStatus | null>(null);
-
+  const toast = useToast();
   const [addonItem, setAddonItem] = useState<Item | null>(null);
 
   const [items, setItems] = useState<Item[]>([]);
@@ -165,6 +174,7 @@ export default function OrderProcessPage() {
         return;
       }
 
+      // If we already have a selected order and it's still active, refresh it
       if (currentOrder && orders.some((o) => o.id === currentOrder.id)) {
         const { order, lines } = await window.api.invoke(
           'orders:get',
@@ -175,9 +185,17 @@ export default function OrderProcessPage() {
         return;
       }
 
-      if (!currentOrder || !orders.some((o) => o.id === currentOrder.id)) {
+      // No current order yet (first boot / after manual clear) → focus first
+      if (!currentOrder) {
         await selectOrder(orders[0].id);
+        return;
       }
+
+      // We HAD a current order, but it is no longer in the active list
+      // (e.g. just placed pickup/delivery). Clear selection instead of
+      // auto-jumping to some other order.
+      setCurrentOrder(null);
+      setOrderLines([]);
     } catch (e) {
       console.error(e);
       setActiveOrders([]);
@@ -209,18 +227,34 @@ export default function OrderProcessPage() {
       await selectOrder(order.id);
     } catch (e: any) {
       console.error('[createNewOrder] error', e);
+
       const msg =
         (e && (e.message || e.toString?.())) || 'Could not create a new order.';
 
-      // Match the backend message from orders:start
-      if (msg.toLowerCase().includes('open order with no items')) {
-        alert(
-          'You already have an open order with no items.\nPlease add items to it or cancel it before opening a new one.'
-        );
+      const normalized = String(msg).toLowerCase();
+
+      if (normalized.includes('open order with no items')) {
+        toast({
+          tone: 'warning',
+          title: 'Open order already exists',
+          message: (
+            <div className='space-y-1 text-[11px]'>
+              <p>You already have an open order with no items.</p>
+              <p>
+                Please add items to it or cancel it before opening a new one.
+              </p>
+            </div>
+          ),
+        });
+
         // Refresh list so they can see/select that open empty order
         await loadActiveOrders();
       } else {
-        alert(msg);
+        toast({
+          tone: 'danger',
+          title: 'Could not create a new order',
+          message: msg,
+        });
       }
     }
   };
@@ -261,17 +295,35 @@ export default function OrderProcessPage() {
       await loadActiveOrders();
     } catch (e: any) {
       console.error('[addItemToOrder] error', e);
+
       const msg =
         (e && (e.message || e.toString?.())) ||
         'Could not add this item to the order.';
 
-      if (msg.toLowerCase().includes('open order with no items')) {
-        alert(
-          'You already have an open order with no items.\nPlease add items to it or cancel it before starting another one.'
-        );
+      const normalized = String(msg).toLowerCase();
+
+      if (normalized.includes('open order with no items')) {
+        toast({
+          tone: 'warning',
+          title: 'Open order already exists',
+          message: (
+            <div className='space-y-1 text-[11px]'>
+              <p>You already have an open order with no items.</p>
+              <p>
+                Please add items to it or cancel it before starting another one.
+              </p>
+            </div>
+          ),
+        });
+
+        // Refresh so they can see/select that open empty order
         await loadActiveOrders();
       } else {
-        alert(msg);
+        toast({
+          tone: 'danger',
+          title: 'Could not add item to order',
+          message: msg,
+        });
       }
     }
   };
@@ -288,7 +340,11 @@ export default function OrderProcessPage() {
         setCurrentOrder(res.order);
       }
     } catch (e) {
-      alert('Invalid or expired promo code');
+      toast({
+        tone: 'danger',
+        title: 'Invalid or expired promo code.',
+        message: 'Please check the logs for details or contact support.',
+      });
     }
   };
 
@@ -314,6 +370,19 @@ export default function OrderProcessPage() {
       console.error(e);
     }
   };
+
+  const [user, setUser] = useState<PosUser | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await window.api.invoke('auth:whoami');
+        setUser(u || null);
+      } catch {
+        setUser(null);
+      }
+    })();
+  }, []);
 
   const startDineInForTable = async (table: TableInfo) => {
     try {
@@ -370,7 +439,11 @@ export default function OrderProcessPage() {
       await loadActiveOrders();
     } catch (e) {
       console.error('startDineInForTable failed', e);
-      alert('Could not assign table.');
+      toast({
+        tone: 'danger',
+        title: 'Could not assign table.',
+        message: 'Please check the logs for details or contact support.',
+      });
       // If error, refresh anyway to show true state
       await loadTables();
     }
@@ -411,8 +484,20 @@ export default function OrderProcessPage() {
       >
         <div className='px-4 h-full'>
           <div className='flex h-full items-center gap-4'>
-            <div className='shrink-0 hidden md:block'>
-              <h1 className={`text-lg font-bold ${text}`}>POS</h1>
+            <div className='shrink-0 hidden md:flex flex-col leading-tight'>
+              <span className={`text-[11px] font-medium ${text} opacity-70`}>
+                Signed in as
+              </span>
+              <div className='flex items-center gap-2'>
+                <span className={`text-sm font-semibold ${text}`}>
+                  {user?.name || 'Operator'}
+                </span>
+                {user?.role && (
+                  <span className='text-[10px] px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-200'>
+                    {user.role}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className='flex-1 flex items-center gap-2 overflow-x-auto nice-scroll min-w-0 px-2 pb-0.5'>
@@ -560,7 +645,12 @@ export default function OrderProcessPage() {
                 '[OrderProcessPage] add line with addons failed',
                 e
               );
-              alert('Could not add item with add-ons.');
+              toast({
+                tone: 'danger',
+                title: 'Could not add item with add-ons.',
+                message:
+                  'Please check the logs for details or contact support.',
+              });
             } finally {
               setAddonItem(null);
             }

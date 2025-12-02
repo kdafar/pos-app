@@ -9,6 +9,7 @@ import {
   SortingState,
 } from '@tanstack/react-table';
 import { Printer } from 'lucide-react';
+import { useToast } from '../components/ToastProvider'; // adjust path if needed
 
 declare global {
   interface Window {
@@ -110,6 +111,7 @@ export default function TodayOrdersReport() {
     { id: 'updated_at', desc: true },
   ]);
   const [pageSize, setPageSize] = useState(25);
+  const toast = useToast();
 
   // ---- tiny UI helpers so all fields/buttons look identical (dark & light) ----
   const fieldCls =
@@ -194,18 +196,30 @@ export default function TodayOrdersReport() {
     async (orderId?: string) => {
       try {
         if (!isAdmin) {
-          alert('Only admin users are allowed to print this report.');
+          toast({
+            tone: 'danger',
+            title: 'Only admin users are allowed to print this report.',
+            message: 'Please check the logs for details or contact support.',
+          });
           return;
         }
 
         if (!orderId) {
-          alert('Cannot print: order ID is missing.');
+          toast({
+            tone: 'danger',
+            title: 'Cannot print: order ID is missing.',
+            message: 'Please check the logs for details or contact support.',
+          });
           return;
         }
         await window.api.invoke('orders:print', orderId);
       } catch (e) {
         console.error('orders:print failed', e);
-        alert('Failed to print this order.');
+        toast({
+          tone: 'danger',
+          title: 'Failed to print this order.',
+          message: 'Please check the logs for details or contact support.',
+        });
       }
     },
     [isAdmin]

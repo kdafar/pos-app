@@ -60,6 +60,8 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    title: 'Majestic POS',
+    icon: path.join(process.env.APP_ROOT!, 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'), // ← .js in build
       contextIsolation: true,

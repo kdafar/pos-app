@@ -27,7 +27,7 @@ export function registerAllHandlers(
   registerGeoHandlers(ipcMain);
   registerTableHandlers(ipcMain);
   registerPaymentHandlers(ipcMain);
-  registerSyncHandlers(ipcMain);
+  registerSyncHandlers(ipcMain, services);
   registerAuthHandlers(ipcMain, services);
   registerOperationalReportHandlers();
 
