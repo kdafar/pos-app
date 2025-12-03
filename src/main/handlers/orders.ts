@@ -195,11 +195,55 @@ export function registerOrdersHandlers(
   }
 
   function recalcAndGet(orderId: string) {
+    // 1) Normal totals recalc
     try {
       recalcOrderTotals(services, orderId);
     } catch (e) {
       console.error('Recalc failed', e);
     }
+
+    // 2) If there are NO lines left → hard-reset totals & discount fields
+    try {
+      const row = rawDb
+        .prepare('SELECT COUNT(*) AS c FROM order_lines WHERE order_id = ?')
+        .get(orderId) as { c?: number };
+
+      const count = row?.c ?? 0;
+
+      if (count === 0) {
+        const ts = nowMs();
+        const cols: string[] = [
+          'subtotal = 0',
+          'grand_total = 0',
+          'updated_at = ?',
+        ];
+        const params: any[] = [ts];
+
+        if (hasColumn('orders', 'discount_total')) {
+          cols.push('discount_total = 0');
+        }
+        if (hasColumn('orders', 'discount_percent')) {
+          cols.push('discount_percent = 0');
+        }
+        if (hasColumn('orders', 'delivery_fee')) {
+          cols.push('delivery_fee = 0');
+        }
+        if (hasColumn('orders', 'tax_total')) {
+          cols.push('tax_total = 0');
+        }
+        if (hasColumn('orders', 'promocode')) {
+          cols.push('promocode = NULL');
+        }
+
+        rawDb
+          .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
+          .run(...params, orderId);
+      }
+    } catch (e) {
+      console.error('[recalcAndGet] zero-lines reset failed', e);
+    }
+
+    // 3) Return fresh snapshot
     return getOrderWithLines(orderId);
   }
 
@@ -770,6 +814,26 @@ export function registerOrdersHandlers(
       return recalcAndGet(orderId);
     }
   );
+
+  ipcMain.handle('orders:clearLines', async (_e, orderId: string) => {
+    if (isPosLocked()) throw new Error('POS is locked');
+
+    // Will throw if order is locked or not editable for this user
+    assertOrderEditable(orderId);
+
+    // If you ever want to *keep* locked lines, change the SQL here.
+    let sql = `DELETE FROM order_lines WHERE order_id = ?`;
+    if (hasColumn('order_lines', 'is_locked')) {
+      // only delete lines that are not locked / already printed
+      sql += ` AND (is_locked IS NULL OR is_locked = 0)`;
+    }
+
+    rawDb.prepare(sql).run(orderId);
+
+    log('orders.clearLines', orderId, null);
+
+    return recalcAndGet(orderId);
+  });
 
   // ─────────────────────────────────────────────────────────────
   // 🏷️ PROMO & STATUS

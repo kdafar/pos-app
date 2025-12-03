@@ -1,8 +1,8 @@
 import type { IpcMain } from 'electron';
 import https from 'node:https';
 import { URL } from 'node:url';
-
-import db, { getMeta, setMeta } from '../db';
+import axios from 'axios';
+import db, { getMeta, setMeta, enforcePosLockKillSwitch } from '../db';
 import { loadSecret } from '../secureStore';
 import { readOrCreateMachineId } from '../machineId';
 import {
@@ -268,7 +268,44 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     ) => {
       const mid = await readOrCreateMachineId();
       setMeta('machine_id', mid);
-      return pairDevice(baseUrl, pairCode, branchId, deviceName, mid);
+
+      const result = await pairDevice(
+        baseUrl,
+        pairCode,
+        branchId,
+        deviceName,
+        mid
+      );
+
+      const device = result?.device;
+      if (device) {
+        // Save killswitch days
+        if (device.killswitch_after_days != null) {
+          setMeta(
+            'security.kill_after_days',
+            String(device.killswitch_after_days)
+          );
+        }
+
+        // Save lock status
+        if (device.locked_at) {
+          // device is locked RIGHT NOW
+          setMeta('pos.locked', '1');
+          setMeta(
+            'pos.locked_at',
+            String(new Date(device.locked_at).getTime())
+          );
+        } else {
+          // no lock
+          setMeta('pos.locked', '0');
+          setMeta('pos.locked_at', null);
+        }
+      }
+
+      // Immediately enforce kill-switch if server says locked
+      enforcePosLockKillSwitch();
+
+      return result;
     }
   );
 
@@ -277,8 +314,60 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     const url = baseUrl || getMeta('server.base_url') || '';
     if (!url) throw new Error('Missing base URL');
 
-    // 1. Run bootstrap logic
-    const payload = await bootstrap(url);
+    let payload: any;
+    try {
+      // 1. Run bootstrap logic
+      payload = await bootstrap(url);
+    } catch (err: any) {
+      // 🔒 If backend says "Locked", enforce local kill-switch
+      if (axios.isAxiosError(err) && err.response?.status === 423) {
+        const data = err.response.data as any;
+        const lockedAt = data?.locked_at;
+
+        console.warn(
+          '[sync:bootstrap] Device locked by server. Enforcing kill-switch.',
+          {
+            lockedAt,
+          }
+        );
+
+        setMeta('pos.locked', '1');
+        if (lockedAt) {
+          setMeta('pos.locked_at', String(new Date(lockedAt).getTime()));
+        }
+
+        // This should wipe DB / exit according to your db.ts logic
+        enforcePosLockKillSwitch();
+
+        // Optional: return a structured error to renderer
+        return { ok: false, reason: 'locked' as const, locked_at: lockedAt };
+      }
+
+      console.error('[sync:bootstrap] failed', err);
+      throw err; // rethrow other errors
+    }
+
+    const device = payload?.device;
+    if (device) {
+      if (device.killswitch_after_days != null) {
+        setMeta(
+          'security.kill_after_days',
+          String(device.killswitch_after_days)
+        );
+      }
+
+      if (device.locked_at) {
+        // backend says this device is locked
+        setMeta('pos.locked', '1');
+        setMeta('pos.locked_at', String(new Date(device.locked_at).getTime()));
+      } else {
+        setMeta('pos.locked', '0');
+        setMeta('pos.locked_at', null);
+      }
+    }
+
+    // If locked → format DB + exit/relaunch
+    enforcePosLockKillSwitch();
 
     const cat = payload?.catalog || {};
     console.log('[sync:bootstrap] payload snapshot', {
@@ -317,17 +406,17 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     const users = payload?.catalog?.users || [];
     if (Array.isArray(users) && users.length) {
       const upsert = db.prepare(`
-        INSERT INTO pos_users (id, name, username, email, role, password_hash, is_active, branch_id, updated_at)
-        VALUES (@id, @name, NULL, @email, @role, @password_hash, @is_active, @branch_id, @updated_at)
-        ON CONFLICT(id) DO UPDATE SET
-          name=excluded.name,
-          email=excluded.email,
-          role=excluded.role,
-          password_hash=excluded.password_hash,
-          is_active=excluded.is_active,
-          branch_id=excluded.branch_id,
-          updated_at=excluded.updated_at
-      `);
+      INSERT INTO pos_users (id, name, username, email, role, password_hash, is_active, branch_id, updated_at)
+      VALUES (@id, @name, NULL, @email, @role, @password_hash, @is_active, @branch_id, @updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name=excluded.name,
+        email=excluded.email,
+        role=excluded.role,
+        password_hash=excluded.password_hash,
+        is_active=excluded.is_active,
+        branch_id=excluded.branch_id,
+        updated_at=excluded.updated_at
+    `);
       const tx = db.transaction((list: any[]) => {
         for (const u of list) upsert.run(u);
       });
@@ -351,7 +440,6 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
 
     const mode = getMeta('pos.mode') || 'live';
 
-    // 1) Offline mode → just log + no-op
     if (mode !== 'live') {
       console.log('[Sync] Skipping manual sync: offline mode');
       return { ok: false, reason: 'offline' as const };
@@ -366,7 +454,8 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     const branch_id = Number(getMeta('branch_id') || 0);
     const token = await loadSecret('device_token');
 
-    // 2) Not configured → just log + no-op
+    // ❌ DON'T touch bootstrap.last_at here
+
     if (!base || !device_id || !token) {
       console.log(
         '[Sync] Skipping manual sync: not configured (missing URL, device ID, or token)',
@@ -375,7 +464,6 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       return { ok: false, reason: 'not_configured' as const };
     }
 
-    // 3) Normal path: do full sync
     ensureOrderNumberDedupeTriggers();
     normalizeDuplicateOrderNumbers();
 
@@ -383,7 +471,34 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
 
     console.log('[Sync] Manual sync: running FULL bootstrap…');
 
-    const payload: any = await bootstrap(base);
+    let payload: any;
+    try {
+      payload = await bootstrap(base);
+
+      // ✅ Only here: we know we actually reached the server
+      setMeta('bootstrap.last_at', String(Date.now()));
+    } catch (err: any) {
+      if (axios.isAxiosError(err) && err.response?.status === 423) {
+        const data = err.response.data as any;
+        const lockedAt = data?.locked_at;
+
+        console.warn(
+          '[Sync] Manual sync: device locked by server. Enforcing kill-switch.',
+          { lockedAt }
+        );
+
+        setMeta('pos.locked', '1');
+        if (lockedAt) {
+          setMeta('pos.locked_at', String(new Date(lockedAt).getTime()));
+        }
+
+        enforcePosLockKillSwitch();
+        return { ok: false, reason: 'locked' as const, locked_at: lockedAt };
+      }
+
+      console.error('[Sync] Manual sync: bootstrap failed', err);
+      throw err;
+    }
 
     const cat = payload?.catalog || {};
     console.log('[Sync] Manual bootstrap snapshot', {
@@ -399,10 +514,8 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     console.log('[Sync] Manual sync: running incremental pull…');
     await pullChanges();
 
-    // Trigger image prefetch after manual sync as well
     prefetchItemImages(5).catch((err) => console.error('Prefetch error', err));
 
-    // Push logic...
     let pushedCount = 0;
     const pending =
       (db

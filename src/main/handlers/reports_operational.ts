@@ -53,26 +53,24 @@ function pickOrderTsColumn(): string {
     'created_ms',
     'created_at',
   ];
-
   for (const col of candidates) {
     if (tableHasColumn('orders', col)) return col;
   }
-
   return 'opened_at';
 }
 
-/* ========== operational time rules ========== */
+/* ========== operational time rules (using `time` table) ========== */
 
 type Rule = { is_open: number; open_at: string; close_at: string };
 
-/** Parse '9:00am' / '1:00am' → 'HH:MM:SS' (24h) */
+/** Parse '9:00am' / '09:00' → 'HH:MM:SS' (24h) */
 function parseAmPmToHHMMSS(input: string | null | undefined): string {
   if (!input) return '00:00:00';
   const s = String(input).trim().toLowerCase();
 
   const m = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
   if (!m) {
-    // if already something like "09:00" just append ":00"
+    // already time-ish
     if (/^\d{1,2}:\d{2}$/.test(s)) return `${s}:00`;
     if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s;
     return '00:00:00';
@@ -89,67 +87,50 @@ function parseAmPmToHHMMSS(input: string | null | undefined): string {
   return `${pad(hh)}:${pad(mm)}:00`;
 }
 
+const DAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
 function getRuleForDay(jsDow: number): Rule | null {
-  // 1) branch_availability_rules (if present)
-  if (tableExists('branch_availability_rules')) {
-    const branchId = Number(getMeta('branch_id') ?? 0) || null;
+  // Prefer new `time` table (synced from Laravel)
+  if (tableExists('time')) {
+    const dayName = DAY_NAMES[jsDow];
     const row = db
       .prepare(
         `
-        SELECT is_open, open_at, close_at
-        FROM branch_availability_rules
-        WHERE day_of_week = ? ${branchId ? 'AND branch_id = ' + branchId : ''}
+        SELECT open_time, close_time, always_close
+        FROM time
+        WHERE
+          lower(day) IN (lower(?), lower(?))
+          OR day IN (?, ?)
         LIMIT 1
       `
       )
-      .get(jsDow) as any;
+      .get(dayName, dayName.slice(0, 3), jsDow, String(jsDow)) as any;
+
     if (row) {
       return {
-        is_open: Number(row.is_open || 0),
-        open_at: row.open_at,
-        close_at: row.close_at,
+        is_open: row.always_close ? 0 : 1,
+        open_at: parseAmPmToHHMMSS(row.open_time),
+        close_at: parseAmPmToHHMMSS(row.close_time),
       };
     }
   }
 
-  // 2) Your new 'time' table (day, open_time, close_time, always_close)
-  if (tableExists('time')) {
-    const names = [
-      'Sunday',
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-    ];
-    const dayName = names[jsDow];
-
-    const r = db
-      .prepare(
-        `SELECT open_time, close_time, always_close
-         FROM time
-         WHERE day = ?
-         LIMIT 1`
-      )
-      .get(dayName) as any;
-
-    if (r) {
-      return {
-        is_open: r.always_close ? 0 : 1,
-        open_at: parseAmPmToHHMMSS(r.open_time),
-        close_at: parseAmPmToHHMMSS(r.close_time),
-      };
-    }
-  }
-
-  // 3) Legacy 'times' table (number / string / name)
+  // Legacy `times` table (if present)
   if (tableExists('times')) {
     const byNum = db
       .prepare(
         `SELECT always_close, open, close FROM times WHERE day IN (?, ?) LIMIT 1`
       )
       .get(jsDow, String(jsDow)) as any;
+
     if (byNum) {
       return {
         is_open: byNum.always_close ? 0 : 1,
@@ -158,20 +139,13 @@ function getRuleForDay(jsDow: number): Rule | null {
       };
     }
 
-    const names = [
-      'Sunday',
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-    ];
+    const dayName = DAY_NAMES[jsDow];
     const byName = db
       .prepare(
-        `SELECT always_close, open, close FROM times WHERE day = ? LIMIT 1`
+        `SELECT always_close, open, close FROM times WHERE lower(day) = lower(?) LIMIT 1`
       )
-      .get(names[jsDow]) as any;
+      .get(dayName) as any;
+
     if (byName) {
       return {
         is_open: byName.always_close ? 0 : 1,
@@ -181,7 +155,7 @@ function getRuleForDay(jsDow: number): Rule | null {
     }
   }
 
-  // 4) Fallback: always open day
+  // Fallback: always open
   return { is_open: 1, open_at: '00:00:00', close_at: '23:59:59' };
 }
 
@@ -189,18 +163,17 @@ function hhmmssToMs(base: Date, t: string): number {
   const [hh, mm, ssRaw] = (t || '00:00:00').split(':');
   const ss = Number(ssRaw ?? 0);
   const d = new Date(base);
-  d.setHours(Number(hh) || 0, Number(mm) || 0, Number(ss) || 0, 0);
+  d.setHours(Number(hh) || 0, Number(mm) || 0, ss || 0, 0);
   return d.getTime();
 }
 
-/** Returns {startMs, endMs, alwaysClose} for the given calendar day (local). Handles cross-midnight close. */
+/** For a given calendar date (local), returns [startMs, endMs] of operational window. Handles cross-midnight. */
 function getOperationalDayRange(baseDay: Date): {
   startMs: number;
   endMs: number;
   alwaysClose: boolean;
 } {
-  const jsDow = baseDay.getDay(); // 0=Sun
-  const rule = getRuleForDay(jsDow);
+  const rule = getRuleForDay(baseDay.getDay());
   if (!rule) {
     const s = new Date(baseDay);
     s.setHours(0, 0, 0, 0);
@@ -220,6 +193,7 @@ function getOperationalDayRange(baseDay: Date): {
   const startMs = hhmmssToMs(baseDay, rule.open_at || '00:00:00');
   const closeTodayMs = hhmmssToMs(baseDay, rule.close_at || '23:59:59');
 
+  // Cross-midnight (e.g. 18:00 → 03:00 next day)
   if (closeTodayMs <= startMs) {
     const nextDay = new Date(baseDay);
     nextDay.setDate(baseDay.getDate() + 1);
@@ -230,18 +204,20 @@ function getOperationalDayRange(baseDay: Date): {
   return { startMs, endMs: closeTodayMs, alwaysClose: false };
 }
 
-/** Default range: if now in today's window → [open, now], else yesterday's open → now. */
+/** Default range = today's operational window → now; if outside, yesterday's window → now. */
 function defaultOperationalWindow(now = new Date()): {
   fromMs: number;
   toMs: number;
 } {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
+
   const {
     startMs: todayStart,
     endMs: todayEnd,
     alwaysClose,
   } = getOperationalDayRange(today);
+
   const nowMs = now.getTime();
 
   if (!alwaysClose && nowMs >= todayStart && nowMs <= todayEnd) {
@@ -254,7 +230,7 @@ function defaultOperationalWindow(now = new Date()): {
   return { fromMs: yStart, toMs: nowMs };
 }
 
-/* ========== helpers to classify orders ========== */
+/* ---- helpers to classify orders ---- */
 
 function isSold(row: any): boolean {
   if (row?.paid_at) return true;
@@ -274,10 +250,11 @@ function insideOperational(tsMs: number): boolean {
   const d = new Date(tsMs);
   const d0 = new Date(d);
   d0.setHours(0, 0, 0, 0);
-  const { startMs, endMs, alwaysClose } = getOperationalDayRange(d0);
 
+  const { startMs, endMs, alwaysClose } = getOperationalDayRange(d0);
   if (!alwaysClose && tsMs >= startMs && tsMs <= endMs) return true;
 
+  // also consider previous day's cross-midnight window
   const y = new Date(d0);
   y.setDate(d0.getDate() - 1);
   const {
@@ -285,6 +262,7 @@ function insideOperational(tsMs: number): boolean {
     endMs: yEnd,
     alwaysClose: yClose,
   } = getOperationalDayRange(y);
+
   if (!yClose && tsMs >= yStart && tsMs <= yEnd) return true;
 
   return false;
@@ -298,13 +276,14 @@ function msExpr(col: string, alias = 'o') {
          END)`;
 }
 
-/* ---- main IPC ---- */
+/* ========== MAIN IPC HANDLER ========== */
 
 export function registerOperationalReportHandlers() {
   ipcMain.handle(
     'report:sales:preview',
     (_evt, opts?: { from?: number; to?: number }) => {
       const def = defaultOperationalWindow(new Date());
+
       const fromMs = Number.isFinite(opts?.from)
         ? Number(opts!.from)
         : def.fromMs;
@@ -312,6 +291,7 @@ export function registerOperationalReportHandlers() {
 
       const tsCol = pickOrderTsColumn();
       const tsMs = msExpr(tsCol, 'o');
+
       const branchId = Number(getMeta('branch_id') ?? 0) || 0;
       const hasBranch = tableHasColumn('orders', 'branch_id');
       const andBranch =
@@ -327,7 +307,7 @@ export function registerOperationalReportHandlers() {
         ? 'o.customer_name'
         : tableHasColumn('orders', 'full_name')
         ? 'o.full_name'
-        : `' '`;
+        : `' '`; // fallback
 
       type Row = {
         id: string;
@@ -343,8 +323,11 @@ export function registerOperationalReportHandlers() {
         payment_method_id?: string | null;
         order_number?: string | null;
         full_name?: string | null;
+        paid_at?: any;
+        completed_at?: any;
       };
 
+      // ── 1) Load orders in range ───────────────────────
       const orders = db
         .prepare(
           `
@@ -369,7 +352,13 @@ export function registerOperationalReportHandlers() {
             tableHasColumn('orders', 'payment_method_id')
               ? 'o.payment_method_id'
               : 'NULL'
-          } AS payment_method_id
+          } AS payment_method_id,
+          ${
+            tableHasColumn('orders', 'paid_at') ? 'o.paid_at' : 'NULL'
+          } AS paid_at,
+          ${
+            tableHasColumn('orders', 'completed_at') ? 'o.completed_at' : 'NULL'
+          } AS completed_at
         FROM orders o
         WHERE ${tsMs} >= @fromMs AND ${tsMs} < @toMs
         ${andBranch}
@@ -377,6 +366,7 @@ export function registerOperationalReportHandlers() {
         )
         .all({ fromMs, toMs, branch_id: branchId }) as Row[];
 
+      // ── 2) Counters / totals ──────────────────────────
       let total_order = 0;
       let inside_hours_count = 0;
       let outside_hours_count = 0;
@@ -454,7 +444,7 @@ export function registerOperationalReportHandlers() {
         }
       }
 
-      /* ---------- Payments, orderTypes, categories unchanged from previous answer ---------- */
+      // ── 3) Payments aggregate ─────────────────────────
       const payments = (() => {
         const rows: Array<{ id: string; name: string; total: number }> = [];
 
@@ -498,49 +488,49 @@ export function registerOperationalReportHandlers() {
 
           if (hasSlugData) {
             used = run(`
-            SELECT
-              COALESCE(pm.slug, s.payment_method_slug, 'unknown') AS id,
-              COALESCE(pm.name_en, pm.name_ar, pm.slug, s.payment_method_slug, 'Unknown') AS name,
-              ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
-            FROM orders s
-            ${
-              hasPmTable
-                ? 'LEFT JOIN payment_methods pm ON pm.slug = s.payment_method_slug'
-                : ''
-            }
-            WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(
+              SELECT
+                COALESCE(pm.slug, s.payment_method_slug, 'unknown') AS id,
+                COALESCE(pm.name_en, pm.name_ar, pm.slug, s.payment_method_slug, 'Unknown') AS name,
+                ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
+              FROM orders s
+              ${
+                hasPmTable
+                  ? 'LEFT JOIN payment_methods pm ON pm.slug = s.payment_method_slug'
+                  : ''
+              }
+              WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(
               tsCol,
               's'
             )} < @toMs
-              ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
-              AND COALESCE(s.grand_total,0) > 0
-            GROUP BY 1, 2
-            ORDER BY total DESC
-          `);
+                ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
+                AND COALESCE(s.grand_total,0) > 0
+              GROUP BY 1, 2
+              ORDER BY total DESC
+            `);
           }
         }
 
         if (!used && hasIdCol) {
           used = run(`
-          SELECT
-            CAST(COALESCE(s.payment_method_id, 0) AS TEXT) AS id,
-            COALESCE(pm.name_en, pm.name_ar, pm.slug, CAST(s.payment_method_id AS TEXT), 'Unknown') AS name,
-            ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
-          FROM orders s
-          ${
-            hasPmTable
-              ? 'LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id'
-              : ''
-          }
-          WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(
+            SELECT
+              CAST(COALESCE(s.payment_method_id, 0) AS TEXT) AS id,
+              COALESCE(pm.name_en, pm.name_ar, pm.slug, CAST(s.payment_method_id AS TEXT), 'Unknown') AS name,
+              ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
+            FROM orders s
+            ${
+              hasPmTable
+                ? 'LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id'
+                : ''
+            }
+            WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(
             tsCol,
             's'
           )} < @toMs
-            ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
-            AND COALESCE(s.grand_total,0) > 0
-          GROUP BY 1, 2
-          ORDER BY total DESC
-        `);
+              ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
+              AND COALESCE(s.grand_total,0) > 0
+            GROUP BY 1, 2
+            ORDER BY total DESC
+          `);
         }
 
         if (!used) {
@@ -554,19 +544,23 @@ export function registerOperationalReportHandlers() {
             const base = db
               .prepare(
                 `
-              SELECT
-                CAST(COALESCE(p.payment_method_id, 0) AS TEXT) AS id,
-                ROUND(SUM(COALESCE(p.amount,0)), 3) AS total
-              FROM ${payTbl} p
-              JOIN orders o ON o.id = p.order_id
-              WHERE ${msExpr(tsCol, 'o')} >= @fromMs AND ${msExpr(
+                SELECT
+                  CAST(COALESCE(p.payment_method_id, 0) AS TEXT) AS id,
+                  ROUND(SUM(COALESCE(p.amount,0)), 3) AS total
+                FROM ${payTbl} p
+                JOIN orders o ON o.id = p.order_id
+                WHERE ${msExpr(tsCol, 'o')} >= @fromMs AND ${msExpr(
                   tsCol,
                   'o'
                 )} < @toMs
-                ${hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : ''}
-              GROUP BY ${hasPmOnPay ? 'p.payment_method_id' : '1'}
-              ORDER BY total DESC
-            `
+                  ${
+                    hasBranch && branchId
+                      ? ' AND o.branch_id = @branch_id '
+                      : ''
+                  }
+                GROUP BY ${hasPmOnPay ? 'p.payment_method_id' : '1'}
+                ORDER BY total DESC
+              `
               )
               .all({ fromMs, toMs, branch_id: branchId }) as Array<{
               id: string;
@@ -598,6 +592,7 @@ export function registerOperationalReportHandlers() {
         return rows;
       })();
 
+      // ── 4) Order type aggregate ───────────────────────
       const orderTypes = (() => {
         if (!tableHasColumn('orders', 'order_type')) {
           return [] as Array<{
@@ -640,37 +635,46 @@ export function registerOperationalReportHandlers() {
         }));
       })();
 
+      // ── 5) Category aggregate ─────────────────────────
       const categories = (() => {
         const linesTable = firstExistingTable(['order_lines']);
         const itemTbl = firstExistingTable(['items']);
         if (!linesTable || !itemTbl) {
-          return [] as Array<{
-            item: string;
-            sold: number;
-            total: number;
-          }>;
+          return [] as Array<{ item: string; sold: number; total: number }>;
         }
 
+        // If items table doesn't have category_id, we can't group by category
         if (!tableHasColumn(itemTbl, 'category_id')) {
-          return [] as Array<{
-            item: string;
-            sold: number;
-            total: number;
-          }>;
+          return [] as Array<{ item: string; sold: number; total: number }>;
         }
 
         const hasCats = tableExists('categories');
-        const joinCat = hasCats
-          ? `LEFT JOIN categories c ON c.id = it.category_id`
-          : '';
 
-        const itemNameSelect = hasCats
-          ? `COALESCE(c.name, c.name_ar, 'Uncategorized') AS item`
-          : `CAST(it.category_id AS TEXT) AS item`;
+        let joinCat = '';
+        let catNameExpr = `CAST(it.category_id AS TEXT)`; // fallback
+
+        if (hasCats) {
+          const hasCatNameEn = tableHasColumn('categories', 'name_en');
+          const hasCatNameAr = tableHasColumn('categories', 'name_ar');
+          const hasCatName = tableHasColumn('categories', 'name');
+
+          joinCat = 'LEFT JOIN categories c ON c.id = it.category_id';
+
+          const parts: string[] = [];
+          if (hasCatNameEn) parts.push('c.name_en');
+          if (hasCatNameAr) parts.push('c.name_ar');
+          if (hasCatName) parts.push('c.name');
+
+          if (parts.length > 0) {
+            catNameExpr = `COALESCE(${parts.join(', ')}, 'Uncategorized')`;
+          } else {
+            catNameExpr = `CAST(it.category_id AS TEXT)`;
+          }
+        }
 
         const sql = `
           SELECT
-            ${itemNameSelect},
+            ${catNameExpr} AS item,
             SUM(COALESCE(l.qty, 0)) AS sold,
             ROUND(
               SUM(
@@ -703,28 +707,26 @@ export function registerOperationalReportHandlers() {
         }>;
       })();
 
-      // ---------- Items aggregate for "By Item" tab ----------
+      // ── 6) Items aggregate ("By Item" tab) ────────────
       const aggregates = (() => {
         const linesTable = firstExistingTable(['order_lines']);
         const itemTbl = firstExistingTable(['items']);
         if (!linesTable || !itemTbl) {
-          return [] as Array<{
-            item: string;
-            sold: number;
-            total: number;
-          }>;
+          return [] as Array<{ item: string; sold: number; total: number }>;
         }
 
         const hasNameEn = tableHasColumn(itemTbl, 'name_en');
         const hasNameAr = tableHasColumn(itemTbl, 'name_ar');
         const hasName = tableHasColumn(itemTbl, 'name');
 
-        const itemNameExpr =
-          hasNameEn || hasNameAr
-            ? `COALESCE(it.name, it.name_ar, 'Unknown Item')`
-            : hasName
-            ? `COALESCE(it.name, 'Unknown Item')`
-            : `CAST(it.id AS TEXT)`;
+        let itemNameExpr: string;
+        if (hasNameEn || hasNameAr) {
+          itemNameExpr = `COALESCE(it.name_ar, it.name, 'Unknown Item')`;
+        } else if (hasName) {
+          itemNameExpr = `COALESCE(it.name, 'Unknown Item')`;
+        } else {
+          itemNameExpr = `CAST(it.id AS TEXT)`;
+        }
 
         const sql = `
           SELECT
@@ -760,6 +762,7 @@ export function registerOperationalReportHandlers() {
         }>;
       })();
 
+      // ── 7) Footer summary ─────────────────────────────
       const footer = {
         date: `${new Date(fromMs).toLocaleString()} to ${new Date(
           toMs

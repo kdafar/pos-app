@@ -24,7 +24,7 @@ import { OrderLineItem } from './components/OrderLineItem';
 import { PromoDialog } from './components/PromoDialog';
 import { TablePickerModal } from './components/TablePickerModal';
 import { CheckoutModal } from './components/CheckoutModal';
-import { useToast } from '../../components/ToastProvider'; // adjust path if needed
+import { useToast } from '../../components/ToastProvider';
 import { useConfirmDialog } from '../../components/ConfirmDialogProvider';
 declare global {
   interface Window {
@@ -97,12 +97,14 @@ export default function OrderSide({
   const hasPendingNewItems = pendingNewItemsCount > 0;
 
   const handleClearCart = async () => {
+    if (!currentOrder) return;
+
     const ok = await confirm({
       title: 'Clear entire cart?',
       message: (
         <div className='space-y-1 text-[13px]'>
           <p>
-            This will remove <b>all items</b> from the cart.
+            This will remove <b>all items</b> from this order.
           </p>
           <p>This action cannot be undone.</p>
         </div>
@@ -115,12 +117,16 @@ export default function OrderSide({
     if (!ok) return;
 
     try {
-      await window.api.invoke('cart:clear');
-      await loadCart(); // whatever you already use to refresh cart items
+      // 🔗 new IPC handler – clears order_lines for this order
+      await window.api.invoke('orders:clearLines', currentOrder.id);
+
+      // reload this order so UI updates
+      await onSelectOrder(currentOrder.id);
+
       toast({
         tone: 'success',
         title: 'Cart cleared',
-        message: 'All items have been removed from the cart.',
+        message: 'All items have been removed from this order.',
       });
     } catch (e: any) {
       console.error('[handleClearCart] error:', e);
@@ -390,7 +396,7 @@ export default function OrderSide({
               </div>
             </div>
 
-            {/* Promo section under everything, full width */}
+            {/* Promo section */}
             {currentOrder.promocode ? (
               <div
                 className={`flex items-center justify-between p-2.5 rounded-lg border ${
@@ -434,16 +440,30 @@ export default function OrderSide({
                     : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
                 }`}
               >
-                <Percent size={14} className='inline mr-1' /> Apply Promo Code
+                <Percent size={14} className='inline mr-1' />
+                Apply Promo Code
               </button>
             )}
-            <button
-              type='button'
-              onClick={handleClearCart}
-              className='px-3 py-2 rounded-md text-xs font-semibold bg-red-600 text-white hover:bg-red-700'
-            >
-              Clear cart
-            </button>
+
+            {/* Clear cart – full width, aligned with online POS look */}
+            {orderLines.length > 0 && (
+              <button
+                type='button'
+                onClick={handleClearCart}
+                className='
+                  w-full mt-2 h-9
+                  rounded-lg text-xs font-semibold
+                  flex items-center justify-center gap-1.5
+                  bg-red-600 text-white
+                  hover:bg-red-700
+                  active:scale-[0.99]
+                  transition
+                '
+              >
+                <X size={14} />
+                Clear cart
+              </button>
+            )}
           </div>
         ) : (
           <div className='text-center py-3'>

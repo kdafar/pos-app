@@ -2,6 +2,7 @@ import path from 'node:path';
 import { app } from 'electron';
 import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 const requiredb = createRequire(import.meta.url);
 const Database = requiredb('better-sqlite3') as typeof import('better-sqlite3');
@@ -29,6 +30,22 @@ function ensureColumn(table: string, columnDef: string, colName: string) {
 function createIndexIfColumnsExist(sql: string, table: string, cols: string[]) {
   const ok = cols.every((c) => hasColumn(table, c));
   if (ok) db.exec(sql);
+}
+
+export function wipeLocalPosDb() {
+  try {
+    db.close();
+  } catch {
+    // ignore close errors
+  }
+
+  try {
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath);
+    }
+  } catch {
+    // ignore delete errors
+  }
 }
 
 export function migrate() {
@@ -471,6 +488,65 @@ export function nowMs() {
 export function isPosLocked(): boolean {
   const v = getMeta('pos.locked');
   return v === '1' || v === 1 || v === true || v === 'true';
+}
+
+export function enforcePosLockKillSwitch() {
+  const locked = isPosLocked(); // server lock flag
+  const killDays = Number(getMeta('security.kill_after_days') || 0);
+  const lastSyncAt = Number(getMeta('sync.last_at') || 0);
+  const lastBootstrapAt = Number(getMeta('bootstrap.last_at') || 0);
+
+  // last known-online time
+  const lastOnlineAt = Math.max(lastSyncAt, lastBootstrapAt);
+  const now = Date.now();
+  const maxOfflineMs = killDays * 24 * 60 * 60 * 1000;
+
+  let shouldWipe = false;
+
+  // ------------------------------------------
+  // 1) Server says LOCKED
+  // ------------------------------------------
+  if (locked) {
+    console.log('[pos] Device is LOCKED → wipe local DB and exit.');
+    shouldWipe = true;
+  }
+
+  // ------------------------------------------
+  // 2) Offline too long (kill-switch)
+  // ------------------------------------------
+  if (!shouldWipe && killDays > 0 && lastOnlineAt > 0) {
+    const offlineMs = now - lastOnlineAt;
+    if (offlineMs > maxOfflineMs) {
+      console.log('[pos] Offline too long → kill-switch activated.', {
+        lastOnlineAt,
+        offlineMs,
+        maxAllowed: maxOfflineMs,
+      });
+      shouldWipe = true;
+    }
+  }
+
+  if (!shouldWipe) return;
+
+  // ------------------------------------------
+  // WIPE DATABASE
+  // ------------------------------------------
+  const dbPath = path.join(app.getPath('userData'), 'pos.db');
+
+  try {
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath);
+      console.log('[pos] Local DB wiped:', dbPath);
+    }
+  } catch (err) {
+    console.error('[pos] Failed wiping DB:', err);
+  }
+
+  // ------------------------------------------
+  // FORCE EXIT so app restarts fresh
+  // ------------------------------------------
+  app.relaunch();
+  app.exit(0);
 }
 
 export function getCurrentUserId(): string | null {

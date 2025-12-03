@@ -2,12 +2,13 @@
 
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
-import fs from 'node:fs';
+// If you're not using fs anywhere, you can remove this
+// import fs from 'node:fs';
 
 import type { Database as BetterSqliteDB } from 'better-sqlite3';
 
 // DB + meta
-import db, { migrate } from './db';
+import db, { migrate, enforcePosLockKillSwitch, getMeta, setMeta } from './db';
 
 // Services + handlers
 import { createMainServices } from './services';
@@ -24,35 +25,6 @@ process.env.APP_ROOT = path.join(__dirname, '../..');
 let mainWindow: BrowserWindow | null = null;
 
 // ─────────────────────────────────────────────────────────────
-// Helper: resolve preload path
-// ─────────────────────────────────────────────────────────────
-
-function resolvePreloadPath(): string {
-  const base = path.join(__dirname, '../preload');
-  const js = path.join(base, 'index.js');
-  const cjs = path.join(base, 'index.cjs');
-
-  if (fs.existsSync(js)) {
-    console.log('[main] Using preload:', js);
-    return js;
-  }
-  if (fs.existsSync(cjs)) {
-    console.log('[main] Using preload:', cjs);
-    return cjs;
-  }
-
-  console.warn(
-    '[main] Preload file not found at',
-    js,
-    'or',
-    cjs,
-    '— check your build config.'
-  );
-  // Return js as a fallback so Electron doesn’t crash on undefined
-  return js;
-}
-
-// ─────────────────────────────────────────────────────────────
 // Create BrowserWindow
 // ─────────────────────────────────────────────────────────────
 
@@ -63,11 +35,17 @@ function createMainWindow() {
     title: 'Majestic POS',
     icon: path.join(process.env.APP_ROOT!, 'build', 'icon.png'),
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.mjs'), // ← .js in build
+      preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+
+  // Prevent the web page from changing the title
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
+    mainWindow!.setTitle('Majestic POS'); // enforce our title
   });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -95,26 +73,41 @@ async function boot() {
     console.error('[db] migrate failed:', e);
   }
 
-  // 2) Build MainServices facade
+  // 2) Restore your old default meta values (from previous app.on('ready'))
+  try {
+    if (getMeta('pos.mode') == null) setMeta('pos.mode', 'live');
+    if (getMeta('sync.disabled') == null) setMeta('sync.disabled', '0');
+    if (getMeta('pos.locked') == null) setMeta('pos.locked', '0');
+    if (getMeta('security.kill_after_days') == null) {
+      setMeta('security.kill_after_days', '14');
+    }
+  } catch (e) {
+    console.error('[db] meta init failed:', e);
+  }
+
+  // 3) Kill-switch: if this device is locked, format DB + restart
+  enforcePosLockKillSwitch();
+
+  // 4) Build MainServices facade
   const services = createMainServices(db as BetterSqliteDB);
 
-  // 3) Custom protocols (images, etc.) – app is ready now
+  // 5) Custom protocols (images, etc.) – app is ready now
   registerAppImgProtocol();
 
-  // 4) IPC handlers (store, settings, orders, cart, sync, dev, ...)
+  // 6) IPC handlers (store, settings, orders, cart, sync, dev, ...)
   registerAllHandlers(ipcMain, services);
 
-  // 5) Local print handlers (uses raw SQLite DB)
+  // 7) Local print handlers (uses raw SQLite DB)
   registerLocalPrintHandlers(ipcMain, db as BetterSqliteDB);
 
-  // 6) Optional socket server (disabled for now)
+  // 8) Optional socket server (if you re-enable later)
   // try {
   //   createSocketServer({ port: 0, db: db as BetterSqliteDB });
   // } catch (e) {
   //   console.warn('[socket] server not started:', (e as any)?.message);
   // }
 
-  // 7) Finally create main window
+  // 9) Finally create main window
   createMainWindow();
 }
 
