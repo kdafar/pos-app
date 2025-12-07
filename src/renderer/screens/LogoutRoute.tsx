@@ -2,6 +2,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardBody, Spinner } from '@heroui/react';
+import { useStore } from '../src/store'; // <--- 1. Import your store (adjust path if needed)
 
 export function LogoutRoute() {
   const nav = useNavigate();
@@ -9,11 +10,26 @@ export function LogoutRoute() {
   useEffect(() => {
     (async () => {
       try {
+        // 1. Tell Backend to delete session file
         await (window as any).pos.auth.logout();
       } catch (e) {
         console.error('[LogoutRoute] logout failed', e);
       } finally {
+        // 2. CRITICAL FIX: Wipe Frontend Memory
+        // We use .setState directly to force-clear the data instantly
+        useStore.setState({
+          currentUser: null,
+          tabs: [],
+          order: null,
+          currentId: null,
+          lines: [],
+        });
+
+        // 3. Go to login
         nav('/login', { replace: true });
+
+        // Optional: Force a hard reload if you want to be 100% sure
+        // window.location.reload();
       }
     })();
   }, [nav]);

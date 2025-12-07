@@ -112,17 +112,77 @@ function normItemAddonGroup(m: any) {
 }
 
 function mapRole(typeOrRole: any) {
+  if (typeOrRole == null) return 'branch';
+
+  // 1) Old numeric "type" support
   const t = Number(typeOrRole);
   if (!Number.isNaN(t)) {
-    return t === 1
-      ? 'admin'
-      : t === 4
-      ? 'kitchen'
-      : t === 6
-      ? 'branch'
-      : 'branch';
+    switch (t) {
+      case 1: // TYPE_ADMIN
+        return 'admin';
+      case 4: // TYPE_KITCHEN
+        return 'kitchen';
+      case 6: // TYPE_POS / branch user
+        return 'branch';
+      default:
+        return 'branch';
+    }
   }
-  return String(typeOrRole || 'branch').toLowerCase();
+
+  // 2) String-based roles / aliases
+  const raw = String(typeOrRole).toLowerCase().trim();
+
+  // Already normalized
+  if (raw === 'admin' || raw === 'kitchen' || raw === 'branch') {
+    return raw;
+  }
+
+  // Admin-like aliases
+  if (raw === 'super admin' || raw === 'super_admin' || raw === 'basma admin') {
+    return 'admin';
+  }
+
+  // Kitchen / operations / supervisors group
+  if (
+    raw === 'kitchen' ||
+    raw === 'chef' ||
+    raw === 'cook' ||
+    raw === 'operations' ||
+    raw === 'operation supervisor' ||
+    raw === 'operations manger' ||
+    raw === 'operations manager' ||
+    raw === 'supervisor'
+  ) {
+    return 'kitchen';
+  }
+
+  // Branch / store / sales / store-access (basic/premium/enterprise) etc.
+  if (
+    [
+      'helper',
+      'sales',
+      'sales_manager',
+      'sales representative',
+      'basic',
+      'premium',
+      'enterprise',
+      'basic store access',
+      'premium store access',
+      'enterprise store access',
+      'store',
+      'store helper',
+      'store supervisor',
+      'customer',
+      'accountant',
+      'finance_manager',
+      'services',
+    ].includes(raw)
+  ) {
+    return 'branch';
+  }
+
+  // Default: safest is branch-level user
+  return 'branch';
 }
 
 function normUser(u: any) {

@@ -108,14 +108,38 @@ function fromLocalInput(s: string) {
 
 export default function ClosingReport() {
   const { theme } = useThemeTokens();
-  const user = useStore((s: any) => s.user);
 
-  const canEditRange =
-    !!user &&
-    (user.is_admin === true ||
-      user.is_admin === 1 ||
-      String(user.role || '').toLowerCase() === 'admin');
+  // 1. Get User Data
+  const user = useStore((s: any) => s.currentUser);
+  const fetchWhoAmI = useStore((s: any) => s.actions.fetchWhoAmI);
 
+  // 2. Fetch user if missing
+  useEffect(() => {
+    if (!user) {
+      fetchWhoAmI();
+    }
+    loadReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 3. Strict Permission Logic
+  const rawRole = String(user?.role || '')
+    .toLowerCase()
+    .trim();
+  const ALLOWED_ROLES = [
+    'admin',
+    'manager',
+    'owner',
+    'superadmin',
+    'super admin',
+  ];
+
+  const isAdminUser =
+    !!user && // Must be logged in
+    ALLOWED_ROLES.includes(rawRole); // Must have permission
+
+  // final flag used in component
+  const canEditRange = isAdminUser;
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<0 | 1 | 2 | 3 | 5>(0);
   const [fromStr, setFromStr] = useState('');
