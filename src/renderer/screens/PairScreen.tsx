@@ -1,5 +1,5 @@
 // src/renderer/screens/PairScreen.tsx
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Card,
   CardHeader,
@@ -11,9 +11,31 @@ import {
 } from '@heroui/react';
 import { useNavigate } from 'react-router-dom';
 import { BrandHeader } from '../components/BrandHeader';
+import { LanguageToggle } from '../components/LanguageToggle';
+import { useI18n } from '../i18n';
+
+/**
+ * Renders `*emphasised*` runs of a translated string as <b>. Keeping the
+ * markers inside the string lets the Arabic translation put the emphasis where
+ * Arabic word order needs it instead of where English happened to put it.
+ */
+function Rich({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(\*[^*]+\*)/g).map((part, i) =>
+        part.length > 2 && part.startsWith('*') && part.endsWith('*') ? (
+          <b key={i}>{part.slice(1, -1)}</b>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        )
+      )}
+    </>
+  );
+}
 
 export default function PairScreen() {
   const nav = useNavigate();
+  const { t } = useI18n();
 
   const [baseUrl, setBaseUrl] = useState('');
   const [deviceName, setDeviceName] = useState('Main Counter POS');
@@ -22,6 +44,7 @@ export default function PairScreen() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [prefilled, setPrefilled] = useState(false);
+  const [unpairedReason, setUnpairedReason] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -30,6 +53,7 @@ export default function PairScreen() {
         nav('/login', { replace: true });
         return;
       }
+      setUnpairedReason(s.unpaired_reason ?? null);
       // Prefill if available
       let anyPrefilled = false;
       if (s.base_url) {
@@ -92,10 +116,10 @@ export default function PairScreen() {
         nav('/login', { replace: true });
       } else {
         // in case something weird happens
-        setErr('Device paired but status is not marked as paired yet.');
+        setErr(t('pair.notMarkedPaired'));
       }
     } catch (e: any) {
-      setErr(e?.message || 'Pairing failed');
+      setErr(e?.message || t('pair.failed'));
     } finally {
       setBusy(false);
     }
@@ -113,56 +137,72 @@ export default function PairScreen() {
       setDeviceName('Main Counter POS');
       setPrefilled(false);
     } catch (e: any) {
-      setErr(e?.message || 'Unpair failed');
+      setErr(e?.message || t('pair.unpairFailed'));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className='min-h-screen flex items-center justify-center bg-slate-100 px-4'>
+    <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
       <Card className='w-full max-w-4xl shadow-2xl border border-slate-200 bg-white'>
         <CardHeader className='flex flex-col gap-1 md:flex-row md:items-center md:justify-between'>
           <BrandHeader
             title='Majestic POS'
-            subtitle='Step 1 of 2 – Connect this device to your server'
+            subtitle={t('pair.subtitle')}
             align='left'
           />
 
-          <div className='text-[11px] text-slate-500'>
-            Already paired?{' '}
-            <button
-              className='underline underline-offset-2 text-slate-800 hover:text-slate-900'
-              onClick={() => nav('/login', { replace: true })}
-            >
-              Go to login
-            </button>
+          <div className='flex items-center gap-3'>
+            <LanguageToggle theme='light' compact />
+            <div className='text-[11px] text-slate-500'>
+              {t('pair.alreadyPaired')}{' '}
+              <button
+                className='underline underline-offset-2 text-slate-800 hover:text-slate-900'
+                onClick={() => nav('/login', { replace: true })}
+              >
+                {t('auth.goToLogin')}
+              </button>
+            </div>
           </div>
         </CardHeader>
 
         <Divider />
 
         <CardBody className='py-5'>
+          {unpairedReason === 'server_locked' && (
+            <div className='mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2'>
+              <Rich text={t('pair.serverLocked')} />
+            </div>
+          )}
+
+          {unpairedReason === 'offline_too_long' && (
+            <div className='mb-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2'>
+              <Rich text={t('pair.offlineTooLong')} />
+            </div>
+          )}
+
           <div className='grid gap-6 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]'>
             {/* LEFT: FORM */}
             <div className='space-y-4'>
               <Input
-                label='Server base URL'
+                label={t('pair.baseUrl')}
                 placeholder='https://restaurant.example.com'
                 value={baseUrl}
                 onValueChange={setBaseUrl}
                 isRequired
                 variant='bordered'
                 size='lg'
+                dir='ltr'
                 classNames={{
                   label: 'text-xs text-slate-600',
-                  input: 'text-sm',
+                  input: 'text-sm text-start',
                 }}
               />
 
               <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                 <Input
-                  label='Device name'
+                  label={t('pair.deviceName')}
                   placeholder='Main Counter POS'
                   value={deviceName}
                   onValueChange={setDeviceName}
@@ -175,39 +215,40 @@ export default function PairScreen() {
                   }}
                 />
                 <Input
-                  label='Branch ID'
-                  placeholder='e.g. 5'
+                  label={t('pair.branchIdLabel')}
+                  placeholder={t('pair.branchIdPlaceholder')}
                   value={branchId}
                   onValueChange={setBranchId}
                   type='number'
                   isRequired
                   variant='bordered'
                   size='lg'
+                  dir='ltr'
                   classNames={{
                     label: 'text-xs text-slate-600',
-                    input: 'text-sm',
+                    input: 'text-sm text-start',
                   }}
                 />
               </div>
 
               <Input
-                label='Pairing code'
-                placeholder='Code from server'
+                label={t('pair.code')}
+                placeholder={t('pair.codePlaceholder')}
                 value={code}
                 onValueChange={setCode}
                 isRequired
                 variant='bordered'
                 size='lg'
+                dir='ltr'
                 classNames={{
                   label: 'text-xs text-slate-600',
-                  input: 'text-sm tracking-[0.08em]',
+                  input: 'text-sm tracking-[0.08em] text-start',
                 }}
               />
 
               {prefilled && !err && (
                 <div className='text-[11px] text-emerald-600'>
-                  We pre-filled server and branch from a previous pairing.
-                  Confirm they look correct before pairing.
+                  {t('pair.prefilled')}
                 </div>
               )}
 
@@ -221,36 +262,33 @@ export default function PairScreen() {
             {/* RIGHT: HELP / STEPS */}
             <div className='rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-700 space-y-2'>
               <div className='font-semibold text-xs text-slate-900 mb-1'>
-                How to pair this device
+                {t('pair.howTo')}
               </div>
               <ol className='list-decimal list-inside space-y-1'>
                 <li>
-                  On the web admin, open <b>POS devices</b> and click{' '}
-                  <b>Pair new device</b>.
+                  <Rich text={t('pair.step1')} />
                 </li>
                 <li>
-                  Copy the <b>Server base URL</b> and <b>Branch ID</b> shown
-                  there and paste them on the left.
+                  <Rich text={t('pair.step2')} />
                 </li>
                 <li>
-                  Enter the <b>Pairing code</b> generated by the server.
+                  <Rich text={t('pair.step3')} />
                 </li>
                 <li>
-                  Press <b>Pair device</b>. If successful, you’ll be taken to
-                  the login screen.
+                  <Rich text={t('pair.step4')} />
                 </li>
               </ol>
 
               <div className='mt-2 border-t border-slate-200 pt-2 space-y-1'>
-                <div className='font-semibold text-xs text-slate-900'>Tips</div>
+                <div className='font-semibold text-xs text-slate-900'>
+                  {t('pair.tips')}
+                </div>
                 <ul className='list-disc list-inside space-y-1'>
                   <li>
-                    Use a descriptive device name like <b>Counter #1</b> or{' '}
-                    <b>Kitchen screen</b>.
+                    <Rich text={t('pair.tip1')} />
                   </li>
                   <li>
-                    If you move this machine to another branch, use{' '}
-                    <b>Unpair / Reset</b> first, then pair again.
+                    <Rich text={t('pair.tip2')} />
                   </li>
                 </ul>
               </div>
@@ -266,7 +304,7 @@ export default function PairScreen() {
             isDisabled={busy}
             size='sm'
           >
-            Unpair / Reset
+            {t('auth.unpair')}
           </Button>
           <Button
             color='primary'
@@ -275,7 +313,7 @@ export default function PairScreen() {
             onPress={handlePair}
             size='sm'
           >
-            Pair device
+            {t('auth.pairDevice')}
           </Button>
         </CardFooter>
       </Card>

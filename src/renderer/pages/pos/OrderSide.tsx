@@ -13,7 +13,6 @@ import {
 import {
   Order,
   OrderLine,
-  OrderType,
   TableInfo,
   State,
   City,
@@ -26,6 +25,9 @@ import { TablePickerModal } from './components/TablePickerModal';
 import { CheckoutModal } from './components/CheckoutModal';
 import { useToast } from '../../components/ToastProvider';
 import { useConfirmDialog } from '../../components/ConfirmDialogProvider';
+import { shortOrderLabel } from '../../utils/orderLabel';
+import { PaymentBadge } from '../../components/PaymentBadge';
+import { useI18n, useOrderTypeLabel } from '../../i18n';
 declare global {
   interface Window {
     api: { invoke: (channel: string, ...args: any[]) => Promise<any> };
@@ -78,6 +80,8 @@ export default function OrderSide({
   const cardBg = theme === 'dark' ? 'bg-white/5' : 'bg-gray-50';
   const toast = useToast();
   const confirm = useConfirmDialog();
+  const { t, money } = useI18n();
+  const labelForType = useOrderTypeLabel();
   const isOrderLocked =
     !!currentOrder &&
     (((currentOrder as any).is_locked === 1 ||
@@ -100,17 +104,18 @@ export default function OrderSide({
     if (!currentOrder) return;
 
     const ok = await confirm({
-      title: 'Clear entire cart?',
+      title: t('cart.clearTitle'),
       message: (
         <div className='space-y-1 text-[13px]'>
           <p>
-            This will remove <b>all items</b> from this order.
+            {t('cart.clearBodyBefore')} <b>{t('cart.clearBodyAllItems')}</b>{' '}
+            {t('cart.clearBodyAfter')}
           </p>
-          <p>This action cannot be undone.</p>
+          <p>{t('cart.clearUndo')}</p>
         </div>
       ),
-      confirmLabel: 'Clear cart',
-      cancelLabel: 'Cancel',
+      confirmLabel: t('cart.clearCart'),
+      cancelLabel: t('common.cancel'),
       tone: 'danger',
     });
 
@@ -125,15 +130,15 @@ export default function OrderSide({
 
       toast({
         tone: 'success',
-        title: 'Cart cleared',
-        message: 'All items have been removed from this order.',
+        title: t('cart.cleared'),
+        message: t('cart.clearedMsg'),
       });
     } catch (e: any) {
       console.error('[handleClearCart] error:', e);
       toast({
         tone: 'danger',
-        title: 'Could not clear cart',
-        message: e?.message || 'Please check logs or contact support.',
+        title: t('cart.clearFailed'),
+        message: e?.message || t('common.checkLogs'),
       });
     }
   };
@@ -172,9 +177,8 @@ export default function OrderSide({
       if (!hasDeliveryAddress) {
         toast({
           tone: 'danger',
-          title:
-            'Please enter the delivery address (State, City, Block) from "Place Order" before closing this delivery order.',
-          message: 'Please check the logs for details or contact support.',
+          title: t('cart.needAddress'),
+          message: t('common.checkLogs'),
         });
         // open checkout so they can fill it
         setShowCheckout(true);
@@ -187,8 +191,8 @@ export default function OrderSide({
       if (!currentOrder.table_id) {
         toast({
           tone: 'danger',
-          title: 'Please assign a table before closing this dine-in order.',
-          message: 'Please check the logs for details or contact support.',
+          title: t('cart.needTable'),
+          message: t('common.checkLogs'),
         });
         setShowTablePicker(true);
         return;
@@ -237,12 +241,18 @@ export default function OrderSide({
   // Final settlement for dine-in
   const handleReleaseTable = async () => {
     if (!currentOrder) return;
-    if (
-      !confirm(
-        'Are you sure you want to release this table and finish the order?'
-      )
-    )
-      return;
+    // `confirm` here is useConfirmDialog(), which takes an options object and
+    // returns a Promise. It was being called with a bare string and without
+    // await, so the returned promise was always truthy — the guard never
+    // blocked, and the dialog opened empty and was never resolved. Releasing a
+    // table also prints and finalises, so an unguarded click is destructive.
+    const ok = await confirm({
+      title: t('cart.releaseConfirmTitle'),
+      message: t('cart.releaseConfirm'),
+      confirmLabel: t('cart.releaseTable'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
 
     try {
       // 🧾 Print BEFORE finalizing & freeing the table
@@ -259,15 +269,15 @@ export default function OrderSide({
       console.error(e);
       toast({
         tone: 'danger',
-        title: 'Failed to release table',
-        message: 'Please check the logs for details or contact support.',
+        title: t('cart.releaseFailed'),
+        message: t('common.checkLogs'),
       });
     }
   };
 
   return (
     <div
-      className={`${bg} backdrop-blur border-l ${border} flex flex-col h-full overflow-hidden`}
+      className={`${bg} backdrop-blur border-s ${border} flex flex-col h-full overflow-hidden`}
     >
       {/* Header */}
       <div className={`p-4 border-b ${border} shrink-0`}>
@@ -278,9 +288,15 @@ export default function OrderSide({
               {/* Left: order number + table button */}
               <div className='space-y-1.5'>
                 <div>
-                  <div className={`text-xs ${textMuted}`}>Order Number</div>
-                  <div className={`text-xl font-bold ${text}`}>
-                    #{currentOrder.number}
+                  <div className={`text-xs ${textMuted}`}>
+                    {t('cart.orderNumber')}
+                  </div>
+                  <div className={`text-xl font-bold ${text} money`}>
+                    {shortOrderLabel(currentOrder as any)}
+                    <PaymentBadge
+                      status={(currentOrder as any).payment_link_status}
+                      theme={theme}
+                    />
                   </div>
                 </div>
 
@@ -296,9 +312,9 @@ export default function OrderSide({
                             : 'bg-emerald-100 text-emerald-700 border-emerald-300'
                         }`}
                       >
-                        <Table2 size={14} className='inline mr-1' />
-                        {currentOrder.table_name || 'Table'} •{' '}
-                        {currentOrder.covers || 1}
+                        <Table2 size={14} className='inline me-1' />
+                        {currentOrder.table_name || t('cust.table')} •{' '}
+                        <span className='money'>{currentOrder.covers || 1}</span>
                       </button>
                     ) : (
                       <button
@@ -309,8 +325,8 @@ export default function OrderSide({
                             : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
                         }`}
                       >
-                        <UtensilsCrossed size={14} className='inline mr-1' />{' '}
-                        Assign Table
+                        <UtensilsCrossed size={14} className='inline me-1' />{' '}
+                        {t('tables.assign')}
                       </button>
                     )}
 
@@ -368,7 +384,7 @@ export default function OrderSide({
                 `}
                     >
                       <Lock size={13} />
-                      <span>Main order locked (printed)</span>
+                      <span>{t('cart.lockedBadge')}</span>
                     </div>
 
                     {/* New items pending badge */}
@@ -386,8 +402,11 @@ export default function OrderSide({
                       >
                         <span className='w-1.5 h-1.5 rounded-full bg-current inline-block' />
                         <span>
-                          {pendingNewItemsCount} new item
-                          {pendingNewItemsCount > 1 ? 's' : ''} pending
+                          {pendingNewItemsCount > 1
+                            ? t('cart.pendingMany', {
+                                n: pendingNewItemsCount,
+                              })
+                            : t('cart.pendingOne')}
                         </span>
                       </div>
                     )}
@@ -440,8 +459,8 @@ export default function OrderSide({
                     : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
                 }`}
               >
-                <Percent size={14} className='inline mr-1' />
-                Apply Promo Code
+                <Percent size={14} className='inline me-1' />
+                {t('promo.title')}
               </button>
             )}
 
@@ -461,13 +480,13 @@ export default function OrderSide({
                 '
               >
                 <X size={14} />
-                Clear cart
+                {t('cart.clearCart')}
               </button>
             )}
           </div>
         ) : (
           <div className='text-center py-3'>
-            <p className={`${textMuted} mb-2`}>No active order</p>
+            <p className={`${textMuted} mb-2`}>{t('cart.noActiveOrder')}</p>
             <button
               onClick={onCreateOrder}
               className={`px-4 py-2.5 rounded-lg text-sm font-medium ${
@@ -476,7 +495,7 @@ export default function OrderSide({
                   : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
               }`}
             >
-              Create New Order
+              {t('cart.createOrder')}
             </button>
           </div>
         )}
@@ -492,9 +511,9 @@ export default function OrderSide({
               >
                 <ShoppingCart size={40} className='mb-3' />
                 <p className='text-center'>
-                  Cart is empty
+                  {t('cart.empty')}
                   <br />
-                  Add items to get started
+                  {t('cart.emptyHint')}
                 </p>
               </div>
             ) : (
@@ -518,21 +537,21 @@ export default function OrderSide({
           >
             <div className='space-y-1.5 mb-3'>
               <Row
-                label='Subtotal'
-                value={(currentOrder.subtotal || 0).toFixed(3)}
+                label={t('cart.subtotal')}
+                value={money(currentOrder.subtotal)}
                 theme={theme}
               />
               {currentOrder.discount_total > 0 && (
                 <Row
-                  label='Discount'
-                  value={`-${(currentOrder.discount_total || 0).toFixed(3)}`}
+                  label={t('cart.discount')}
+                  value={`-${money(currentOrder.discount_total)}`}
                   theme={theme}
                 />
               )}
               {currentOrder.order_type === 1 && (
                 <Row
-                  label='Delivery Fee'
-                  value={(currentOrder.delivery_fee || 0).toFixed(3)}
+                  label={t('cart.deliveryFee')}
+                  value={money(currentOrder.delivery_fee)}
                   theme={theme}
                 />
               )}
@@ -541,13 +560,13 @@ export default function OrderSide({
                   theme === 'dark' ? 'border-white/10' : 'border-gray-200'
                 }`}
               >
-                <span>Total</span>
+                <span>{t('common.total')}</span>
                 <span
-                  className={
+                  className={`money ${
                     theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
-                  }
+                  }`}
                 >
-                  {(currentOrder.grand_total || 0).toFixed(3)}
+                  {money(currentOrder.grand_total)}
                 </span>
               </div>
             </div>
@@ -568,7 +587,9 @@ export default function OrderSide({
                 `}
               >
                 <Check size={18} />
-                {currentOrder.order_type === 3 ? 'Update / Pay' : 'Place Order'}
+                {currentOrder.order_type === 3
+                  ? t('cart.updatePay')
+                  : t('cart.placeOrder')}
               </button>
 
               {/* Close / Release (blue) */}
@@ -591,18 +612,18 @@ export default function OrderSide({
                   currentOrder.order_type === 3 &&
                   currentOrder.table_id &&
                   orderLines.length > 0
-                    ? 'Finish and release table'
+                    ? t('cart.tipRelease')
                     : orderLines.length > 0
-                    ? 'Cancel this order'
-                    : 'Delete this empty order'
+                    ? t('cart.tipCancel')
+                    : t('cart.tipDeleteEmpty')
                 }
               >
                 <X size={16} />
                 {currentOrder.order_type === 3 &&
                 currentOrder.table_id &&
                 orderLines.length > 0
-                  ? 'Close & Release'
-                  : 'Close Order'}
+                  ? t('cart.closeRelease')
+                  : t('cart.closeOrder')}
               </button>
             </div>
           </div>
@@ -655,10 +676,11 @@ export default function OrderSide({
           tables={tables}
           onClose={() => setShowTablePicker(false)}
           onRefresh={onRefreshTables}
-          onAssign={async (t, covers) => {
+          onAssign={async (tbl, covers) => {
+            // `tbl`, not `t` — `t` is the translator in this scope.
             try {
               await window.api.invoke('orders:setTable', currentOrder.id, {
-                table_id: t.id,
+                table_id: tbl.id,
                 covers,
               });
               await onSelectOrder(currentOrder.id);
@@ -668,9 +690,8 @@ export default function OrderSide({
               console.error(e);
               toast({
                 tone: 'danger',
-                title: 'Could not assign table',
-                message:
-                  'Please check the logs for details or contact support.',
+                title: t('tables.assignFailed'),
+                message: t('common.checkLogs'),
               });
             }
           }}
@@ -706,20 +727,8 @@ function Row({
   return (
     <div className={`flex justify-between ${textMuted}`}>
       <span>{label}</span>
-      <span className='font-medium'>{value}</span>
+      {/* .money forces LTR digit order so "12.500" never mirrors in Arabic. */}
+      <span className='font-medium money'>{value}</span>
     </div>
   );
-}
-
-function labelForType(type: OrderType): string {
-  switch (type) {
-    case 1:
-      return 'Delivery';
-    case 2:
-      return 'Pickup';
-    case 3:
-      return 'Dine-in';
-    default:
-      return 'Order';
-  }
 }

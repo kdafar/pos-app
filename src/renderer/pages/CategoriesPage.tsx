@@ -9,6 +9,7 @@ import {
   ColumnDef,
   SortingState,
 } from '@tanstack/react-table';
+import { useI18n } from '../i18n';
 
 type Category = {
   id: string | number;
@@ -35,6 +36,7 @@ declare global {
 }
 
 export function CategoriesPage() {
+  const { t, name: localName } = useI18n();
   const cats = useStore((s) => s.cats) as Category[] | undefined;
   const fetchInitialData = useStore((s) => s.actions.fetchInitialData);
 
@@ -127,15 +129,15 @@ export function CategoriesPage() {
 
   // ------- Categories table -------
   const catColumns = useMemo<ColumnDef<Category>[]>(() => [
-    { accessorKey: 'position', header: '#', cell: (info) => String(info.getValue() ?? '') },
-    { accessorKey: 'name',     header: 'Name (EN)', cell: (info) => String(info.getValue() ?? '') },
-    { accessorKey: 'name_ar',  header: 'Name (AR)', cell: (info) => String(info.getValue() ?? '') },
+    { accessorKey: 'position', header: () => '#', cell: (info) => String(info.getValue() ?? '') },
+    { accessorKey: 'name',     header: () => t('admin.nameEn'), cell: (info) => String(info.getValue() ?? '') },
+    { accessorKey: 'name_ar',  header: () => t('admin.nameAr'), cell: (info) => String(info.getValue() ?? '') },
     {
       accessorKey: 'visible',
-      header: 'Visible',
+      header: () => t('admin.cats.visible'),
       cell: (info) => (toBool(info.getValue()) ? '✅' : '—'),
     },
-  ], []);
+  ], [t]);
 
   const catTable = useReactTable({
     data: filteredCats,
@@ -145,17 +147,17 @@ export function CategoriesPage() {
 
   // ------- Subcategories table -------
   const subsColumns = useMemo<ColumnDef<Subcategory>[]>(() => [
-    { accessorKey: 'position', header: '#', cell: (info) => String(info.getValue() ?? '') },
-    { accessorKey: 'name',     header: 'Name (EN)', cell: (info) => String(info.getValue() ?? '') },
-    { accessorKey: 'name_ar',  header: 'Name (AR)', cell: (info) => String(info.getValue() ?? '') },
+    { accessorKey: 'position', header: () => '#', cell: (info) => String(info.getValue() ?? '') },
+    { accessorKey: 'name',     header: () => t('admin.nameEn'), cell: (info) => String(info.getValue() ?? '') },
+    { accessorKey: 'name_ar',  header: () => t('admin.nameAr'), cell: (info) => String(info.getValue() ?? '') },
     {
       accessorKey: 'visible',
-      header: 'Visible',
+      header: () => t('admin.cats.visible'),
       cell: (info) => (toBool(info.getValue()) ? '✅' : '—'),
     },
     {
       accessorKey: 'category_id',
-      header: 'Category',
+      header: () => t('admin.subs.category'),
       cell: (info) => {
         const id = String(info.getValue() ?? '');
         const c = (cats ?? []).find((x) => String(x.id) === id);
@@ -163,7 +165,7 @@ export function CategoriesPage() {
       },
       enableSorting: false,
     },
-  ], [cats]);
+  ], [cats, t]);
 
   const subsTable = useReactTable({
     data: filteredSubcats,
@@ -193,15 +195,15 @@ export function CategoriesPage() {
       {/* Categories */}
       <div className="card" style={{ marginBottom: 24, padding: 24 }}>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">Categories</h3>
-          <span className="muted">Read-only</span>
+          <h3 className="text-lg font-semibold">{t('admin.cats.title')}</h3>
+          <span className="muted">{t('admin.readOnly')}</span>
         </div>
 
         {/* Categories search & filter */}
         <div className="flex items-center gap-3 mb-3">
           <input
             className="px-3 py-2 rounded-lg border border-white/10 bg-transparent"
-            placeholder="Search categories (EN/AR)…"
+            placeholder={t('admin.cats.searchPlaceholder')}
             value={catSearch}
             onChange={(e) => setCatSearch(e.target.value)}
             style={{ minWidth: 260 }}
@@ -211,19 +213,19 @@ export function CategoriesPage() {
             value={catVisFilter}
             onChange={(e) => setCatVisFilter(e.target.value as any)}
           >
-            <option value="all">All</option>
-            <option value="visible">Visible only</option>
-            <option value="hidden">Hidden only</option>
+            <option value="all">{t('common.all')}</option>
+            <option value="visible">{t('admin.cats.visibleOnly')}</option>
+            <option value="hidden">{t('admin.cats.hiddenOnly')}</option>
           </select>
         </div>
 
         <div className="overflow-auto rounded-xl border border-slate-700/60">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-start text-sm">
             <thead className="bg-slate-900/40">
               {catTable.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
-                    <th key={h.id} className="p-2 border-b border-slate-700/60">
+                    <th key={h.id} className="p-2 border-b border-slate-700/60 text-start">
                       {h.isPlaceholder
                         ? null
                         : flexRender(h.column.columnDef.header, h.getContext())}
@@ -242,10 +244,10 @@ export function CategoriesPage() {
                       isSelected ? 'bg-blue-500/10' : 'hover:bg-white/5'
                     }`}
                     onClick={() => setSelectedCatId(String(row.original.id))}
-                    title="Click to view subcategories"
+                    title={t('admin.cats.clickHint')}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="p-2">
+                      <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
@@ -255,7 +257,7 @@ export function CategoriesPage() {
               {filteredCats.length === 0 && (
                 <tr>
                   <td className="p-3 muted" colSpan={catColumns.length}>
-                    No categories match your search/filters.
+                    {t('admin.cats.none')}
                   </td>
                 </tr>
               )}
@@ -267,15 +269,15 @@ export function CategoriesPage() {
         <div className="mt-3 flex items-center gap-8">
           <div className="text-sm">
             {selectedCat
-              ? <>Selected:&nbsp;<strong>{selectedCat.name}</strong>&nbsp;(&nbsp;{selectedCat.name_ar}&nbsp;)</>
-              : <span className="opacity-70">No category selected</span>}
+              ? <>{t('admin.cats.selected')}:&nbsp;<strong>{localName(selectedCat)}</strong></>
+              : <span className="opacity-70">{t('admin.cats.noneSelected')}</span>}
           </div>
           <button
             type="button"
             onClick={() => setSelectedCatId(null)}
             className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-sm"
           >
-            Show all subcategories
+            {t('admin.cats.showAllSubs')}
           </button>
         </div>
       </div>
@@ -284,13 +286,14 @@ export function CategoriesPage() {
       <div className="card" style={{ padding: 24 }}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold">
-            Subcategories {selectedCat ? `— ${selectedCat.name}` : '(All)'}
+            {t('admin.subs.title')}{' '}
+            {selectedCat ? `— ${localName(selectedCat)}` : t('admin.subs.all')}
           </h3>
           <div className="flex items-center gap-3 text-sm">
             {/* Subcategories search & filter */}
             <input
               className="px-3 py-2 rounded-lg border border-white/10 bg-transparent"
-              placeholder="Search subcategories (EN/AR)…"
+              placeholder={t('admin.subs.searchPlaceholder')}
               value={subsSearch}
               onChange={(e) => setSubsSearch(e.target.value)}
               style={{ minWidth: 260 }}
@@ -300,12 +303,12 @@ export function CategoriesPage() {
               value={subsVisFilter}
               onChange={(e) => setSubsVisFilter(e.target.value as any)}
             >
-              <option value="all">All</option>
-              <option value="visible">Visible only</option>
-              <option value="hidden">Hidden only</option>
+              <option value="all">{t('common.all')}</option>
+              <option value="visible">{t('admin.cats.visibleOnly')}</option>
+              <option value="hidden">{t('admin.cats.hiddenOnly')}</option>
             </select>
 
-            <label className="opacity-70 ml-4">Rows</label>
+            <label className="opacity-70 ms-4">{t('admin.rows')}</label>
             <select
               className="ui-field"
               value={subsPageSize}
@@ -319,12 +322,12 @@ export function CategoriesPage() {
         </div>
 
         <div className="overflow-auto rounded-xl border border-slate-700/60">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-start text-sm">
             <thead className="bg-slate-900/40">
               {subsTable.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
-                    <th key={h.id} className="p-2 border-b border-slate-700/60">
+                    <th key={h.id} className="p-2 border-b border-slate-700/60 text-start">
                       {h.isPlaceholder
                         ? null
                         : flexRender(h.column.columnDef.header, h.getContext())}
@@ -337,14 +340,14 @@ export function CategoriesPage() {
               {subsTable.getRowModel().rows.length === 0 ? (
                 <tr>
                   <td className="p-3 muted" colSpan={subsColumns.length}>
-                    No subcategories match your search/filters.
+                    {t('admin.subs.none')}
                   </td>
                 </tr>
               ) : (
                 subsTable.getRowModel().rows.map((row) => (
                   <tr key={row.id} className="border-b border-slate-800/60 hover:bg-white/5">
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="p-2">
+                      <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
@@ -358,9 +361,11 @@ export function CategoriesPage() {
         {/* Simple pagination controls */}
         <div className="mt-3 flex items-center justify-between text-sm">
           <div className="opacity-70">
-            Page <strong>{subsTable.getState().pagination.pageIndex + 1}</strong> of{' '}
-            <strong>{subsTable.getPageCount()}</strong> •{' '}
-            <span>{filteredSubcats.length} subcategories</span>
+            {t('admin.pageOf', {
+              page: subsTable.getState().pagination.pageIndex + 1,
+              pages: subsTable.getPageCount(),
+            })}{' '}
+            • <span>{t('admin.subs.count', { n: filteredSubcats.length })}</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -368,28 +373,28 @@ export function CategoriesPage() {
               onClick={() => subsTable.setPageIndex(0)}
               disabled={!subsTable.getCanPreviousPage()}
             >
-              « First
+              {t('admin.first')}
             </button>
             <button
               className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
               onClick={() => subsTable.previousPage()}
               disabled={!subsTable.getCanPreviousPage()}
             >
-              ‹ Prev
+              {t('admin.prev')}
             </button>
             <button
               className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
               onClick={() => subsTable.nextPage()}
               disabled={!subsTable.getCanNextPage()}
             >
-              Next ›
+              {t('admin.next')}
             </button>
             <button
               className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
               onClick={() => subsTable.setPageIndex(subsTable.getPageCount() - 1)}
               disabled={!subsTable.getCanNextPage()}
             >
-              Last »
+              {t('admin.last')}
             </button>
           </div>
         </div>

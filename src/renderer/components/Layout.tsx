@@ -3,6 +3,8 @@ import { useStore } from '../src/store';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import packageJson from '../../../package.json';
 import { useToast } from '../components/ToastProvider';
+import { useI18n } from '../i18n';
+import { LanguageToggle } from './LanguageToggle';
 import {
   Cloud,
   CloudOff,
@@ -37,6 +39,7 @@ const APP_VENDOR = packageJson.author || 'Majestic POS';
 
 export function Layout() {
   const toast = useToast();
+  const { t } = useI18n();
   const collapsed = useStore((s) => s.collapsed);
   const toggleCollapsed = useStore((s) => s.actions.toggleCollapsed);
   const location = useLocation();
@@ -187,8 +190,8 @@ export function Layout() {
       console.error('sync:run failed', e);
       toast({
         tone: 'danger',
-        title: 'Sync failed',
-        message: 'Check connection/base URL/pairing.',
+        title: t('sync.failed'),
+        message: t('sync.failedHint'),
       });
     } finally {
       setSyncing(false);
@@ -198,11 +201,11 @@ export function Layout() {
   const lastSyncText = useMemo(() => {
     if (!sync?.last_sync_at) return '—';
     const d = Date.now() - Number(sync.last_sync_at);
-    if (d < 15_000) return 'just now';
-    if (d < 60_000) return `${Math.floor(d / 1000)}s ago`;
-    if (d < 3_600_000) return `${Math.floor(d / 60_000)}m ago`;
+    if (d < 15_000) return t('sync.justNow');
+    if (d < 60_000) return t('sync.secondsAgo', { n: Math.floor(d / 1000) });
+    if (d < 3_600_000) return t('sync.minutesAgo', { n: Math.floor(d / 60_000) });
     return new Date(sync.last_sync_at).toLocaleString();
-  }, [sync?.last_sync_at]);
+  }, [sync?.last_sync_at, t]);
 
   const iconButtonClass =
     'inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9 text-muted-foreground';
@@ -215,7 +218,7 @@ export function Layout() {
       {/* Sidebar */}
       <aside
         className='
-          h-full border-r flex flex-col gap-3 p-3 min-h-0 min-w-0
+          h-full border-e flex flex-col gap-3 p-3 min-h-0 min-w-0
           bg-gradient-to-b from-slate-50 to-slate-100
           dark:from-slate-950 dark:to-slate-900
         '
@@ -240,10 +243,11 @@ export function Layout() {
               {/* Name + role */}
               <div className='min-w-0 flex flex-col'>
                 <span className='text-sm font-semibold truncate text-foreground'>
-                  {user?.name || 'Operator'}
+                  {user?.name || t('pos.operator')}
                 </span>
                 <span className='text-[10px] uppercase tracking-[0.16em] text-muted-foreground truncate'>
-                  {user?.role || (user?.is_admin ? 'Admin' : 'Staff')}
+                  {user?.role ||
+                    (user?.is_admin ? t('nav.role.admin') : t('nav.role.staff'))}
                 </span>
               </div>
             </div>
@@ -253,7 +257,7 @@ export function Layout() {
           <div className='flex flex-col gap-1 items-center'>
             <button
               className={`${iconButtonClass} ${collapsed ? 'hidden' : ''}`}
-              title='Toggle theme'
+              title={t('nav.toggleTheme')}
               onClick={toggleTheme}
             >
               {theme === 'light' ? (
@@ -264,13 +268,15 @@ export function Layout() {
             </button>
             <button
               className={iconButtonClass}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={
+                collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')
+              }
               onClick={toggleCollapsed}
             >
               {collapsed ? (
-                <IconPanelRight className='h-5 w-5' />
+                <IconPanelRight className='h-5 w-5 flip-rtl' />
               ) : (
-                <IconPanelLeft className='h-5 w-5' />
+                <IconPanelLeft className='h-5 w-5 flip-rtl' />
               )}
             </button>
           </div>
@@ -289,13 +295,13 @@ export function Layout() {
               {/* LEFT: label + details */}
               <div className='min-w-0'>
                 <div className='text-[10px] uppercase tracking-[0.22em] text-muted-foreground mb-1'>
-                  Sync
+                  {t('sync.title')}
                 </div>
                 <div className='flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground'>
                   <span className='inline-flex items-center gap-1 max-w-[140px]'>
                     <GitBranch size={11} />
                     <span className='truncate'>
-                      {sync?.branch_name || 'No branch'}
+                      {sync?.branch_name || t('sync.noBranch')}
                     </span>
                   </span>
                   <span className='inline-flex items-center gap-1 max-w-[120px]'>
@@ -316,8 +322,8 @@ export function Layout() {
                   ].join(' ')}
                   title={
                     sync?.mode === 'live'
-                      ? 'Online – syncing is enabled'
-                      : 'Offline – syncing is paused'
+                      ? t('sync.onlineHint')
+                      : t('sync.offlineHint')
                   }
                 >
                   {sync?.mode === 'live' ? (
@@ -325,7 +331,9 @@ export function Layout() {
                   ) : (
                     <CloudOff size={13} />
                   )}
-                  <span>{sync?.mode === 'live' ? 'Online' : 'Offline'}</span>
+                  <span>
+                    {sync?.mode === 'live' ? t('sync.online') : t('sync.offline')}
+                  </span>
                 </div>
 
                 <button
@@ -338,9 +346,7 @@ export function Layout() {
                     'disabled:cursor-not-allowed disabled:opacity-60',
                   ].join(' ')}
                   title={
-                    sync?.mode === 'live'
-                      ? 'Sync now'
-                      : 'Cannot sync while offline'
+                    sync?.mode === 'live' ? t('nav.sync') : t('sync.cannotSync')
                   }
                 >
                   <RefreshCw
@@ -361,9 +367,7 @@ export function Layout() {
                 '
               >
                 <AlertTriangle size={11} />
-                <span className='truncate'>
-                  Device not paired – open Settings
-                </span>
+                <span className='truncate'>{t('sync.notPaired')}</span>
               </button>
             )}
           </section>
@@ -371,17 +375,17 @@ export function Layout() {
 
         {/* Nav (RBAC) */}
         <nav className='mt-1 space-y-1 flex-grow overflow-y-auto nice-scroll min-h-0'>
-          <SectionLabel hidden={collapsed}>Orders</SectionLabel>
+          <SectionLabel hidden={collapsed}>{t('nav.orders')}</SectionLabel>
           <NavLink
             to='/'
-            text='Order Process'
+            text={t('nav.orderProcess')}
             icon='🧾'
             collapsed={collapsed}
             active={location.pathname === '/'}
           />
           <NavLink
             to='/orders'
-            text='Recent Orders'
+            text={t('nav.recentOrders')}
             icon='📜'
             collapsed={collapsed}
             active={location.pathname === '/orders'}
@@ -389,68 +393,72 @@ export function Layout() {
           {/* Closing Report → admin only */}{' '}
           <NavLink
             to='/reports/closing'
-            text='Closing Report'
+            text={t('nav.closingReport')}
             icon='📜'
             collapsed={collapsed}
             active={location.pathname === '/reports/closing'}
           />
           {isAdmin && (
             <>
-              <SectionLabel hidden={collapsed}>Catalog</SectionLabel>
+              <SectionLabel hidden={collapsed}>
+                {t('nav.section.catalog')}
+              </SectionLabel>
               <NavLink
                 to='/categories'
-                text='Categories'
+                text={t('nav.categories')}
                 icon='🗂️'
                 collapsed={collapsed}
                 active={location.pathname === '/categories'}
               />
               <NavLink
                 to='/items'
-                text='Items'
+                text={t('nav.items')}
                 icon='📦'
                 collapsed={collapsed}
                 active={location.pathname === '/items'}
               />
               <NavLink
                 to='/addons'
-                text='Addons'
+                text={t('nav.addons')}
                 icon='➕'
                 collapsed={collapsed}
                 active={location.pathname === '/addons'}
               />
               <NavLink
                 to='/promos'
-                text='Promocodes'
+                text={t('nav.promocodes')}
                 icon='🏷️'
                 collapsed={collapsed}
                 active={location.pathname === '/promos'}
               />
 
-              <SectionLabel hidden={collapsed}>System</SectionLabel>
+              <SectionLabel hidden={collapsed}>
+                {t('nav.section.system')}
+              </SectionLabel>
               <NavLink
                 to='/payment-methods'
-                text='Payment Methods'
+                text={t('nav.paymentMethods')}
                 icon='💳'
                 collapsed={collapsed}
                 active={location.pathname === '/payment-methods'}
               />
               <NavLink
                 to='/locations'
-                text='Locations'
+                text={t('nav.locations')}
                 icon='📍'
                 collapsed={collapsed}
                 active={location.pathname === '/locations'}
               />
               <NavLink
                 to='/tables'
-                text='Tables'
+                text={t('nav.tables')}
                 icon='🪑'
                 collapsed={collapsed}
                 active={location.pathname === '/tables'}
               />
               <NavLink
                 to='/settings'
-                text='Settings'
+                text={t('nav.settings')}
                 icon='⚙️'
                 collapsed={collapsed}
                 active={location.pathname === '/settings'}
@@ -459,11 +467,22 @@ export function Layout() {
           )}
         </nav>
 
-        {/* Footer / Logout */}
+        {/* Footer / Language + Logout */}
         <div className='mt-2 pt-2 border-t border-slate-200 dark:border-slate-800'>
+          {/* Language lives in the sidebar so it is reachable from every
+              screen, not just the order screen. */}
+          <div className={collapsed ? 'pb-2' : 'px-3 pb-2'}>
+            {!collapsed && (
+              <div className='text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80 mb-1.5'>
+                {t('nav.language')}
+              </div>
+            )}
+            <LanguageToggle collapsed={collapsed} />
+          </div>
+
           <NavLink
             to='/logout'
-            text='Logout'
+            text={t('auth.logout')}
             icon='🚪'
             collapsed={collapsed}
             active={false}
@@ -471,15 +490,21 @@ export function Layout() {
           {/* Tiny version badge */}
           {!collapsed && (
             <div className='px-3 pb-1 text-[10px] text-muted-foreground/80 flex items-center justify-between'>
-              <span className='font-mono'>v{APP_VERSION}</span>
-              <span className='uppercase tracking-[0.18em] text-xs'>
+              {/* Version + vendor are identifiers, never localized. */}
+              <span className='font-mono' dir='ltr'>
+                v{APP_VERSION}
+              </span>
+              <span className='uppercase tracking-[0.18em] text-xs' dir='ltr'>
                 {APP_VENDOR}
               </span>
             </div>
           )}
 
           {collapsed && (
-            <div className='flex items-center justify-center pb-1 text-[9px] text-muted-foreground/70 font-mono'>
+            <div
+              className='flex items-center justify-center pb-1 text-[9px] text-muted-foreground/70 font-mono'
+              dir='ltr'
+            >
               v{APP_VERSION}
             </div>
           )}

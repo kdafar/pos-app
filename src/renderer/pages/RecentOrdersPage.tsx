@@ -10,6 +10,8 @@ import {
 } from '@tanstack/react-table';
 import { Printer } from 'lucide-react';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
+import { useI18n, useOrderTypeLabel, useStatusLabel } from '../i18n';
+import type { StringKey } from '../i18n';
 
 declare global {
   interface Window {
@@ -21,6 +23,8 @@ type Order = {
   id?: string;
   number: string;
   status: string | null;
+  /** Server enum 0–9 (sync.ts). Present on pulled orders; null on local ones. */
+  status_code?: number | null;
   order_type: number | null; // 1 delivery, 2 pickup, 3 dine-in
   full_name?: string | null;
   mobile?: string | null;
@@ -39,11 +43,49 @@ type PosUser = {
   is_admin?: boolean | number;
 };
 
-const typeLabel = (t?: number | null) =>
-  t === 1 ? 'Delivery' : t === 2 ? 'Pickup' : t === 3 ? 'Dine-in' : '—';
+/**
+ * Server order status (§3.4). Codes 3 and 4 read differently for delivery than
+ * for pickup / dine-in, so the order type has to be in hand. Wording is the
+ * backend's own — do not paraphrase it here.
+ */
+function useServerStatusLabel() {
+  const { t } = useI18n();
+  return (code: unknown, orderType: unknown): string | null => {
+    const n = Number(code);
+    if (!Number.isFinite(n)) return null;
+    const isDelivery = Number(orderType) === 1;
+    if (n === 3 || n === 4) {
+      return t(
+        `admin.srv.${n}.${isDelivery ? 'delivery' : 'other'}` as StringKey
+      );
+    }
+    if (n >= 0 && n <= 9) return t(`admin.srv.${n}` as StringKey);
+    return t('admin.srv.unknown', { n });
+  };
+}
 
-const StatusBadge = ({ s }: { s?: string | null }) => {
-  const k = String(s ?? '').toLowerCase();
+/** Colour tone per server status code, so badges stay readable in Arabic too. */
+const SERVER_STATUS_CLS: Record<number, string> = {
+  0: 'bg-white/5 text-slate-300 border-white/10',
+  1: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+  2: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  3: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  4: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  5: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+  6: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+  7: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  8: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+  9: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+};
+
+const StatusBadge = ({ order }: { order: Order }) => {
+  const statusLabel = useStatusLabel();
+  const serverLabel = useServerStatusLabel();
+
+  const code = Number(order.status_code);
+  const hasCode = Number.isFinite(code) && order.status_code != null;
+
+  const k = String(order.status ?? '').toLowerCase();
   const map: Record<string, string> = {
     open: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
     prepared: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -51,18 +93,25 @@ const StatusBadge = ({ s }: { s?: string | null }) => {
     closed: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
     cancelled: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
   };
-  const cls = map[k] ?? 'bg-white/5 text-slate-300 border-white/10';
+
+  const cls = hasCode
+    ? SERVER_STATUS_CLS[code] ?? 'bg-white/5 text-slate-300 border-white/10'
+    : map[k] ?? 'bg-white/5 text-slate-300 border-white/10';
+
+  const label = hasCode
+    ? serverLabel(code, order.order_type)
+    : order.status
+    ? statusLabel(order.status)
+    : null;
+
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${cls}`}
     >
-      {s || '—'}
+      {label || '—'}
     </span>
   );
 };
-
-const fmtMoney3 = (n?: number | null) =>
-  Number.isFinite(Number(n)) ? Number(n).toFixed(3) : '0.000';
 
 const bestUpdatedMs = (row: Order) => {
   if (row.updated_at && Number(row.updated_at) > 0)
@@ -99,6 +148,8 @@ function getTodayRangeMs() {
 }
 
 export default function TodayOrdersReport() {
+  const { t, money, lang } = useI18n();
+  const typeLabel = useOrderTypeLabel();
   const [rows, setRows] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -190,7 +241,7 @@ export default function TodayOrdersReport() {
       }|${r.mobile ?? ''}`.toLowerCase();
       return hay.includes(qq);
     });
-  }, [rows, q, type]);
+  }, [rows, q, type, typeLabel]);
 
   const handlePrint = useCallback(
     async (orderId?: string) => {
@@ -198,8 +249,8 @@ export default function TodayOrdersReport() {
         if (!isAdmin) {
           toast({
             tone: 'danger',
-            title: 'Only admin users are allowed to print this report.',
-            message: 'Please check the logs for details or contact support.',
+            title: t('admin.orders.printAdminOnly'),
+            message: t('admin.supportHint'),
           });
           return;
         }
@@ -207,22 +258,29 @@ export default function TodayOrdersReport() {
         if (!orderId) {
           toast({
             tone: 'danger',
-            title: 'Cannot print: order ID is missing.',
-            message: 'Please check the logs for details or contact support.',
+            title: t('admin.orders.printNoId'),
+            message: t('admin.supportHint'),
           });
           return;
         }
         await window.api.invoke('orders:print', orderId);
       } catch (e) {
         console.error('orders:print failed', e);
+        // Show what actually went wrong (no printer, lookup-only order, …)
+        // rather than a generic failure the cashier cannot act on.
+        const raw = e instanceof Error ? e.message : String(e ?? '');
+        const detail = raw
+          .replace(/^Error invoking remote method '[^']*':\s*/i, '')
+          .replace(/^(Error|TypeError):\s*/i, '')
+          .trim();
         toast({
           tone: 'danger',
-          title: 'Failed to print this order.',
-          message: 'Please check the logs for details or contact support.',
+          title: t('admin.orders.printFailed'),
+          message: detail || t('admin.supportHint'),
         });
       }
     },
-    [isAdmin]
+    [isAdmin, t]
   );
 
   const columns = useMemo<ColumnDef<Order>[]>(
@@ -234,7 +292,7 @@ export default function TodayOrdersReport() {
             className='font-medium inline-flex items-center gap-1'
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
-            Number <span className='opacity-60'>↕</span>
+            {t('admin.orders.number')} <span className='opacity-60'>↕</span>
           </button>
         ),
         cell: (info) => info.getValue() as string,
@@ -242,8 +300,8 @@ export default function TodayOrdersReport() {
       },
       {
         accessorKey: 'status',
-        header: 'Status',
-        cell: ({ row }) => <StatusBadge s={row.original.status} />,
+        header: () => t('admin.status'),
+        cell: ({ row }) => <StatusBadge order={row.original} />,
         enableSorting: false,
         size: 120,
       },
@@ -254,7 +312,7 @@ export default function TodayOrdersReport() {
             className='font-medium inline-flex items-center gap-1'
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
-            Type <span className='opacity-60'>↕</span>
+            {t('admin.type')} <span className='opacity-60'>↕</span>
           </button>
         ),
         cell: ({ row }) => typeLabel(row.original.order_type),
@@ -263,7 +321,7 @@ export default function TodayOrdersReport() {
       },
       {
         id: 'customer',
-        header: 'Customer',
+        header: () => t('admin.orders.customer'),
         cell: ({ row }) => (
           <div className='leading-tight'>
             <div className='font-medium'>{row.original.full_name || '—'}</div>
@@ -282,12 +340,12 @@ export default function TodayOrdersReport() {
             className='font-medium inline-flex items-center gap-1'
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
-            Total <span className='opacity-60'>↕</span>
+            {t('common.total')} <span className='opacity-60'>↕</span>
           </button>
         ),
         cell: (info) => (
-          <span className='font-semibold'>
-            {fmtMoney3(info.getValue() as number)}
+          <span className='font-semibold money'>
+            {money(info.getValue() as number)}
           </span>
         ),
         sortingFn: 'alphanumeric',
@@ -300,20 +358,30 @@ export default function TodayOrdersReport() {
             className='font-medium inline-flex items-center gap-1'
             onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
           >
-            Updated <span className='opacity-60'>↕</span>
+            {t('admin.orders.updated')} <span className='opacity-60'>↕</span>
           </button>
         ),
         accessorFn: (row) => bestUpdatedMs(row),
         cell: ({ row }) => {
           const ms = bestUpdatedMs(row.original);
-          return ms ? new Date(ms).toLocaleString() : '—';
+          // Latin numerals in both languages — Kuwaiti receipts never use
+          // Arabic-Indic digits, so the report must match.
+          return ms ? (
+            <span className='money'>
+              {new Date(ms).toLocaleString(
+                lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB'
+              )}
+            </span>
+          ) : (
+            '—'
+          );
         },
         sortingFn: 'basic',
         size: 200,
       },
       {
         id: 'actions',
-        header: 'Actions',
+        header: () => t('admin.actions'),
         enableSorting: false,
         size: 120,
         cell: ({ row }) =>
@@ -321,15 +389,15 @@ export default function TodayOrdersReport() {
             <button
               className={rowBtnCls}
               onClick={() => handlePrint(row.original.id)}
-              title='Print receipt'
+              title={t('admin.orders.printReceipt')}
             >
               <Printer size={14} />
-              <span>Print</span>
+              <span>{t('admin.orders.print')}</span>
             </button>
           ) : null,
       },
     ],
-    [handlePrint, isAdmin]
+    [handlePrint, isAdmin, t, money, lang, typeLabel]
   ); // keep in sync with admin state
 
   const table = useReactTable({
@@ -356,9 +424,9 @@ export default function TodayOrdersReport() {
       {/* Header + Toolbar */}
       <div className='mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between'>
         <div>
-          <h1 className='text-2xl font-bold'>Today’s Orders</h1>
+          <h1 className='text-2xl font-bold'>{t('admin.orders.title')}</h1>
           <div className='text-sm opacity-70'>
-            All statuses for the current day
+            {t('admin.orders.subtitle')}
           </div>
         </div>
 
@@ -367,7 +435,7 @@ export default function TodayOrdersReport() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder='Search number / name / mobile / status…'
+            placeholder={t('admin.orders.searchPlaceholder')}
             className={fieldCls + ' w-full'}
           />
 
@@ -375,25 +443,25 @@ export default function TodayOrdersReport() {
             className={fieldCls + ' w-full'}
             value={type}
             onChange={(e) => setType(e.target.value as any)}
-            title='Order type'
+            title={t('admin.orders.orderTypeFilter')}
           >
-            <option value='all'>All types</option>
-            <option value='1'>Delivery</option>
-            <option value='2'>Pickup</option>
-            <option value='3'>Dine-in</option>
+            <option value='all'>{t('admin.orders.allTypes')}</option>
+            <option value='1'>{typeLabel(1)}</option>
+            <option value='2'>{typeLabel(2)}</option>
+            <option value='3'>{typeLabel(3)}</option>
           </select>
 
           <button
             className={btnCls + ' w-full'}
             onClick={refresh}
             disabled={loading}
-            title='Refresh'
+            title={t('admin.refresh')}
           >
-            {loading ? 'Refreshing…' : 'Refresh'}
+            {loading ? t('admin.refreshing') : t('admin.refresh')}
           </button>
 
           <div className='flex items-center gap-2 w-full'>
-            <label className='text-sm opacity-70'>Rows</label>
+            <label className='text-sm opacity-70'>{t('admin.rows')}</label>
             <select
               className={fieldCls + ' w-full'}
               value={pageSize}
@@ -411,7 +479,7 @@ export default function TodayOrdersReport() {
 
       {/* Table */}
       <div className='overflow-auto rounded-xl border border-white/10'>
-        <table className='w-full text-left table-fixed'>
+        <table className='w-full text-start table-fixed'>
           <thead className='bg-white/5 sticky top-0 z-10'>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
@@ -419,7 +487,7 @@ export default function TodayOrdersReport() {
                   <th
                     key={h.id}
                     style={{ width: h.getSize() !== 150 ? undefined : 150 }}
-                    className='p-2 border-b border-white/10 text-left select-none'
+                    className='p-2 border-b border-white/10 text-start select-none'
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
                     {({ asc: ' 🔼', desc: ' 🔽' } as any)[
@@ -437,10 +505,9 @@ export default function TodayOrdersReport() {
                   className='p-6 opacity-70 text-center'
                   colSpan={columns.length}
                 >
-                  No orders{' '}
                   {q !== '' || type !== 'all'
-                    ? 'match your filters.'
-                    : 'for today.'}
+                    ? t('admin.orders.noneFiltered')
+                    : t('admin.orders.noneToday')}
                 </td>
               </tr>
             ) : (
@@ -450,7 +517,7 @@ export default function TodayOrdersReport() {
                   className='border-b border-white/10 hover:bg-white/5'
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className='p-2 align-top'>
+                    <td key={cell.id} className='p-2 align-top text-start'>
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext()
@@ -467,9 +534,11 @@ export default function TodayOrdersReport() {
       {/* Pagination */}
       <div className='mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm'>
         <div className='opacity-70'>
-          Page <strong>{table.getState().pagination.pageIndex + 1}</strong> of{' '}
-          <strong>{table.getPageCount()}</strong> •{' '}
-          <span>{filtered.length} orders</span>
+          {t('admin.pageOf', {
+            page: table.getState().pagination.pageIndex + 1,
+            pages: table.getPageCount(),
+          })}{' '}
+          • <span>{t('admin.orders.count', { n: filtered.length })}</span>
         </div>
         <div className='flex items-center gap-2'>
           <button
@@ -477,28 +546,28 @@ export default function TodayOrdersReport() {
             onClick={() => table.setPageIndex(0)}
             disabled={!table.getCanPreviousPage()}
           >
-            « First
+            {t('admin.first')}
           </button>
           <button
             className={btnCls}
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
-            ‹ Prev
+            {t('admin.prev')}
           </button>
           <button
             className={btnCls}
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
-            Next ›
+            {t('admin.next')}
           </button>
           <button
             className={btnCls}
             onClick={() => table.setPageIndex(table.getPageCount() - 1)}
             disabled={!table.getCanNextPage()}
           >
-            Last »
+            {t('admin.last')}
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 // components/TableQuickBar.tsx
 import React from 'react';
 import { TableInfo } from '../types';
+import { useI18n } from '../../../i18n';
 
 export function TableQuickBar({
   theme,
@@ -15,6 +16,9 @@ export function TableQuickBar({
   onSelectOrder: (orderId: string) => Promise<void>;
   onStartDineIn: (table: TableInfo) => Promise<void>;
 }) {
+  // Hook must run before the early return.
+  const { t: translate } = useI18n();
+
   if (!tables.length) return null;
 
   const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
@@ -42,7 +46,7 @@ export function TableQuickBar({
     <div className={`px-4 py-2 border-b ${border} ${bg}`}>
       <div className="flex items-center gap-2 overflow-x-auto">
         <span className={`text-xs uppercase tracking-wide ${label} whitespace-nowrap`}>
-          Tables
+          {translate('nav.tables')}
         </span>
         {tables.map(t => {
           const isActive = !!t.current_order_id && t.current_order_id === currentOrderId;
@@ -62,7 +66,7 @@ export function TableQuickBar({
             >
               {t.name}
               {t.seats ? (
-                <span className="ml-1 opacity-70 text-[10px]">({t.seats})</span>
+                <span className="ms-1 opacity-70 text-[10px] money">({t.seats})</span>
               ) : null}
             </button>
           );

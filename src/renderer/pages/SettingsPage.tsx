@@ -9,6 +9,8 @@ import {
   SortingState,
 } from '@tanstack/react-table';
 import { Button, Input } from '@heroui/react';
+import { useI18n } from '../i18n';
+import { LanguageToggle } from '../components/LanguageToggle';
 
 type Row = { key: string; value: string; source: 'meta' | 'server' };
 
@@ -68,6 +70,7 @@ async function fetchServerSettings(): Promise<Row[]> {
 }
 
 export function SettingsPage() {
+  const { t } = useI18n();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -114,9 +117,9 @@ export function SettingsPage() {
         <button
           className="inline-flex items-center gap-1 font-medium"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          title="Sort"
+          title={t('settings.sort')}
         >
-          Source <span className="opacity-60">↕</span>
+          {t('settings.colSource')} <span className="opacity-60">↕</span>
         </button>
       ),
       cell: (info) => {
@@ -126,7 +129,11 @@ export function SettingsPage() {
           (s === 'meta'
             ? 'border-sky-400/40 text-sky-300'
             : 'border-amber-400/40 text-amber-300');
-        return <span className={cls}>{s === 'meta' ? 'Meta (Local)' : 'Server'}</span>;
+        return (
+          <span className={cls}>
+            {s === 'meta' ? t('settings.sourceMeta') : t('settings.sourceServer')}
+          </span>
+        );
       },
     },
     {
@@ -135,12 +142,17 @@ export function SettingsPage() {
         <button
           className="inline-flex items-center gap-1 font-medium"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          title="Sort"
+          title={t('settings.sort')}
         >
-          Key <span className="opacity-60">↕</span>
+          {t('settings.colKey')} <span className="opacity-60">↕</span>
         </button>
       ),
-      cell: (info) => <span className="font-medium break-all">{info.getValue() as string}</span>,
+      // Setting keys are identifiers — always Latin, always LTR.
+      cell: (info) => (
+        <span className="font-medium break-all" dir="ltr">
+          {info.getValue() as string}
+        </span>
+      ),
     },
     {
       accessorKey: 'value',
@@ -148,9 +160,9 @@ export function SettingsPage() {
         <button
           className="inline-flex items-center gap-1 font-medium"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          title="Sort"
+          title={t('settings.sort')}
         >
-          Value <span className="opacity-60">↕</span>
+          {t('settings.colValue')} <span className="opacity-60">↕</span>
         </button>
       ),
       cell: ({ row }) => {
@@ -159,7 +171,10 @@ export function SettingsPage() {
         const secret = isSecretKey(k);
         return (
           <div className="flex items-center gap-2">
-            <span className="truncate max-w-[520px]">{secret ? masked(v) : v}</span>
+            {/* Stored values are URLs, ids and tokens — keep them LTR. */}
+            <span className="truncate max-w-[520px]" dir="ltr">
+              {secret ? masked(v) : v}
+            </span>
             <Button
               size="sm"
               variant="flat"
@@ -167,13 +182,13 @@ export function SettingsPage() {
               onClick={() => navigator.clipboard.writeText(secret ? '' : v)}
               isDisabled={secret}
             >
-              Copy
+              {t('settings.copy')}
             </Button>
           </div>
         );
       },
     },
-  ], []);
+  ], [t]);
 
   const table = useReactTable({
     data: filtered,
@@ -194,16 +209,14 @@ export function SettingsPage() {
       {/* Header / Toolbar */}
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h3 className="text-xl font-semibold">Settings (Read-only)</h3>
-          <div className="text-sm opacity-70">
-            Meta (local) + Server settings. Sensitive values are masked. Pairing codes are hidden.
-          </div>
+          <h3 className="text-xl font-semibold">{t('settings.title')}</h3>
+          <div className="text-sm opacity-70">{t('settings.subtitle')}</div>
         </div>
 
         <div className="w-full md:w-auto grid grid-cols-1 sm:grid-cols-[minmax(260px,420px)_160px_120px] gap-2">
           <Input
-            aria-label="Search"
-            placeholder="Search key/value/source…"
+            aria-label={t('common.search')}
+            placeholder={t('settings.searchPlaceholder')}
             value={q}
             onChange={(e) => setQ((e.target as HTMLInputElement).value)}
             size="sm"
@@ -212,24 +225,35 @@ export function SettingsPage() {
             className={fieldCls}
             value={sourceFilter}
             onChange={(e) => setSourceFilter(e.target.value as any)}
-            title="Filter by source"
+            title={t('settings.filterBySource')}
           >
-            <option value="all">All sources</option>
-            <option value="meta">Meta (Local)</option>
-            <option value="server">Server</option>
+            <option value="all">{t('settings.allSources')}</option>
+            <option value="meta">{t('settings.sourceMeta')}</option>
+            <option value="server">{t('settings.sourceServer')}</option>
           </select>
-          <Button variant="flat" onClick={refresh} isLoading={loading}>Refresh</Button>
+          <Button variant="flat" onClick={refresh} isLoading={loading}>
+            {t('settings.refresh')}
+          </Button>
         </div>
       </div>
 
+      {/* Language */}
+      <section className="mb-4 rounded-xl border border-white/10 p-4">
+        <h4 className="text-sm font-semibold">{t('nav.language')}</h4>
+        <div className="mt-1 mb-3 text-xs opacity-70">
+          {t('settings.languageHint')}
+        </div>
+        <LanguageToggle />
+      </section>
+
       {/* Table */}
       <div className="overflow-auto rounded-xl border border-white/10">
-        <table className="w-full text-left text-sm table-fixed">
+        <table className="w-full text-start text-sm table-fixed">
           <thead className="bg-white/5 sticky top-0 z-10">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
-                  <th key={h.id} className="p-2 border-b border-white/10 text-left select-none">
+                  <th key={h.id} className="p-2 border-b border-white/10 text-start select-none">
                     {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
                   </th>
                 ))}
@@ -240,7 +264,9 @@ export function SettingsPage() {
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td className="p-6 opacity-70 text-center" colSpan={columns.length}>
-                  No rows {q || sourceFilter !== 'all' ? 'match your filters.' : 'found.'}
+                  {q || sourceFilter !== 'all'
+                    ? t('settings.noRowsFiltered')
+                    : t('settings.noRowsFound')}
                 </td>
               </tr>
             ) : (
@@ -261,26 +287,34 @@ export function SettingsPage() {
       {/* Pagination */}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
         <div className="opacity-70">
-          Page <strong>{table.getState().pagination.pageIndex + 1}</strong> of{' '}
-          <strong>{table.getPageCount()}</strong> • <span>{filtered.length} rows</span>
+          {t('settings.page')}{' '}
+          <strong>{table.getState().pagination.pageIndex + 1}</strong>{' '}
+          {t('settings.pageOf')} <strong>{table.getPageCount()}</strong> •{' '}
+          <span>{t('settings.rowCount', { n: filtered.length })}</span>
         </div>
         <div className="flex items-center gap-2">
-          <label className="opacity-70">Rows</label>
+          <label className="opacity-70">{t('settings.rowsPerPage')}</label>
           <select className={fieldCls} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
             {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <button className={btnFlat} onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>« First</button>
-          <button className={btnFlat} onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>‹ Prev</button>
-          <button className={btnFlat} onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next ›</button>
-          <button className={btnFlat} onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>Last »</button>
+          {/* Arrows point along the reading direction, so they mirror in RTL. */}
+          <button className={btnFlat} onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
+            <span className="inline-block flip-rtl">«</span> {t('settings.first')}
+          </button>
+          <button className={btnFlat} onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+            <span className="inline-block flip-rtl">‹</span> {t('settings.prev')}
+          </button>
+          <button className={btnFlat} onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+            {t('settings.next')} <span className="inline-block flip-rtl">›</span>
+          </button>
+          <button className={btnFlat} onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>
+            {t('settings.last')} <span className="inline-block flip-rtl">»</span>
+          </button>
         </div>
       </div>
 
       {/* Read-only notice */}
-      <div className="mt-6 text-xs opacity-70">
-        This page is read-only for security. To change a value, update it in the appropriate layer
-        (server admin or local device provisioning) and then refresh.
-      </div>
+      <div className="mt-6 text-xs opacity-70">{t('settings.readOnlyNotice')}</div>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
 } from '@tanstack/react-table';
 import { Input, Button } from '@heroui/react';
 import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface Item {
   id: string;
@@ -23,6 +24,7 @@ interface Item {
 
 export function ItemsPage() {
   const { items, q, actions } = useStore();
+  const { t, money, isRTL } = useI18n();
 
   useEffect(() => {
     actions.refreshItems();
@@ -39,7 +41,7 @@ export function ItemsPage() {
           className="inline-flex items-center gap-1 font-medium"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
         >
-          Name <ArrowUpDown className="inline h-4 w-4 opacity-60" />
+          {t('admin.nameEn')} <ArrowUpDown className="inline h-4 w-4 opacity-60" />
         </button>
       ),
       cell: (info) => info.getValue() as string,
@@ -51,14 +53,14 @@ export function ItemsPage() {
           className="inline-flex items-center gap-1 font-medium"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
         >
-          Arabic Name <ArrowUpDown className="inline h-4 w-4 opacity-60" />
+          {t('admin.nameAr')} <ArrowUpDown className="inline h-4 w-4 opacity-60" />
         </button>
       ),
       cell: (info) => info.getValue() as string,
     },
     {
       accessorKey: 'barcode',
-      header: 'Barcode',
+      header: () => t('admin.items.colBarcode'),
       cell: (info) => info.getValue() as string,
       enableSorting: false,
     },
@@ -69,12 +71,12 @@ export function ItemsPage() {
           className="inline-flex items-center gap-1 font-medium"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
         >
-          Price <ArrowUpDown className="inline h-4 w-4 opacity-60" />
+          {t('admin.items.colPrice')} <ArrowUpDown className="inline h-4 w-4 opacity-60" />
         </button>
       ),
       cell: (info) => {
         const v = info.getValue() as number;
-        return v?.toFixed(3);
+        return <span className="money">{money(v)}</span>;
       },
       sortingFn: 'alphanumeric',
     },
@@ -85,10 +87,13 @@ export function ItemsPage() {
           className="inline-flex items-center gap-1 font-medium"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
         >
-          Stock <ArrowUpDown className="inline h-4 w-4 opacity-60" />
+          {t('admin.items.colStock')} <ArrowUpDown className="inline h-4 w-4 opacity-60" />
         </button>
       ),
-      cell: (info) => ((info.getValue() as boolean) ? 'Out of Stock' : 'In Stock'),
+      cell: (info) =>
+        (info.getValue() as boolean)
+          ? t('admin.items.outOfStock')
+          : t('admin.items.inStock'),
       sortingFn: (rowA, rowB, id) => {
         // In-stock first (false < true)
         const a = rowA.getValue<boolean>(id) ? 1 : 0;
@@ -96,7 +101,7 @@ export function ItemsPage() {
         return a - b;
       },
     },
-  ], []);
+  ], [t, money]);
 
   const table = useReactTable({
     data: items,
@@ -120,28 +125,28 @@ export function ItemsPage() {
     <div style={{ margin: '24px' }}>
       {/* Toolbar */}
       <div className="flex items-end justify-between mb-5">
-        <h3 className="text-xl font-semibold">Items</h3>
+        <h3 className="text-xl font-semibold">{t('admin.items.title')}</h3>
         <div className="flex items-center gap-3">
           <Input
-            aria-label="Search"
-            placeholder="Search items..."
+            aria-label={t('common.search')}
+            placeholder={t('admin.items.searchPlaceholder')}
             value={q}
             onChange={(e) => actions.setQ(e.target.value)}
             onKeyDown={(e) => (e.key === 'Enter') && actions.refreshItems()}
             style={{ minWidth: 300 }}
           />
-          <Button onClick={() => actions.refreshItems()}>Search</Button>
+          <Button onClick={() => actions.refreshItems()}>{t('common.search')}</Button>
         </div>
       </div>
 
       {/* Table */}
       <div className="rounded-xl border border-white/10 overflow-hidden">
-        <table className="w-full text-left">
+        <table className="w-full text-start">
           <thead className="bg-white/5">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
-                  <th key={h.id} className="p-3 border-b border-white/10">
+                  <th key={h.id} className="p-3 border-b border-white/10 text-start">
                     {h.isPlaceholder
                       ? null
                       : flexRender(h.column.columnDef.header, h.getContext())}
@@ -154,14 +159,14 @@ export function ItemsPage() {
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td colSpan={columns.length} className="p-6 text-center text-sm opacity-70">
-                  No data
+                  {t('admin.noData')}
                 </td>
               </tr>
             ) : (
               table.getRowModel().rows.map((row) => (
                 <tr key={row.id} className="hover:bg-white/5">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-3 border-b border-white/10">
+                    <td key={cell.id} className="p-3 border-b border-white/10 text-start">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -175,13 +180,15 @@ export function ItemsPage() {
       {/* Pagination */}
       <div className="mt-4 flex items-center justify-between gap-3">
         <div className="text-sm opacity-70">
-          Page <strong>{table.getState().pagination.pageIndex + 1}</strong> of{' '}
-          <strong>{table.getPageCount()}</strong> •{' '}
-          <span>{items.length} items</span>
+          {t('admin.pageOf', {
+            page: table.getState().pagination.pageIndex + 1,
+            pages: table.getPageCount(),
+          })}{' '}
+          • <span>{t('admin.items.count', { n: items.length })}</span>
         </div>
 
         <div className="flex items-center gap-2">
-          <label className="text-sm opacity-70">Rows per page</label>
+          <label className="text-sm opacity-70">{t('admin.rowsPerPage')}</label>
           <select
             className="ui-field"
             value={pageSize}
@@ -196,33 +203,33 @@ export function ItemsPage() {
             isIconOnly
             onPress={() => table.setPageIndex(0)}
             isDisabled={!table.getCanPreviousPage()}
-            aria-label="First page"
+            aria-label={t('admin.firstPage')}
           >
-            <ChevronsLeft size={16} />
+            {isRTL ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
           </Button>
           <Button
             isIconOnly
             onPress={() => table.previousPage()}
             isDisabled={!table.getCanPreviousPage()}
-            aria-label="Previous page"
+            aria-label={t('admin.prevPage')}
           >
-            <ChevronLeft size={16} />
+            {isRTL ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </Button>
           <Button
             isIconOnly
             onPress={() => table.nextPage()}
             isDisabled={!table.getCanNextPage()}
-            aria-label="Next page"
+            aria-label={t('admin.nextPage')}
           >
-            <ChevronRight size={16} />
+            {isRTL ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
           </Button>
           <Button
             isIconOnly
             onPress={() => table.setPageIndex(table.getPageCount() - 1)}
             isDisabled={!table.getCanNextPage()}
-            aria-label="Last page"
+            aria-label={t('admin.lastPage')}
           >
-            <ChevronsRight size={16} />
+            {isRTL ? <ChevronsLeft size={16} /> : <ChevronsRight size={16} />}
           </Button>
         </div>
       </div>

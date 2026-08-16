@@ -7,10 +7,14 @@ import { useRootTheme } from './useRootTheme';
 
 import { AddonPickerModal } from './components/AddonPickerModal';
 import { useToast } from '../../components/ToastProvider'; // adjust path if needed
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { useI18n, useOrderTypeLabel } from '../../i18n';
+import { shortOrderLabel } from '../../utils/orderLabel';
+import { PaymentBadge } from '../../components/PaymentBadge';
 
 import {
   OrderType,
-  SelectedAddon,
+  ItemSelection,
   Order,
   OrderLine,
   Item,
@@ -45,8 +49,25 @@ type PosUser = {
   is_admin?: boolean | number;
 };
 
+/**
+ * Electron wraps handler errors as
+ * "Error invoking remote method 'x': Error: real message" — show only the
+ * part the cashier can act on.
+ */
+function ipcErrorMessage(e: unknown, fallback: string): string {
+  const raw = e instanceof Error ? e.message : String(e ?? '');
+  if (!raw) return fallback;
+  const stripped = raw
+    .replace(/^Error invoking remote method '[^']*':\s*/i, '')
+    .replace(/^(Error|TypeError):\s*/i, '')
+    .trim();
+  return stripped || fallback;
+}
+
 export default function OrderProcessPage() {
   const theme = useRootTheme();
+  const { t } = useI18n();
+  const labelForType = useOrderTypeLabel();
 
   const [defaultOrderType, setDefaultOrderType] = useState<OrderType>(() => {
     const s = Number(localStorage.getItem('pos.defaultOrderType') || 2);
@@ -61,6 +82,7 @@ export default function OrderProcessPage() {
   const [addonItem, setAddonItem] = useState<Item | null>(null);
 
   const [items, setItems] = useState<Item[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Category[]>([]);
   const [activeOrders, setActiveOrders] = useState<Order[]>([]);
@@ -154,7 +176,14 @@ export default function OrderProcessPage() {
         categoryId: selectedCategoryId,
         subcategoryId: selectedSubcategoryId,
       };
-      setItems((await window.api.invoke('catalog:listItems', filter)) || []);
+      // Fetch the true match count alongside the (capped) page so the grid can
+      // tell the operator when products are being hidden.
+      const [rows, count] = await Promise.all([
+        window.api.invoke('catalog:listItems', filter),
+        window.api.invoke('catalog:countItems', filter),
+      ]);
+      setItems(rows || []);
+      setTotalItems(Number(count?.total ?? (rows?.length || 0)));
     } catch (e) {
       console.error(e);
     }
@@ -228,8 +257,7 @@ export default function OrderProcessPage() {
     } catch (e: any) {
       console.error('[createNewOrder] error', e);
 
-      const msg =
-        (e && (e.message || e.toString?.())) || 'Could not create a new order.';
+      const msg = ipcErrorMessage(e, 'Could not create a new order.');
 
       const normalized = String(msg).toLowerCase();
 
@@ -296,9 +324,7 @@ export default function OrderProcessPage() {
     } catch (e: any) {
       console.error('[addItemToOrder] error', e);
 
-      const msg =
-        (e && (e.message || e.toString?.())) ||
-        'Could not add this item to the order.';
+      const msg = ipcErrorMessage(e, 'Could not add this item to the order.');
 
       const normalized = String(msg).toLowerCase();
 
@@ -327,6 +353,55 @@ export default function OrderProcessPage() {
       }
     }
   };
+
+  // 🔫 Barcode scanner. Items that need options cannot be added blind — the
+  // main process rejects a variation item on orders:addLine — so route those
+  // to the picker instead of firing an error at the cashier.
+  const handleScan = async (code: string) => {
+    try {
+      const item: Item | null = await window.api.invoke(
+        'catalog:findByBarcode',
+        code
+      );
+
+      if (!item) {
+        toast({
+          tone: 'warning',
+          title: t('scan.unknown'),
+          message: t('scan.noMatch', { code }),
+        });
+        return;
+      }
+
+      if (item.is_outofstock === 1) {
+        toast({
+          tone: 'warning',
+          title: t('pos.outOfStock'),
+          message: t('toast.outOfStock', { name: item.name }),
+        });
+        return;
+      }
+
+      if (item.has_variations || item.has_addons) {
+        setAddonItem(item);
+        return;
+      }
+
+      await addItemToOrder(item, 1);
+    } catch (e) {
+      console.error('[handleScan] failed', e);
+      toast({
+        tone: 'danger',
+        title: t('scan.failed'),
+        message: ipcErrorMessage(e, 'Could not look up that barcode.'),
+      });
+    }
+  };
+
+  // Pause scanning while the options modal is open: a scan there would add a
+  // second item behind the dialog, and digits typed into a qty field are not
+  // barcodes.
+  useBarcodeScanner({ onScan: handleScan, enabled: !addonItem });
 
   const applyPromoCode = async (code: string) => {
     if (!currentOrder) return;
@@ -463,19 +538,6 @@ export default function OrderProcessPage() {
   const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
 
-  const labelForType = (type: OrderType): string => {
-    switch (type) {
-      case 1:
-        return 'Delivery';
-      case 2:
-        return 'Pickup';
-      case 3:
-        return 'Dine-in';
-      default:
-        return 'Order';
-    }
-  };
-
   return (
     <div className={`h-screen flex flex-col ${bg} text-[13px]`}>
       {/* Header */}
@@ -486,11 +548,11 @@ export default function OrderProcessPage() {
           <div className='flex h-full items-center gap-4'>
             <div className='shrink-0 hidden md:flex flex-col leading-tight'>
               <span className={`text-[11px] font-medium ${text} opacity-70`}>
-                Signed in as
+                {t('pos.signedInAs')}
               </span>
               <div className='flex items-center gap-2'>
                 <span className={`text-sm font-semibold ${text}`}>
-                  {user?.name || 'Operator'}
+                  {user?.name || t('pos.operator')}
                 </span>
                 {user?.role && (
                   <span className='text-[10px] px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-200'>
@@ -523,15 +585,20 @@ export default function OrderProcessPage() {
                     <span className='opacity-90'>
                       {labelForType(order.order_type)}
                     </span>
-                    <span className='opacity-70 text-[10px]'>
-                      #{order.number?.split('-')?.pop()}
+                    <span className='opacity-70 text-[10px] flex items-center gap-1'>
+                      {shortOrderLabel(order as any)}
+                      <PaymentBadge
+                        status={(order as any).payment_link_status}
+                        theme={theme}
+                      />
                     </span>
                   </div>
                 </button>
               ))}
             </div>
 
-            <div className='shrink-0 flex items-center gap-2 pl-2 border-l border-gray-200 dark:border-white/10'>
+            <div className='shrink-0 flex items-center gap-2 ps-2 border-s border-gray-200 dark:border-white/10'>
+
               <button
                 onClick={() => createNewOrder(2)}
                 className={`h-9 px-4 rounded-md text-xs font-bold transition flex items-center gap-2 shadow-sm ${
@@ -541,7 +608,7 @@ export default function OrderProcessPage() {
                 }`}
               >
                 <Plus size={16} strokeWidth={3} />
-                <span>NEW</span>
+                <span>{t('pos.new')}</span>
               </button>
 
               {currentOrder && (
@@ -574,6 +641,7 @@ export default function OrderProcessPage() {
         <CatalogPanel
           theme={theme}
           items={items}
+          totalItems={totalItems}
           categories={categories}
           subcategories={subcategories}
           searchQuery={searchQuery}
@@ -609,16 +677,20 @@ export default function OrderProcessPage() {
         />
       </div>
 
-      {addonItem && currentOrder && (
+      {addonItem && (
         <AddonPickerModal
           theme={theme}
           item={addonItem}
           onClose={() => setAddonItem(null)}
-          onConfirm={async (selection: SelectedAddon[]) => {
+          onConfirm={async (selection: ItemSelection) => {
             try {
+              // Same as a plain tap: opening an order is implicit.
+              const order = currentOrder ?? (await startOrder(defaultOrderType));
+
               // Map to a compact payload for main process
               const payload = {
-                addons: selection.map((s) => ({
+                variation_id: selection.variation_id,
+                addons: selection.addons.map((s) => ({
                   addon_id: s.id,
                   group_id: s.group_id,
                   qty: s.qty,
@@ -627,9 +699,9 @@ export default function OrderProcessPage() {
 
               const res = await window.api.invoke(
                 'orders:addLineWithAddons',
-                currentOrder.id,
+                order.id,
                 addonItem.id,
-                1, // base qty
+                Math.max(1, Number(selection.qty) || 1),
                 payload
               );
 
@@ -642,14 +714,16 @@ export default function OrderProcessPage() {
               }
             } catch (e) {
               console.error(
-                '[OrderProcessPage] add line with addons failed',
+                '[OrderProcessPage] add line with options failed',
                 e
               );
               toast({
                 tone: 'danger',
-                title: 'Could not add item with add-ons.',
-                message:
-                  'Please check the logs for details or contact support.',
+                title: t('toast.addFailed'),
+                message: ipcErrorMessage(
+                  e,
+                  'Please check the logs for details or contact support.'
+                ),
               });
             } finally {
               setAddonItem(null);

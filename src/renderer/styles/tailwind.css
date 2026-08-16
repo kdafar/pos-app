@@ -118,3 +118,38 @@
     background: transparent;
   }
 }
+
+/* ---------------------------------------------------------------
+   Arabic (ar-KW) support
+   `dir` is set on <html> by the i18n provider. Tailwind v4 already
+   mirrors logical properties and flex direction from `dir`, so these
+   rules only cover what it cannot infer.
+   --------------------------------------------------------------- */
+
+/* Kuwaiti receipts and screens use Latin numerals, so digits keep the
+   Latin face while Arabic text picks up a proper Arabic stack. */
+:root[dir='rtl'] body,
+:root[lang='ar'] body {
+  font-family: 'Segoe UI', 'Noto Naskh Arabic', 'Traditional Arabic',
+    'Geeza Pro', Tahoma, system-ui, sans-serif;
+}
+
+/* Never mirror numbers, money or barcodes. */
+[dir='rtl'] .tabular-nums,
+[dir='rtl'] .num,
+[dir='rtl'] input[inputmode='numeric'] {
+  direction: ltr;
+  text-align: center;
+}
+
+/* Prices sit at the far edge in both directions; force LTR glyph order
+   so "12.500" never renders as "500.12". */
+[dir='rtl'] .money {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Icon-only affordances that imply direction should flip with the text. */
+[dir='rtl'] .flip-rtl {
+  transform: scaleX(-1);
+}

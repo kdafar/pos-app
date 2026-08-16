@@ -15,6 +15,7 @@ import {
   Button,
 } from '@heroui/react';
 import { AlertTriangle, Info } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 type ConfirmTone = 'default' | 'danger' | 'success';
 
@@ -42,6 +43,7 @@ export function useConfirmDialog(): ConfirmFn {
 }
 
 export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<ConfirmOptions>({});
   const [resolver, setResolver] = useState<(value: boolean) => void>(
@@ -90,11 +92,11 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                   <Icon className='w-4 h-4' />
                 </span>
                 <span className='text-sm font-semibold'>
-                  {options.title ?? 'Are you sure?'}
+                  {options.title ?? t('confirm.title')}
                 </span>
               </ModalHeader>
               <ModalBody className='text-sm text-slate-700'>
-                {options.message ?? 'Please confirm this action.'}
+                {options.message ?? t('confirm.message')}
               </ModalBody>
               <ModalFooter className='flex justify-end gap-2'>
                 {!options.hideCancel && (
@@ -103,7 +105,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                     size='sm'
                     onPress={() => handleClose(false)}
                   >
-                    {options.cancelLabel ?? 'Cancel'}
+                    {options.cancelLabel ?? t('common.cancel')}
                   </Button>
                 )}
                 <Button
@@ -111,7 +113,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                   size='sm'
                   onPress={() => handleClose(true)}
                 >
-                  {options.confirmLabel ?? 'Confirm'}
+                  {options.confirmLabel ?? t('confirm.ok')}
                 </Button>
               </ModalFooter>
             </>

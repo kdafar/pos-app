@@ -5,6 +5,7 @@ import { HeroUIProvider } from '@heroui/react';
 import App from './App.tsx';
 import './styles/tailwind.css';
 import { ThemeProvider } from '../context/ThemeContext';
+import { I18nProvider } from './i18n';
 import { ConfirmDialogProvider } from './../renderer/components/ConfirmDialogProvider';
 import { ToastProvider } from './../renderer/components/ToastProvider';
 declare global {
@@ -54,6 +55,7 @@ try {
     createRoot(document.getElementById('root')!).render(
       <React.StrictMode>
         <ThemeProvider>
+          <I18nProvider>
           <Router>
             <HeroUIProvider>
               <ToastProvider>
@@ -63,6 +65,7 @@ try {
               </ToastProvider>
             </HeroUIProvider>
           </Router>
+          </I18nProvider>
         </ThemeProvider>
       </React.StrictMode>
     );

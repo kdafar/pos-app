@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 // 👇 adjust this path to match where fileUrl actually lives
 import { fileUrl } from '../utils/fileUrl';
+import { useI18n } from '../i18n';
 
 interface Item {
   id: string;
@@ -29,6 +30,10 @@ interface AddonGroup {
 }
 
 export function AddonsPage() {
+  const { t, name: localName, money, lang } = useI18n();
+  /** The catalogue deliberately shows both names; this is the *other* one. */
+  const altName = (row: { name?: string; name_ar?: string }) =>
+    lang === 'ar' ? row.name ?? '' : row.name_ar ?? '';
   const [items, setItems] = useState<Item[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
@@ -175,7 +180,7 @@ export function AddonsPage() {
     if (!activeSrc) {
       return (
         <div className='w-14 h-14 flex items-center justify-center text-[10px] opacity-60'>
-          No image
+          {t('admin.addons.noImage')}
         </div>
       );
     }
@@ -207,22 +212,26 @@ export function AddonsPage() {
       {/* LEFT: Items (only those with addons) */}
       <div className='flex flex-col gap-3'>
         <div className='flex items-center justify-between mb-1'>
-          <h3 className='text-lg font-semibold'>Items with Addons</h3>
+          <h3 className='text-lg font-semibold'>
+            {t('admin.addons.itemsTitle')}
+          </h3>
         </div>
 
         <input
           className='px-3 py-2 rounded-lg border border-white/10 bg-transparent text-sm mb-2'
-          placeholder='Search items (EN/AR)…'
+          placeholder={t('admin.addons.searchItems')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
 
         <div className='flex-1 min-h-0 overflow-auto rounded-xl border border-white/10'>
           {itemsLoading ? (
-            <div className='p-3 text-sm opacity-70'>Loading items…</div>
+            <div className='p-3 text-sm opacity-70'>
+              {t('admin.addons.loadingItems')}
+            </div>
           ) : filteredItems.length === 0 ? (
             <div className='p-3 text-sm opacity-70'>
-              No items with addons found.
+              {t('admin.addons.noItems')}
             </div>
           ) : (
             <div className='divide-y divide-white/5'>
@@ -233,30 +242,31 @@ export function AddonsPage() {
                     key={it.id}
                     onClick={() => handleSelectItem(it)}
                     className={
-                      'w-full text-left flex gap-3 p-2.5 items-center transition ' +
+                      'w-full text-start flex gap-3 p-2.5 items-center transition ' +
                       (isActive
-                        ? 'bg-blue-500/20 border-l-2 border-blue-400'
+                        ? 'bg-blue-500/20 border-s-2 border-blue-400'
                         : 'hover:bg-white/5')
                     }
                   >
-                    <div className='rounded-lg overflow-hidden bg-black/30 flex-shrink-0'>
+                    <div className='rounded-lg overflow-hidden bg-black/30 shrink-0'>
                       {renderItemImage(it)}
                     </div>
                     <div className='flex-1 min-w-0'>
                       <div className='flex items-center justify-between gap-2'>
                         <div className='font-medium text-sm truncate'>
-                          {it.name}
+                          {localName(it)}
                         </div>
                         <div className='text-xs opacity-80 whitespace-nowrap'>
-                          {it.price.toFixed(3)} KD
+                          <span className='money'>{money(it.price)}</span>{' '}
+                          {t('common.currency')}
                         </div>
                       </div>
                       <div className='text-[11px] opacity-70 truncate'>
-                        {it.name_ar}
+                        {altName(it)}
                       </div>
                       <div className='mt-1 flex items-center gap-1 text-[11px]'>
                         <span className='inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/40'>
-                          Has addons
+                          {t('admin.addons.hasAddons')}
                         </span>
                       </div>
                     </div>
@@ -274,34 +284,35 @@ export function AddonsPage() {
         <div className='rounded-xl border border-white/10 p-4'>
           {selectedItem ? (
             <div className='flex gap-4 items-center'>
-              <div className='rounded-lg overflow-hidden bg-black/30 flex-shrink-0 w-20 h-20 flex items-center justify-center'>
+              <div className='rounded-lg overflow-hidden bg-black/30 shrink-0 w-20 h-20 flex items-center justify-center'>
                 {renderItemImage(selectedItem)}
               </div>
               <div className='flex-1 min-w-0'>
                 <div className='flex items-center justify-between gap-2'>
                   <h3 className='text-lg font-semibold truncate'>
-                    {selectedItem.name}
+                    {localName(selectedItem)}
                   </h3>
                   <div className='text-sm opacity-80 whitespace-nowrap'>
-                    {selectedItem.price.toFixed(3)} KD
+                    <span className='money'>{money(selectedItem.price)}</span>{' '}
+                    {t('common.currency')}
                   </div>
                 </div>
                 <div className='text-sm opacity-70 truncate'>
-                  {selectedItem.name_ar}
+                  {altName(selectedItem)}
                 </div>
                 <div className='mt-2 flex items-center gap-2 text-xs opacity-80'>
                   <span className='inline-flex items-center px-2 py-0.5 rounded-full bg-white/5'>
-                    ID: {selectedItem.id}
+                    ID: <span className='money'>{selectedItem.id}</span>
                   </span>
                   <span className='inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/40'>
-                    Has addon groups
+                    {t('admin.addons.hasGroups')}
                   </span>
                 </div>
               </div>
             </div>
           ) : (
             <div className='text-sm opacity-70'>
-              Select an item on the left to see its addon groups and addons.
+              {t('admin.addons.selectItemHint')}
             </div>
           )}
         </div>
@@ -309,17 +320,21 @@ export function AddonsPage() {
         {/* Addon groups + addons */}
         <div className='rounded-xl border border-white/10 p-4 min-h-[260px]'>
           <div className='flex items-center justify-between mb-3'>
-            <h4 className='font-semibold text-base'>Addon Groups</h4>
+            <h4 className='font-semibold text-base'>
+              {t('admin.addons.groupsTitle')}
+            </h4>
             {groupsLoading && (
-              <span className='text-xs opacity-70'>Loading…</span>
+              <span className='text-xs opacity-70'>{t('common.loading')}</span>
             )}
           </div>
 
           {!selectedItem ? (
-            <div className='text-sm opacity-70'>No item selected.</div>
+            <div className='text-sm opacity-70'>
+              {t('admin.addons.noItemSelected')}
+            </div>
           ) : addonGroups.length === 0 ? (
             <div className='text-sm opacity-70'>
-              This item has no addon groups.
+              {t('admin.addons.noGroups')}
             </div>
           ) : (
             <div className='flex flex-col gap-3'>
@@ -332,23 +347,33 @@ export function AddonsPage() {
                   >
                     <div className='flex items-center justify-between gap-2 mb-1.5'>
                       <div>
-                        <div className='font-medium text-sm'>{g.name}</div>
+                        <div className='font-medium text-sm'>{localName(g)}</div>
                         <div className='text-[11px] opacity-70'>
-                          {g.name_ar}
+                          {altName(g)}
                         </div>
                       </div>
                       <div className='flex flex-col items-end text-[11px] opacity-80 gap-0.5'>
-                        <span>{g.is_required ? 'Required' : 'Optional'}</span>
+                        <span>
+                          {g.is_required
+                            ? t('common.required')
+                            : t('common.optional')}
+                        </span>
                         {g.max_select && Number(g.max_select) > 0 && (
-                          <span>Max {g.max_select} selected</span>
+                          <span>
+                            {t('admin.addons.maxSelected', {
+                              n: String(g.max_select),
+                            })}
+                          </span>
                         )}
-                        <span>{list.length} addons</span>
+                        <span>
+                          {t('admin.addons.count', { n: list.length })}
+                        </span>
                       </div>
                     </div>
 
                     {list.length === 0 ? (
                       <div className='text-xs opacity-60'>
-                        No addons assigned to this group.
+                        {t('admin.addons.noneInGroup')}
                       </div>
                     ) : (
                       <div className='mt-2 border-t border-white/5 pt-2 space-y-1.5'>
@@ -358,11 +383,12 @@ export function AddonsPage() {
                             className='flex items-center justify-between text-xs'
                           >
                             <div>
-                              <div className='font-medium'>{a.name}</div>
-                              <div className='opacity-70'>{a.name_ar}</div>
+                              <div className='font-medium'>{localName(a)}</div>
+                              <div className='opacity-70'>{altName(a)}</div>
                             </div>
                             <div className='opacity-80 whitespace-nowrap'>
-                              {a.price.toFixed(3)} KD
+                              <span className='money'>{money(a.price)}</span>{' '}
+                              {t('common.currency')}
                             </div>
                           </div>
                         ))}

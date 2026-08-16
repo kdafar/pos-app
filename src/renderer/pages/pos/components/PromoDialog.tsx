@@ -2,10 +2,12 @@
 import React, { useState } from 'react';
 import { X, Percent } from 'lucide-react';
 import { Promo } from '../types';
+import { useI18n } from '../../../i18n';
 
 export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo[]; theme: 'light'|'dark'; onClose: () => void; onApply: (code: string) => Promise<void>; }) {
   const [code, setCode] = useState('');
   const [err, setErr] = useState<string>('');
+  const { t, money } = useI18n();
 
   const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
   const border = theme === 'dark' ? 'border-white/10' : 'border-gray-200';
@@ -45,14 +47,14 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
     setErr('');
     if (!normalized) return;
     if (!isValidLocal(normalized)) {
-      setErr('Invalid or inactive promo code.');
+      setErr(t('promo.invalid'));
       return;
     }
     try {
       await onApply(normalized);
       onClose();
     } catch (e) {
-      setErr('Could not apply this code.');
+      setErr(t('promo.applyFailed'));
     }
   };
 
@@ -60,7 +62,7 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className={`${bg} border ${border} rounded-xl w-full max-w-md p-4`}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className={`text-xl font-bold ${text}`}>Apply Promo Code</h2>
+          <h2 className={`text-xl font-bold ${text}`}>{t('promo.title')}</h2>
           <button onClick={onClose} className={theme === 'dark' ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-900'}>
             <X size={22} />
           </button>
@@ -71,7 +73,7 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
             <input
               value={code}
               onChange={e => { setErr(''); setCode(e.target.value.toUpperCase()); }}
-              placeholder="Enter promo code"
+              placeholder={t('promo.placeholder')}
               className={`w-full px-3 py-2.5 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
                 theme === 'dark' ? 'focus:ring-blue-500/40' : 'focus:ring-blue-500'
               }`}
@@ -87,24 +89,33 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
                                : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
             }`}
           >
-            Apply Code
+            {t('promo.applyCode')}
           </button>
 
           {promos && promos.length > 0 && (
             <div>
-              <div className={`text-xs font-medium ${textMuted} mb-2 mt-4`}>Available Promo Codes:</div>
+              <div className={`text-xs font-medium ${textMuted} mb-2 mt-4`}>{t('promo.available')}</div>
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {promos.filter(isPromoActive).map((promo: Promo) => (
                   <button key={promo.id} onClick={() => apply(promo.code)}
-                    className={`w-full p-2.5 rounded-lg border text-left transition ${
+                    className={`w-full p-2.5 rounded-lg border text-start transition ${
                       theme === 'dark' ? 'bg-white/5 border-white/10 hover:bg-white/10'
                                        : 'bg-white border-gray-200 hover:border-blue-400'
                     }`}
                   >
-                    <div className={`font-semibold ${text} text-sm`}>{promo.code}</div>
+                    {/* Promo codes are Latin alphanumerics — never mirror them. */}
+                    <div className={`font-semibold ${text} text-sm`}><span className='money'>{promo.code}</span></div>
                     <div className={`text-xs ${textMuted}`}>
-                      {promo.type === 'percent' ? `${promo.value}% off` : `${promo.value.toFixed(3)} KWD off`}
-                      {promo.min_total > 0 && ` • Min: ${promo.min_total.toFixed(3)}`}
+                      {promo.type === 'percent'
+                        ? t('promo.percentOff', { value: promo.value })
+                        : t('promo.amountOff', { value: money(promo.value) })}
+                      {promo.min_total > 0 && (
+                        <>
+                          {' • '}
+                          {t('promo.min')}:{' '}
+                          <span className='money'>{money(promo.min_total)}</span>
+                        </>
+                      )}
                     </div>
                   </button>
                 ))}

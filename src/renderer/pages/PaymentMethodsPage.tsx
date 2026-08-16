@@ -8,6 +8,7 @@ import {
   ColumnDef,
   SortingState,
 } from '@tanstack/react-table';
+import { useI18n } from '../i18n';
 
 declare global {
   interface Window {
@@ -47,16 +48,20 @@ const isEnabled = (m: PaymentMethod) =>
   parseBool(m.is_active ?? m.enabled ?? m.status ?? false);
 
 function StatusChip({ active }: { active: any }) {
+  const { t } = useI18n();
   const on = parseBool(active);
   const cls =
     'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ' +
     (on ? 'border-emerald-400/40 text-emerald-300'
         : 'border-white/10 text-slate-400');
-  return <span className={cls}>{on ? 'Enabled' : 'Disabled'}</span>;
+  return (
+    <span className={cls}>{on ? t('admin.enabled') : t('admin.disabled')}</span>
+  );
 }
 
 /* ================= Component ================= */
 export default function PaymentMethodsPage() {
+  const { t, lang } = useI18n();
   const [data, setData] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -100,7 +105,7 @@ export default function PaymentMethodsPage() {
       header: ({ column }) => (
         <button className="inline-flex items-center gap-1 font-medium"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Slug <span className="opacity-60">↕</span>
+          {t('admin.pay.slug')} <span className="opacity-60">↕</span>
         </button>
       ),
       cell: (info) => info.getValue() as string,
@@ -110,34 +115,42 @@ export default function PaymentMethodsPage() {
       header: ({ column }) => (
         <button className="inline-flex items-center gap-1 font-medium"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Name <span className="opacity-60">↕</span>
+          {t('admin.name')} <span className="opacity-60">↕</span>
         </button>
       ),
-      accessorFn: (row) => row.name_en || row.name_ar || '',
-      cell: ({ row }) => (
-        <div className="leading-tight">
-          <div className="font-medium">{row.original.name_en || '—'}</div>
-          <div className="text-xs opacity-70">{row.original.name_ar || ''}</div>
-        </div>
-      ),
+      // Sort by whichever name the operator is actually reading.
+      accessorFn: (row) =>
+        (lang === 'ar' ? row.name_ar || row.name_en : row.name_en || row.name_ar) || '',
+      cell: ({ row }) => {
+        const primary =
+          (lang === 'ar' ? row.original.name_ar : row.original.name_en) || '';
+        const secondary =
+          (lang === 'ar' ? row.original.name_en : row.original.name_ar) || '';
+        return (
+          <div className="leading-tight">
+            <div className="font-medium">{primary || secondary || '—'}</div>
+            <div className="text-xs opacity-70">{primary ? secondary : ''}</div>
+          </div>
+        );
+      },
     },
     {
       accessorKey: 'legacy_code',
       header: ({ column }) => (
         <button className="inline-flex items-center gap-1 font-medium"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Legacy Code <span className="opacity-60">↕</span>
+          {t('admin.pay.legacyCode')} <span className="opacity-60">↕</span>
         </button>
       ),
       cell: (info) => (info.getValue() as string) || '—',
     },
     {
       id: 'status',
-      header: 'Active',
+      header: () => t('admin.active'),
       cell: ({ row }) => <StatusChip active={row.original.is_active ?? row.original.enabled ?? row.original.status} />,
       enableSorting: false,
     },
-  ], []);
+  ], [t, lang]);
 
   const table = useReactTable({
     data: filtered,
@@ -158,8 +171,8 @@ export default function PaymentMethodsPage() {
       {/* Header + Toolbar */}
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Payment Methods</h1>
-          <div className="text-sm opacity-70">Search, filter, sort, paginate</div>
+          <h1 className="text-2xl font-bold">{t('admin.pay.title')}</h1>
+          <div className="text-sm opacity-70">{t('admin.pay.subtitle')}</div>
         </div>
 
         {/* Responsive toolbar grid */}
@@ -167,7 +180,7 @@ export default function PaymentMethodsPage() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search slug / name / legacy…"
+            placeholder={t('admin.pay.searchPlaceholder')}
             className={fieldCls + ' w-full'}
           />
 
@@ -175,24 +188,24 @@ export default function PaymentMethodsPage() {
             className={fieldCls}
             value={activeFilter}
             onChange={(e) => setActiveFilter(e.target.value as any)}
-            title="Active filter"
+            title={t('admin.pay.activeFilter')}
           >
-            <option value="all">All</option>
-            <option value="enabled">Enabled only</option>
-            <option value="disabled">Disabled only</option>
+            <option value="all">{t('common.all')}</option>
+            <option value="enabled">{t('admin.enabledOnly')}</option>
+            <option value="disabled">{t('admin.disabledOnly')}</option>
           </select>
 
           <button
             className={btnCls}
             onClick={fetchData}
             disabled={loading}
-            title="Refresh"
+            title={t('admin.refresh')}
           >
-            {loading ? 'Refreshing…' : 'Refresh'}
+            {loading ? t('admin.refreshing') : t('admin.refresh')}
           </button>
 
           <div className="flex items-center gap-2">
-            <label className="text-sm opacity-70">Rows</label>
+            <label className="text-sm opacity-70">{t('admin.rows')}</label>
             <select
               className={fieldCls}
               value={pageSize}
@@ -206,14 +219,14 @@ export default function PaymentMethodsPage() {
 
       {/* Table */}
       <div className="overflow-auto rounded-xl border border-white/10">
-        <table className="w-full text-left table-fixed">
+        <table className="w-full text-start table-fixed">
           <thead className="bg-white/5 sticky top-0 z-10">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
                   <th
                     key={h.id}
-                    className="p-2 border-b border-white/10 text-left select-none"
+                    className="p-2 border-b border-white/10 text-start select-none"
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
                     {({ asc: ' 🔼', desc: ' 🔽' } as any)[h.column.getIsSorted() as string] ?? null}
@@ -226,7 +239,9 @@ export default function PaymentMethodsPage() {
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td className="p-6 opacity-70 text-center" colSpan={columns.length}>
-                  No methods {q || activeFilter !== 'all' ? 'match your search/filters.' : 'found.'}
+                  {q || activeFilter !== 'all'
+                    ? t('admin.pay.noneFiltered')
+                    : t('admin.pay.none')}
                 </td>
               </tr>
             ) : (
@@ -235,7 +250,7 @@ export default function PaymentMethodsPage() {
                 return (
                   <tr key={row.id} className={`border-b border-white/10 ${faded ? 'opacity-70' : ''} hover:bg-white/5`}>
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="p-2">
+                      <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
@@ -250,22 +265,24 @@ export default function PaymentMethodsPage() {
       {/* Pagination */}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
         <div className="opacity-70">
-          Page <strong>{table.getState().pagination.pageIndex + 1}</strong> of{' '}
-          <strong>{table.getPageCount()}</strong> •{' '}
-          <span>{filtered.length} methods</span>
+          {t('admin.pageOf', {
+            page: table.getState().pagination.pageIndex + 1,
+            pages: table.getPageCount(),
+          })}{' '}
+          • <span>{t('admin.pay.count', { n: filtered.length })}</span>
         </div>
         <div className="flex items-center gap-2">
           <button className={btnCls} onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
-            « First
+            {t('admin.first')}
           </button>
           <button className={btnCls} onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
-            ‹ Prev
+            {t('admin.prev')}
           </button>
           <button className={btnCls} onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-            Next ›
+            {t('admin.next')}
           </button>
           <button className={btnCls} onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>
-            Last »
+            {t('admin.last')}
           </button>
         </div>
       </div>

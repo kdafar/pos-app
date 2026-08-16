@@ -10,6 +10,8 @@ import {
 
 import { useThemeTokens } from '../../hooks/useThemeTokens';
 import { useStore } from '../../src/store';
+import { useI18n, useOrderTypeLabel } from '../../i18n';
+import type { StringKey } from '../../i18n';
 
 type BackendOrderRow = {
   id: string;
@@ -70,26 +72,18 @@ type ReportData = {
   toMs: number;
 };
 
-const ORDER_TYPES: Record<number, string> = {
-  1: 'Delivery',
-  2: 'Takeaway',
-  3: 'Dine-in',
-  4: 'Drive-thru',
-};
-
-const STATUS_MAP: Record<any, string> = {
-  1: 'Pending',
-  2: 'Accepted',
-  3: 'Preparing',
-  4: 'Ready',
-  5: 'Completed',
-  9: 'Cancelled',
-  99: 'Cancelled',
+/** The closing report's own status vocabulary (not the server enum). */
+const STATUS_KEY: Record<string, StringKey> = {
+  '1': 'status.pending',
+  '2': 'admin.rep.statusAccepted',
+  '3': 'admin.srv.2', // Preparing — backend wording, kept verbatim
+  '4': 'status.ready',
+  '5': 'status.completed',
+  '9': 'status.cancelled',
+  '99': 'status.cancelled',
 };
 
 const CANCELLED_IDS = [9, 99, 'cancelled', 'canceled'];
-
-const fmt = (n: number | undefined | null) => (Number(n) || 0).toFixed(3);
 
 function toLocalInput(ms: number) {
   const d = new Date(ms);
@@ -108,6 +102,12 @@ function fromLocalInput(s: string) {
 
 export default function ClosingReport() {
   const { theme } = useThemeTokens();
+  const { t, money, lang } = useI18n();
+  const orderTypeLabel = useOrderTypeLabel();
+  /** Money on this page always renders Latin numerals, 3 decimals. */
+  const fmt = (n: number | undefined | null) => money(n);
+  const fmtDateTime = (ms: number) =>
+    new Date(ms).toLocaleString(lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB');
 
   // 1. Get User Data
   const user = useStore((s: any) => s.currentUser);
@@ -187,10 +187,10 @@ export default function ClosingReport() {
     }
 
     const f = fromLocalInput(fromStr);
-    const t = fromLocalInput(toStr);
+    const to = fromLocalInput(toStr);
     loadReport({
       from: isNaN(f) ? undefined : f,
-      to: isNaN(t) ? undefined : t,
+      to: isNaN(to) ? undefined : to,
     });
   };
 
@@ -214,64 +214,70 @@ export default function ClosingReport() {
 
   const renderDailyTable = () => (
     <div className='overflow-x-auto'>
-      <table className='w-full text-sm text-left'>
+      <table className='w-full text-sm text-start'>
         <thead
           className={`text-xs uppercase ${
             isDark ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-600'
           }`}
         >
           <tr>
-            <th className='px-4 py-3'>#</th>
-            <th className='px-4 py-3'>Client</th>
-            <th className='px-4 py-3'>Date</th>
-            <th className='px-4 py-3'>Order #</th>
-            <th className='px-4 py-3'>Type</th>
-            <th className='px-4 py-3'>Status</th>
-            <th className='px-4 py-3'>Op. Status</th>
-            <th className='px-4 py-3 text-right'>Discount</th>
-            <th className='px-4 py-3 text-right'>Total</th>
+            <th className='px-4 py-3 text-start'>#</th>
+            <th className='px-4 py-3 text-start'>{t('admin.rep.colClient')}</th>
+            <th className='px-4 py-3 text-start'>{t('admin.rep.colDate')}</th>
+            <th className='px-4 py-3 text-start'>{t('admin.rep.colOrderNo')}</th>
+            <th className='px-4 py-3 text-start'>{t('admin.type')}</th>
+            <th className='px-4 py-3 text-start'>{t('admin.status')}</th>
+            <th className='px-4 py-3 text-start'>{t('admin.rep.colOpStatus')}</th>
+            <th className='px-4 py-3 text-end'>{t('admin.rep.colDiscount')}</th>
+            <th className='px-4 py-3 text-end'>{t('common.total')}</th>
           </tr>
         </thead>
         <tbody>
           {data?.orders.map((order, idx) => (
             <tr key={order.id} className={getRowClass(order)}>
-              <td className='px-4 py-3'>{idx + 1}</td>
-              <td className='px-4 py-3 font-medium'>
+              <td className='px-4 py-3 text-start'>{idx + 1}</td>
+              <td className='px-4 py-3 font-medium text-start'>
                 {order.full_name || '-'}
               </td>
-              <td className='px-4 py-3 whitespace-nowrap'>
-                {new Date(order.ts_ms).toLocaleString()}
+              <td className='px-4 py-3 whitespace-nowrap text-start'>
+                <span className='money'>{fmtDateTime(order.ts_ms)}</span>
               </td>
-              <td className='px-4 py-3'>{order.order_number}</td>
-              <td className='px-4 py-3'>
-                {ORDER_TYPES[order.order_type] || order.order_type}
+              <td className='px-4 py-3 text-start'>{order.order_number}</td>
+              <td className='px-4 py-3 text-start'>
+                {Number(order.order_type) === 4
+                  ? t('admin.rep.orderTypeDriveThru')
+                  : orderTypeLabel(order.order_type)}
               </td>
-              <td className='px-4 py-3'>
-                {STATUS_MAP[order.status] || order.status}
+              <td className='px-4 py-3 text-start'>
+                {STATUS_KEY[String(order.status)]
+                  ? t(STATUS_KEY[String(order.status)])
+                  : order.status}
               </td>
-              <td className='px-4 py-3'>
+              <td className='px-4 py-3 text-start'>
                 {order.operational_status === 'inside' ? (
                   <span className='px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'>
-                    Inside
+                    {t('admin.rep.inside')}
                   </span>
                 ) : (
                   <span className='px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'>
-                    Outside
+                    {t('admin.rep.outside')}
                   </span>
                 )}
               </td>
-              <td className='px-4 py-3 text-right'>
-                {fmt(order.discount_total ?? order.discount_amount ?? 0)}
+              <td className='px-4 py-3 text-end'>
+                <span className='money'>
+                  {fmt(order.discount_total ?? order.discount_amount ?? 0)}
+                </span>
               </td>
-              <td className='px-4 py-3 text-right font-bold'>
-                {fmt(order.grand_total)}
+              <td className='px-4 py-3 text-end font-bold'>
+                <span className='money'>{fmt(order.grand_total)}</span>
               </td>
             </tr>
           ))}
           {!data?.orders?.length && (
             <tr>
               <td colSpan={9} className='p-8 text-center opacity-50'>
-                No orders found
+                {t('admin.rep.noOrders')}
               </td>
             </tr>
           )}
@@ -280,18 +286,25 @@ export default function ClosingReport() {
     </div>
   );
 
-  const renderAggregateTable = (rows: any[], colName: string) => (
+  const renderAggregateTable = (
+    rows: any[],
+    colName: string,
+    /** Order-type rows carry a numeric type; label them with the shared hook. */
+    localizeOrderType = false
+  ) => (
     <div className='overflow-x-auto max-w-4xl mx-auto'>
-      <table className='w-full text-sm text-left'>
+      <table className='w-full text-sm text-start'>
         <thead
           className={`text-xs uppercase ${
             isDark ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-600'
           }`}
         >
           <tr>
-            <th className='px-4 py-3'>{colName}</th>
-            <th className='px-4 py-3 text-right'>Count / Sold</th>
-            <th className='px-4 py-3 text-right'>Total Amount</th>
+            <th className='px-4 py-3 text-start'>{colName}</th>
+            <th className='px-4 py-3 text-end'>{t('admin.rep.colCountSold')}</th>
+            <th className='px-4 py-3 text-end'>
+              {t('admin.rep.colTotalAmount')}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -300,21 +313,30 @@ export default function ClosingReport() {
               key={idx}
               className='border-b border-gray-100 dark:border-gray-700'
             >
-              <td className='px-4 py-3 font-medium'>
-                {row.item || row.name || row.label || 'Unknown'}
+              <td className='px-4 py-3 font-medium text-start'>
+                {localizeOrderType && row.order_type != null
+                  ? Number(row.order_type) === 4
+                    ? t('admin.rep.orderTypeDriveThru')
+                    : orderTypeLabel(row.order_type)
+                  : row.name_ar && lang === 'ar'
+                  ? row.name_ar
+                  : row.item ||
+                    row.name ||
+                    row.label ||
+                    t('admin.rep.unknown')}
               </td>
-              <td className='px-4 py-3 text-right'>
-                {row.sold ?? row.count ?? 0}
+              <td className='px-4 py-3 text-end'>
+                <span className='money'>{row.sold ?? row.count ?? 0}</span>
               </td>
-              <td className='px-4 py-3 text-right font-bold'>
-                {fmt(row.total)}
+              <td className='px-4 py-3 text-end font-bold'>
+                <span className='money'>{fmt(row.total)}</span>
               </td>
             </tr>
           ))}
           {!rows.length && (
             <tr>
               <td colSpan={3} className='p-8 text-center opacity-50'>
-                No data available
+                {t('admin.rep.noRows')}
               </td>
             </tr>
           )}
@@ -340,9 +362,9 @@ export default function ClosingReport() {
       {/* Header */}
       <header className='no-print flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
         <div>
-          <h1 className='text-2xl font-bold'>Sales Reports</h1>
+          <h1 className='text-2xl font-bold'>{t('admin.rep.title')}</h1>
           <p className={`text-sm ${textMuted}`}>
-            {data?.footer.date || 'Loading...'}
+            {data?.footer.date || t('common.loading')}
           </p>
         </div>
         <div className='flex items-center gap-2'>
@@ -352,13 +374,13 @@ export default function ClosingReport() {
             className='px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2'
           >
             <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Loading...' : 'Refresh'}
+            {loading ? t('common.loading') : t('admin.refresh')}
           </button>
           <button
             onClick={() => window.print()}
             className='px-4 py-2 bg-gray-200 text-gray-800 dark:bg-slate-700 dark:text-white rounded-lg hover:opacity-80 flex items-center gap-2'
           >
-            <Printer size={16} /> Print
+            <Printer size={16} /> {t('admin.rep.print')}
           </button>
         </div>
       </header>
@@ -369,7 +391,7 @@ export default function ClosingReport() {
           <div className='flex flex-col sm:flex-row gap-3 items-end'>
             <div>
               <label className='text-xs font-semibold mb-1 block'>
-                Start Date
+                {t('admin.rep.startDate')}
               </label>
               <input
                 type='datetime-local'
@@ -384,7 +406,7 @@ export default function ClosingReport() {
             </div>
             <div>
               <label className='text-xs font-semibold mb-1 block'>
-                End Date
+                {t('admin.rep.endDate')}
               </label>
               <input
                 type='datetime-local'
@@ -408,7 +430,7 @@ export default function ClosingReport() {
                   : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
               }`}
             >
-              Daily Report
+              {t('admin.rep.tabDaily')}
             </button>
             <button
               onClick={() => setActiveTab(1)}
@@ -418,7 +440,7 @@ export default function ClosingReport() {
                   : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
               }`}
             >
-              By Item
+              {t('admin.rep.tabItem')}
             </button>
             <button
               onClick={() => setActiveTab(5)}
@@ -428,7 +450,7 @@ export default function ClosingReport() {
                   : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
               }`}
             >
-              By Category
+              {t('admin.rep.tabCategory')}
             </button>
             <button
               onClick={() => setActiveTab(2)}
@@ -438,7 +460,7 @@ export default function ClosingReport() {
                   : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
               }`}
             >
-              By Payment
+              {t('admin.rep.tabPayment')}
             </button>
             <button
               onClick={() => setActiveTab(3)}
@@ -448,7 +470,7 @@ export default function ClosingReport() {
                   : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
               }`}
             >
-              By Order Type
+              {t('admin.rep.tabOrderType')}
             </button>
           </div>
         </div>
@@ -460,9 +482,9 @@ export default function ClosingReport() {
           <div className='flex justify-between items-start z-10 relative'>
             <div>
               <h3 className='text-sm font-medium opacity-90 mb-1'>
-                Orders Inside Hours
+                {t('admin.rep.cardInside')}
               </h3>
-              <h2 className='text-3xl font-bold'>
+              <h2 className='text-3xl font-bold money'>
                 {data?.footer.inside_hours_count || 0}
               </h2>
             </div>
@@ -474,9 +496,9 @@ export default function ClosingReport() {
           <div className='flex justify-between items-start z-10 relative'>
             <div>
               <h3 className='text-sm font-medium opacity-90 mb-1'>
-                Orders Outside Hours
+                {t('admin.rep.cardOutside')}
               </h3>
-              <h2 className='text-3xl font-bold'>
+              <h2 className='text-3xl font-bold money'>
                 {data?.footer.outside_hours_count || 0}
               </h2>
             </div>
@@ -488,9 +510,9 @@ export default function ClosingReport() {
           <div className='flex justify-between items-start z-10 relative'>
             <div>
               <h3 className='text-sm font-medium opacity-90 mb-1'>
-                Cancelled Orders
+                {t('admin.rep.cardCancelled')}
               </h3>
-              <h2 className='text-3xl font-bold'>
+              <h2 className='text-3xl font-bold money'>
                 {data?.footer.canceled_order_count || 0}
               </h2>
             </div>
@@ -502,9 +524,9 @@ export default function ClosingReport() {
           <div className='flex justify-between items-start z-10 relative'>
             <div>
               <h3 className='text-sm font-medium opacity-90 mb-1'>
-                Total Earning
+                {t('admin.rep.cardEarning')}
               </h3>
-              <h2 className='text-3xl font-bold'>
+              <h2 className='text-3xl font-bold money'>
                 {fmt(data?.footer.grand_total)}
               </h2>
             </div>
@@ -519,13 +541,23 @@ export default function ClosingReport() {
       >
         {activeTab === 0 && renderDailyTable()}
         {activeTab === 1 &&
-          renderAggregateTable(data?.aggregates || [], 'Item')}
+          renderAggregateTable(data?.aggregates || [], t('admin.rep.colItem'))}
         {activeTab === 5 &&
-          renderAggregateTable(data?.categories || [], 'Category')}
+          renderAggregateTable(
+            data?.categories || [],
+            t('admin.rep.colCategory')
+          )}
         {activeTab === 2 &&
-          renderAggregateTable(data?.payments || [], 'Payment Method')}
+          renderAggregateTable(
+            data?.payments || [],
+            t('admin.rep.colPaymentMethod')
+          )}
         {activeTab === 3 &&
-          renderAggregateTable(data?.orderTypes || [], 'Order Type')}
+          renderAggregateTable(
+            data?.orderTypes || [],
+            t('admin.rep.colOrderType'),
+            true
+          )}
       </div>
 
       {/* ALWAYS-VISIBLE FOOTER TOTALS (like online report) */}
@@ -537,52 +569,64 @@ export default function ClosingReport() {
             <table className='w-full text-sm'>
               <tbody>
                 <tr className={isDark ? 'bg-slate-900/40' : 'bg-gray-50'}>
-                  <td className='px-4 py-3 font-semibold text-right'>
-                    Gross Sales Total
+                  <td className='px-4 py-3 font-semibold text-end'>
+                    {t('admin.rep.grossSales')}
                   </td>
-                  <td className='px-4 py-3 font-semibold text-right'>
-                    {fmt(data.footer.gross_sales_total)}
-                  </td>
-                </tr>
-                <tr>
-                  <td className='px-4 py-3 font-semibold text-right'>
-                    Discounts
-                  </td>
-                  <td className='px-4 py-3 font-semibold text-right text-red-500'>
-                    - {fmt(data.footer.discounts)}
+                  <td className='px-4 py-3 font-semibold text-end'>
+                    <span className='money'>
+                      {fmt(data.footer.gross_sales_total)}
+                    </span>
                   </td>
                 </tr>
                 <tr>
-                  <td className='px-4 py-3 font-semibold text-right'>
-                    Delivery fees
+                  <td className='px-4 py-3 font-semibold text-end'>
+                    {t('admin.rep.discounts')}
                   </td>
-                  <td className='px-4 py-3 font-semibold text-right'>
-                    {fmt(data.footer.delivery_fees)}
+                  <td className='px-4 py-3 font-semibold text-end text-red-500'>
+                    <span className='money'>
+                      - {fmt(data.footer.discounts)}
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td className='px-4 py-3 font-semibold text-end'>
+                    {t('admin.rep.deliveryFees')}
+                  </td>
+                  <td className='px-4 py-3 font-semibold text-end'>
+                    <span className='money'>
+                      {fmt(data.footer.delivery_fees)}
+                    </span>
                   </td>
                 </tr>
                 <tr className={isDark ? 'bg-blue-900/30' : 'bg-blue-100'}>
-                  <td className='px-4 py-3 font-semibold text-right'>
-                    Total (Grand Total of All Sales) (Net Sales)
+                  <td className='px-4 py-3 font-semibold text-end'>
+                    {t('admin.rep.netTotal')}
                   </td>
-                  <td className='px-4 py-3 font-semibold text-right'>
-                    {fmt(data.footer.grand_total)}
+                  <td className='px-4 py-3 font-semibold text-end'>
+                    <span className='money'>
+                      {fmt(data.footer.grand_total)}
+                    </span>
                   </td>
                 </tr>
 
                 <tr>
-                  <td className='px-4 py-3 text-right italic text-sm'>
-                    Outside Hours Sales Total (Informational)
+                  <td className='px-4 py-3 text-end italic text-sm'>
+                    {t('admin.rep.outsideTotal')}
                   </td>
-                  <td className='px-4 py-3 text-right font-semibold'>
-                    {fmt(data.footer.outside_hours_total)}
+                  <td className='px-4 py-3 text-end font-semibold'>
+                    <span className='money'>
+                      {fmt(data.footer.outside_hours_total)}
+                    </span>
                   </td>
                 </tr>
                 <tr>
-                  <td className='px-4 py-3 text-right italic text-sm'>
-                    Cancelled Orders Total (From Inside Hours) (Informational)
+                  <td className='px-4 py-3 text-end italic text-sm'>
+                    {t('admin.rep.cancelledTotal')}
                   </td>
-                  <td className='px-4 py-3 text-right font-semibold text-red-500'>
-                    - {fmt(data.footer.cancelled_total)}
+                  <td className='px-4 py-3 text-end font-semibold text-red-500'>
+                    <span className='money'>
+                      - {fmt(data.footer.cancelled_total)}
+                    </span>
                   </td>
                 </tr>
               </tbody>

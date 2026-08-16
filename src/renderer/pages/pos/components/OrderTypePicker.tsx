@@ -1,6 +1,7 @@
 // components/OrderTypePicker.tsx
 import React from 'react';
 import { OrderType } from '../types';
+import { useI18n, useOrderTypeLabel } from '../../../i18n';
 
 export function OrderTypePicker({
   value,
@@ -11,10 +12,13 @@ export function OrderTypePicker({
   onChange: (t: OrderType) => void;
   theme: 'light' | 'dark';
 }) {
+  const { t: _t } = useI18n();
+  const label = useOrderTypeLabel();
+
   const types = [
-    { k: 1 as const, label: 'Delivery', icon: '🚗' },
-    { k: 2 as const, label: 'Pickup',   icon: '🛍️' },
-    { k: 3 as const, label: 'Dine-in',  icon: '🍽️' },
+    { k: 1 as const, label: label(1), icon: '🚗' },
+    { k: 2 as const, label: label(2), icon: '🛍️' },
+    { k: 3 as const, label: label(3), icon: '🍽️' },
   ];
   const bg = theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-gray-100 border-gray-300';
   const activeBtn = theme === 'dark'
@@ -36,7 +40,7 @@ export function OrderTypePicker({
           }`}
           title={t.label}
         >
-          <span className="mr-1">{t.icon}</span>{t.label}
+          <span className="me-1">{t.icon}</span>{t.label}
         </button>
       ))}
     </div>

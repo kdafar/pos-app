@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { Card, CardBody, Spinner } from '@heroui/react';
+import { useI18n, type StringKey } from '../i18n';
 
 type PosStatus = {
   paired: boolean;
@@ -9,20 +10,25 @@ type PosStatus = {
   branch_name?: string | null;
 };
 
-const tips = [
-  'Tip: You can switch to Offline mode and keep taking orders even if internet is down.',
-  'Tip: Use quick users on the login screen so staff don’t have to type emails.',
-  'Tip: Run “Sync now” before closing to push all pending orders to the server.',
-  'Tip: Admins can log in from any paired branch. Staff can only log into their own branch.',
-  'Tip: If this device moves to another restaurant, use “Pair device” again.',
+// Keys rather than literals: the tip is picked once per mount, but must still
+// re-render in the new language if the operator flips the toggle mid-wait.
+const tipKeys: StringKey[] = [
+  'gate.tip1',
+  'gate.tip2',
+  'gate.tip3',
+  'gate.tip4',
+  'gate.tip5',
 ];
 
 export function AuthedGate() {
   const nav = useNavigate();
+  const { t } = useI18n();
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<PosStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tip] = useState(() => tips[Math.floor(Math.random() * tips.length)]);
+  const [tipKey] = useState(
+    () => tipKeys[Math.floor(Math.random() * tipKeys.length)]
+  );
 
   async function refresh() {
     try {
@@ -40,7 +46,7 @@ export function AuthedGate() {
       }
     } catch (e: any) {
       console.error('[AuthedGate] status error', e);
-      setError(e?.message || 'Unable to check device status');
+      setError(e?.message || t('gate.statusFailed'));
     }
   }
 
@@ -54,23 +60,21 @@ export function AuthedGate() {
 
   if (!ready) {
     return (
-      <div className='min-h-screen flex items-center justify-center bg-slate-100 px-4'>
+      <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
         <Card className='w-full max-w-md shadow-lg border border-slate-200 bg-white'>
           <CardBody className='py-6 px-6 flex flex-col items-center gap-3 text-center'>
             <Spinner size='lg' color='primary' />
             <div className='text-base font-semibold text-slate-900'>
-              Getting your POS ready…
+              {t('gate.preparing')}
             </div>
 
             <div className='text-xs text-slate-500'>
-              {error
-                ? 'We had trouble checking the device status. You can try again below.'
-                : 'Checking device pairing, branch and active session.'}
+              {error ? t('gate.statusError') : t('gate.checking')}
             </div>
 
             {status?.branch_name && !error && (
               <div className='text-[11px] text-slate-500'>
-                Current branch:{' '}
+                {t('gate.currentBranch')}{' '}
                 <span className='font-medium text-slate-900'>
                   {status.branch_name}
                 </span>
@@ -79,7 +83,7 @@ export function AuthedGate() {
 
             {!error && (
               <div className='mt-2 text-[11px] text-slate-500 italic max-w-sm'>
-                {tip}
+                {t(tipKey)}
               </div>
             )}
 
@@ -88,7 +92,7 @@ export function AuthedGate() {
                 className='mt-3 inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50'
                 onClick={refresh}
               >
-                Try again
+                {t('common.retry')}
               </button>
             )}
           </CardBody>

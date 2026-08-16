@@ -1,7 +1,9 @@
 // components/OrderLineItem.tsx
 import React from 'react';
-import { Trash2, Plus, Minus } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { OrderLine } from '../types';
+import { QtyStepper } from '../../../components/QtyStepper';
+import { useI18n } from '../../../i18n';
 
 declare global {
   interface Window {
@@ -28,9 +30,23 @@ export function OrderLineItem({
   theme: 'light' | 'dark';
   onUpdate: () => void;
 }) {
+  const { t, name: localName, money } = useI18n();
   const call = (ch: string, ...args: any[]) => window.api.invoke(ch, ...args);
+  // Typing a quantity commits in one go; guard against a second commit landing
+  // (blur + Enter, or an impatient double tap) while the first is in flight.
+  const [busy, setBusy] = React.useState(false);
 
   const setQty = async (nextQty: number) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await applyQty(nextQty);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyQty = async (nextQty: number) => {
     if (nextQty <= 0) {
       await call('orders:removeLine', line.id)
         .catch(() => call('orders:removeLineByItem', orderId, line.item_id))
@@ -48,8 +64,6 @@ export function OrderLineItem({
     onUpdate();
   };
 
-  const inc = async () => setQty(Number(line.qty || 0) + 1);
-  const dec = async () => setQty(Math.max(0, Number(line.qty || 0) - 1));
   const remove = async () => setQty(0);
 
   const bg =
@@ -80,9 +94,9 @@ export function OrderLineItem({
     <div className={`${bg} border ${border} rounded-lg p-3 transition`}>
       {/* Top row: name + remove */}
       <div className='flex items-start justify-between gap-2 mb-2'>
-        <div className='flex-1 pr-1'>
+        <div className='flex-1 pe-1'>
           <h4 className={`font-semibold ${text} leading-snug line-clamp-2`}>
-            {line.name}
+            {localName(line)}
           </h4>
 
           {/* Variation + addons meta */}
@@ -119,12 +133,12 @@ export function OrderLineItem({
             )}
 
             <p className={`text-[11px] ${textMuted} font-medium`}>
-              {unitPrice.toFixed(3)} × {qty}
+              <span className='money'>{money(unitPrice)}</span> × {qty}
             </p>
 
             {hasNote && (
               <p className={`text-[11px] ${textMuted} italic line-clamp-2`}>
-                Note: {line.notes}
+                {t('cart.note')}: {line.notes}
               </p>
             )}
           </div>
@@ -137,7 +151,7 @@ export function OrderLineItem({
               ? 'text-slate-400 hover:text-red-400'
               : 'text-gray-400 hover:text-red-500'
           }
-          title='Remove'
+          title={t('common.remove')}
         >
           <Trash2 size={16} />
         </button>
@@ -145,38 +159,24 @@ export function OrderLineItem({
 
       {/* Bottom row: qty controls + total */}
       <div className='flex items-center justify-between gap-2'>
-        <div className='flex items-center gap-1.5'>
-          <button
-            onClick={dec}
-            disabled={qty <= 1}
-            className={`w-8 h-8 rounded-md flex items-center justify-center text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
-              theme === 'dark'
-                ? 'bg-white/10 hover:bg-white/20 text-white'
-                : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-            }`}
-            title={qty <= 1 ? 'Use the trash to remove' : 'Decrease'}
-          >
-            <Minus size={14} />
-          </button>
-          <span className={`w-9 text-center font-semibold ${text}`}>{qty}</span>
-          <button
-            onClick={inc}
-            className={`w-8 h-8 rounded-md flex items-center justify-center text-sm ${
-              theme === 'dark'
-                ? 'bg-white/10 hover:bg-white/20 text-white'
-                : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-            }`}
-          >
-            <Plus size={14} />
-          </button>
-        </div>
+        <QtyStepper
+          theme={theme}
+          value={qty}
+          min={1}
+          max={999}
+          size='md'
+          disabled={busy}
+          label={`${line.name} quantity`}
+          decHint={t('cart.removeHint')}
+          onChange={setQty}
+        />
 
         <div
           className={`text-[15px] font-bold ${
             theme === 'dark' ? 'text-blue-200' : 'text-blue-700'
           }`}
         >
-          {lineTotal.toFixed(3)}
+          <span className='money'>{money(lineTotal)}</span>
         </div>
       </div>
     </div>

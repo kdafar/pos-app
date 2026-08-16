@@ -10,6 +10,8 @@ import {
 
 import { useConfirmDialog } from '../components/ConfirmDialogProvider';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
+import { useI18n } from '../i18n';
+import type { StringKey } from '../i18n';
 
 type TableRow = {
   id: string | number;
@@ -62,13 +64,23 @@ const normalize = (t: any): TableRow => ({
     t.current_order_id ?? t.order_id ?? t.orderId ?? t.currentOrderId ?? null,
 });
 
+/** Status → localized label key. Kept as a map so the filter pills and the
+ *  table badge can never drift apart. */
+const STATUS_KEY: Record<TableRow['status'], StringKey> = {
+  available: 'admin.tables.available',
+  occupied: 'admin.tables.occupied',
+  reserved: 'admin.tables.reserved',
+};
+
 /* ---------- base columns (read-only) ---------- */
-const baseColumns = [
-  columnHelper.accessor('number', { header: 'Number' }),
-  columnHelper.accessor('label', { header: 'Label' }),
-  columnHelper.accessor('capacity', { header: 'Capacity' }),
+const makeBaseColumns = (t: (k: StringKey) => string) => [
+  columnHelper.accessor('number', { header: () => t('admin.tables.number') }),
+  columnHelper.accessor('label', { header: () => t('admin.tables.label') }),
+  columnHelper.accessor('capacity', {
+    header: () => t('admin.tables.capacity'),
+  }),
   columnHelper.accessor('status', {
-    header: 'Status',
+    header: () => t('admin.status'),
     cell: (info) => {
       const s = info.getValue();
       const cls =
@@ -77,23 +89,20 @@ const baseColumns = [
           : s === 'reserved'
           ? 'bg-amber-500/15 text-amber-600 border-amber-500/30'
           : 'bg-rose-500/15 text-rose-600 border-rose-500/30';
-      const label =
-        s === 'available'
-          ? 'Available'
-          : s === 'reserved'
-          ? 'Reserved'
-          : 'Occupied';
       return (
         <span className={`px-2 py-1 rounded-md text-xs border ${cls}`}>
-          {label}
+          {t(STATUS_KEY[s] ?? 'admin.tables.occupied')}
         </span>
       );
     },
   }),
-  columnHelper.accessor('branch_id', { header: 'Branch ID' }),
+  columnHelper.accessor('branch_id', {
+    header: () => t('admin.tables.branchId'),
+  }),
 ];
 
 function TablesPage() {
+  const { t } = useI18n();
   const [rows, setRows] = useState<TableRow[]>([]);
   const [filterQ, setFilterQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | TableRow['status']>(
@@ -167,17 +176,17 @@ function TablesPage() {
     if (!isAdmin) return;
 
     const ok = await confirm({
-      title: `Clear table "${row.label}"?`,
+      title: t('admin.tables.clearTitle', { label: row.label }),
       message: (
         <div className='space-y-1 text-sm'>
-          <p>This will detach any current order from this table.</p>
+          <p>{t('admin.tables.clearBody')}</p>
           <p className='text-xs text-slate-500'>
-            You can always reassign a new order to this table later.
+            {t('admin.tables.clearHint')}
           </p>
         </div>
       ),
-      confirmLabel: 'Clear table',
-      cancelLabel: 'Cancel',
+      confirmLabel: t('admin.tables.clear'),
+      cancelLabel: t('common.cancel'),
       tone: 'danger',
     });
 
@@ -192,8 +201,8 @@ function TablesPage() {
       console.error('orders:clearTable failed', e);
       toast({
         tone: 'danger',
-        title: 'Could not clear table',
-        message: 'Please check the logs for details or contact support.',
+        title: t('admin.tables.clearFailed'),
+        message: t('admin.supportHint'),
       });
       return;
     }
@@ -206,10 +215,10 @@ function TablesPage() {
     () =>
       isAdmin
         ? [
-            ...baseColumns,
+            ...makeBaseColumns(t),
             columnHelper.display({
               id: 'actions',
-              header: 'Actions',
+              header: () => t('admin.actions'),
               cell: (info) => {
                 const row = info.row.original;
 
@@ -224,14 +233,14 @@ function TablesPage() {
                     onClick={() => handleClearTable(row)}
                     className='px-3 py-1.5 rounded-md text-xs font-medium bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50'
                   >
-                    Clear table
+                    {t('admin.tables.clear')}
                   </button>
                 );
               },
             }),
           ]
-        : baseColumns,
-    [isAdmin]
+        : makeBaseColumns(t),
+    [isAdmin, t]
   );
 
   const table = useReactTable({
@@ -247,12 +256,12 @@ function TablesPage() {
     <div className='p-4'>
       {/* Toolbar */}
       <div className='flex flex-wrap items-center gap-2 mb-4'>
-        <h1 className='text-2xl font-bold mr-auto'>Tables</h1>
+        <h1 className='text-2xl font-bold me-auto'>{t('admin.tables.title')}</h1>
 
         <span className='px-2 py-1 text-xs rounded-md border bg-white/60 backdrop-blur dark:bg-white/5 dark:border-white/10 text-slate-600 dark:text-slate-300'>
           {isAdmin
-            ? 'Admin: you can clear occupied tables'
-            : 'Read-only • synced from server'}
+            ? t('admin.tables.adminHint')
+            : t('admin.tables.readOnlyHint')}
         </span>
 
         <div className='inline-flex rounded-lg border bg-white/70 backdrop-blur dark:bg-white/5 dark:border-white/10'>
@@ -266,14 +275,14 @@ function TablesPage() {
                   : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
               }`}
             >
-              {k[0].toUpperCase() + k.slice(1)}
+              {k === 'all' ? t('common.all') : t(STATUS_KEY[k])}
             </button>
           ))}
         </div>
 
         <input
           className='px-3 py-2 rounded-lg border bg-white/70 backdrop-blur dark:bg-white/5 dark:border-white/10'
-          placeholder='Search…'
+          placeholder={t('admin.tables.searchPlaceholder')}
           value={filterQ}
           onChange={(e) => setFilterQ(e.target.value)}
         />
@@ -283,7 +292,7 @@ function TablesPage() {
           className='px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-slate-800 hover:opacity-90'
           disabled={loading}
         >
-          {loading ? 'Refreshing…' : 'Refresh'}
+          {loading ? t('admin.refreshing') : t('admin.refresh')}
         </button>
       </div>
 
@@ -297,7 +306,7 @@ function TablesPage() {
                   <th
                     key={h.id}
                     onClick={h.column.getToggleSortingHandler()}
-                    className='px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300 cursor-pointer'
+                    className='px-4 py-3 text-start font-semibold text-slate-600 dark:text-slate-300 cursor-pointer'
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
                     {(
@@ -320,7 +329,7 @@ function TablesPage() {
                 {row.getVisibleCells().map((cell) => (
                   <td
                     key={cell.id}
-                    className='px-4 py-3 text-slate-800 dark:text-slate-200'
+                    className='px-4 py-3 text-start text-slate-800 dark:text-slate-200'
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
@@ -333,7 +342,7 @@ function TablesPage() {
                   colSpan={columns.length}
                   className='px-4 py-10 text-center text-slate-500 dark:text-slate-400'
                 >
-                  No tables found
+                  {t('admin.tables.none')}
                 </td>
               </tr>
             )}

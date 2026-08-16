@@ -8,6 +8,7 @@ import {
   ColumnDef,
   SortingState,
 } from '@tanstack/react-table';
+import { useI18n } from '../i18n';
 
 declare global {
   interface Window {
@@ -57,11 +58,12 @@ function isEnabled(p: Promo): boolean {
 const fmtMoney = (n: number | null | undefined) =>
   Number.isFinite(Number(n)) ? Number(n).toFixed(3) : '0.000';
 
-const fmtDate = (s: string | null) => {
+/** Arabic month names, Latin digits — Kuwait never prints Arabic-Indic numerals. */
+const fmtDate = (s: string | null, lang: 'en' | 'ar' = 'en') => {
   if (!s) return '—';
   const d = new Date(s);
   if (isNaN(d.getTime())) return '—';
-  return d.toLocaleString('en-GB', {
+  return d.toLocaleString(lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB', {
     year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit',
   });
 };
@@ -79,22 +81,23 @@ const timeWindowState = (p: Promo): 'active-now' | 'upcoming' | 'expired' => {
 };
 
 function StatusBadge({ promo }: { promo: Promo }) {
+  const { t } = useI18n();
   const enabled = isEnabled(promo);
   const windowState = timeWindowState(promo);
 
   let label = '';
   let cls = 'px-2 py-0.5 rounded text-xs border';
   if (!enabled) {
-    label = 'Disabled';
+    label = t('admin.disabled');
     cls += ' border-white/10 text-slate-400';
   } else if (windowState === 'active-now') {
-    label = 'Active';
+    label = t('admin.promos.statusActive');
     cls += ' border-emerald-400/40 text-emerald-300';
   } else if (windowState === 'upcoming') {
-    label = 'Upcoming';
+    label = t('admin.promos.upcoming');
     cls += ' border-amber-400/40 text-amber-300';
   } else {
-    label = 'Expired';
+    label = t('admin.promos.expired');
     cls += ' border-rose-400/40 text-rose-300';
   }
   return <span className={cls}>{label}</span>;
@@ -102,6 +105,7 @@ function StatusBadge({ promo }: { promo: Promo }) {
 
 /* ================= Component ================= */
 export default function PromosPage() {
+  const { t, money, lang } = useI18n();
   const [data, setData] = useState<Promo[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -156,7 +160,7 @@ export default function PromosPage() {
       header: ({ column }) => (
         <button className="inline-flex items-center gap-1 font-medium"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Code <span className="opacity-60">↕</span>
+          {t('admin.promos.code')} <span className="opacity-60">↕</span>
         </button>
       ),
       cell: (info) => info.getValue() as string,
@@ -166,48 +170,67 @@ export default function PromosPage() {
       header: ({ column }) => (
         <button className="inline-flex items-center gap-1 font-medium"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Type <span className="opacity-60">↕</span>
+          {t('admin.type')} <span className="opacity-60">↕</span>
         </button>
       ),
       accessorFn: (row) => (row.type === 'percent' || row.type === 'percentage') ? 'Percent' : 'Amount',
-      cell: (info) => info.getValue() as string,
+      cell: (info) =>
+        info.getValue() === 'Percent'
+          ? t('admin.promos.percent')
+          : t('admin.promos.amount'),
     },
     {
       id: 'display_value',
       header: ({ column }) => (
         <button className="inline-flex items-center gap-1 font-medium"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Value <span className="opacity-60">↕</span>
+          {t('admin.promos.value')} <span className="opacity-60">↕</span>
         </button>
       ),
       accessorFn: (row) => valueLabel(row.type, row.value),
       sortingFn: (a, b) => Number(a.original.value) - Number(b.original.value),
-      cell: (info) => info.getValue() as string,
+      cell: (info) => <span className="money">{info.getValue() as string}</span>,
     },
     {
       accessorKey: 'min_total',
       header: ({ column }) => (
         <button className="inline-flex items-center gap-1 font-medium"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Min Total <span className="opacity-60">↕</span>
+          {t('admin.promos.minTotal')} <span className="opacity-60">↕</span>
         </button>
       ),
-      cell: (info) => fmtMoney(info.getValue() as number),
+      cell: (info) => <span className="money">{money(info.getValue() as number)}</span>,
     },
     {
       accessorKey: 'max_discount',
       header: ({ column }) => (
         <button className="inline-flex items-center gap-1 font-medium"
                 onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-          Max Discount <span className="opacity-60">↕</span>
+          {t('admin.promos.maxDiscount')} <span className="opacity-60">↕</span>
         </button>
       ),
-      cell: (info) => (info.getValue() == null ? '—' : fmtMoney(info.getValue() as number)),
+      cell: (info) =>
+        info.getValue() == null
+          ? '—'
+          : <span className="money">{money(info.getValue() as number)}</span>,
     },
-    { accessorKey: 'start_at', header: 'Starts', cell: (i) => fmtDate(i.getValue() as string | null) },
-    { accessorKey: 'end_at',   header: 'Ends',   cell: (i) => fmtDate(i.getValue() as string | null) },
-    { id: 'effective_status',  header: 'Status', cell: ({ row }) => <StatusBadge promo={row.original} />, enableSorting: false },
-  ], []);
+    {
+      accessorKey: 'start_at',
+      header: () => t('admin.promos.starts'),
+      cell: (i) => <span className="money">{fmtDate(i.getValue() as string | null, lang)}</span>,
+    },
+    {
+      accessorKey: 'end_at',
+      header: () => t('admin.promos.ends'),
+      cell: (i) => <span className="money">{fmtDate(i.getValue() as string | null, lang)}</span>,
+    },
+    {
+      id: 'effective_status',
+      header: () => t('admin.status'),
+      cell: ({ row }) => <StatusBadge promo={row.original} />,
+      enableSorting: false,
+    },
+  ], [t, money, lang]);
 
   const table = useReactTable({
     data: filtered,
@@ -228,43 +251,43 @@ export default function PromosPage() {
       {/* Header + Toolbar */}
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Promos</h1>
-          <div className="text-sm opacity-70">Sort, search, and filter by status/type/date window</div>
+          <h1 className="text-2xl font-bold">{t('admin.promos.title')}</h1>
+          <div className="text-sm opacity-70">{t('admin.promos.subtitle')}</div>
         </div>
 
         <div className="w-full md:w-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(260px,420px)_160px_160px_160px_110px] gap-2">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search code/type/value..."
+            placeholder={t('admin.promos.searchPlaceholder')}
             className={fieldCls + ' w-full'}
           />
 
           <select className={fieldCls} value={enabledFilter} onChange={(e) => setEnabledFilter(e.target.value as any)}>
-            <option value="all">All</option>
-            <option value="enabled">Enabled only</option>
-            <option value="disabled">Disabled only</option>
+            <option value="all">{t('common.all')}</option>
+            <option value="enabled">{t('admin.enabledOnly')}</option>
+            <option value="disabled">{t('admin.disabledOnly')}</option>
           </select>
 
           <select className={fieldCls} value={timeFilter} onChange={(e) => setTimeFilter(e.target.value as any)}>
-            <option value="any">Any time</option>
-            <option value="active">Active now</option>
-            <option value="upcoming">Upcoming</option>
-            <option value="expired">Expired</option>
+            <option value="any">{t('admin.promos.anyTime')}</option>
+            <option value="active">{t('admin.promos.activeNow')}</option>
+            <option value="upcoming">{t('admin.promos.upcoming')}</option>
+            <option value="expired">{t('admin.promos.expired')}</option>
           </select>
 
           <select className={fieldCls} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)}>
-            <option value="all">All types</option>
-            <option value="percent">Percent</option>
-            <option value="amount">Amount</option>
+            <option value="all">{t('admin.promos.allTypes')}</option>
+            <option value="percent">{t('admin.promos.percent')}</option>
+            <option value="amount">{t('admin.promos.amount')}</option>
           </select>
 
           <button className={btnCls} onClick={fetchPromos} disabled={loading}>
-            {loading ? 'Refreshing…' : 'Refresh'}
+            {loading ? t('admin.refreshing') : t('admin.refresh')}
           </button>
 
           <div className="flex items-center gap-2">
-            <label className="text-sm opacity-70">Rows</label>
+            <label className="text-sm opacity-70">{t('admin.rows')}</label>
             <select className={fieldCls} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
               {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -274,7 +297,7 @@ export default function PromosPage() {
 
       {/* Table */}
       <div className="overflow-auto rounded-xl border border-white/10">
-        <table className="w-full text-left">
+        <table className="w-full text-start">
           <thead className="bg-white/5">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
@@ -282,7 +305,7 @@ export default function PromosPage() {
                   <th
                     key={h.id}
                     onClick={h.column.getToggleSortingHandler()}
-                    className="p-2 border-b border-white/10 text-left cursor-pointer select-none"
+                    className="p-2 border-b border-white/10 text-start cursor-pointer select-none"
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
                     {({ asc: ' 🔼', desc: ' 🔽' } as any)[h.column.getIsSorted() as string] ?? null}
@@ -295,7 +318,7 @@ export default function PromosPage() {
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td className="p-6 opacity-70 text-center" colSpan={columns.length}>
-                  No promos match your search/filters.
+                  {t('admin.promos.none')}
                 </td>
               </tr>
             ) : (
@@ -304,7 +327,7 @@ export default function PromosPage() {
                 return (
                   <tr key={row.id} className={`border-b border-white/10 ${faded ? 'opacity-70' : ''} hover:bg-white/5`}>
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="p-2">
+                      <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
@@ -319,13 +342,17 @@ export default function PromosPage() {
       {/* Pagination */}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
         <div className="opacity-70">
-          Page <strong>{table.getState().pagination.pageIndex + 1}</strong> of <strong>{table.getPageCount()}</strong> • <span>{filtered.length} promos</span>
+          {t('admin.pageOf', {
+            page: table.getState().pagination.pageIndex + 1,
+            pages: table.getPageCount(),
+          })}{' '}
+          • <span>{t('admin.promos.count', { n: filtered.length })}</span>
         </div>
         <div className="flex items-center gap-2">
-          <button className={btnCls} onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>« First</button>
-          <button className={btnCls} onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>‹ Prev</button>
-          <button className={btnCls} onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next ›</button>
-          <button className={btnCls} onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>Last »</button>
+          <button className={btnCls} onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>{t('admin.first')}</button>
+          <button className={btnCls} onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>{t('admin.prev')}</button>
+          <button className={btnCls} onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>{t('admin.next')}</button>
+          <button className={btnCls} onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>{t('admin.last')}</button>
         </div>
       </div>
     </div>
