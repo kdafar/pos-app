@@ -209,6 +209,40 @@ export function computeDeliveryFee(services: MainServices, order: any): number {
   return getDeliveryFeeForCity(services, cityId);
 }
 
+/**
+ * Decide which delivery charge an order actually carries.
+ *
+ * Pulled out of recalcOrderTotals so the precedence can be tested without a
+ * database — it is the rule most likely to be quietly wrong, and it decides
+ * what the customer is charged.
+ *
+ * Precedence, highest first:
+ *   1. not a delivery order  → 0
+ *   2. explicitly waived     → 0
+ *   3. hand-entered by staff → that amount
+ *   4. otherwise             → the area fee
+ */
+export function resolveDeliveryFee(
+  order: {
+    order_type?: any;
+    void_delivery_fee?: any;
+    delivery_fee_manual?: any;
+    delivery_fee?: any;
+  } | null,
+  areaFee: number
+): number {
+  if (Number(order?.order_type) !== 1) return 0;
+  if (Number(order?.void_delivery_fee) === 1) return 0;
+
+  if (Number(order?.delivery_fee_manual) === 1) {
+    const df = Number(order?.delivery_fee);
+    return Number.isFinite(df) && df > 0 ? +df.toFixed(3) : 0;
+  }
+
+  const fee = Number(areaFee);
+  return Number.isFinite(fee) && fee > 0 ? +fee.toFixed(3) : 0;
+}
+
 /* ---------------------- Recalculate order totals --------------------- */
 
 export function recalcOrderTotals(
@@ -258,22 +292,18 @@ export function recalcOrderTotals(
   const discount_total = discount_amount; // keep both in sync
 
   // 4) Delivery fee
-  let delivery_fee = 0;
-
-  // Prefer per-order value if present & non-zero
-  if (order && order.delivery_fee != null && order.delivery_fee !== '') {
-    const df = Number(order.delivery_fee);
-    if (Number.isFinite(df) && df !== 0) {
-      delivery_fee = df;
-    }
-  }
-
-  // If still zero, compute from city/settings
-  if (delivery_fee === 0) {
-    delivery_fee = computeDeliveryFee(services, order);
-  }
-
-  delivery_fee = +delivery_fee.toFixed(3);
+  //
+  // Order matters here. The previous version kept any stored non-zero fee and
+  // only fell back to the city when it was zero, which meant an order switched
+  // from delivery to pickup carried its delivery charge to the customer — the
+  // stored fee was never reconsidered. Non-delivery now wins outright.
+  // computeDeliveryFee still applies the legacy global void-fee meta flag, so
+  // it stays the source of the area fee; resolveDeliveryFee decides whether
+  // that area fee is what the order should actually be charged.
+  const delivery_fee = resolveDeliveryFee(
+    order,
+    computeDeliveryFee(services, order)
+  );
 
   // 5) Tax (none for now – hook here later)
   const tax_total = 0;

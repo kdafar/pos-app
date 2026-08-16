@@ -17,6 +17,7 @@ import { PromoDialog } from './PromoDialog';
 import { PaymentLinkModal } from './PaymentLinkModal';
 import { useToast } from '../../../components/ToastProvider'; // adjust path if needed
 import { useI18n } from '../../../i18n';
+import { DeliveryFeeRow } from './DeliveryFeeRow';
 
 declare global {
   interface Window {
@@ -90,6 +91,9 @@ export function CheckoutModal({
   const [useQuickMode, setUseQuickMode] = useState(false);
   const [customerLookup, setCustomerLookup] = useState<Customer | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  // A ref, not the state: submit needs to know within the same tick whether a
+  // link was created, and setState has not committed by then.
+  const pendingPayLinkRef = React.useRef(false);
   const [payLink, setPayLink] = useState<{
     url: string;
     amount: number;
@@ -143,11 +147,21 @@ export function CheckoutModal({
   const [displayDeliveryFee, setDisplayDeliveryFee] = useState<number>(
     order.order_type === 1 ? order.delivery_fee || 0 : 0
   );
+  // A hand-entered or waived fee is the cashier's decision and must survive
+  // picking an area — otherwise choosing the city silently overwrites it.
+  const feeOverridden =
+    Number((order as any).delivery_fee_manual) === 1 ||
+    Number((order as any).void_delivery_fee) === 1;
+
   useEffect(() => {
     if (order.order_type !== 1) return;
+    if (feeOverridden) {
+      setDisplayDeliveryFee(Number(order.delivery_fee ?? 0));
+      return;
+    }
     const fee = Number(selectedCity?.delivery_fee ?? order.delivery_fee ?? 0);
     setDisplayDeliveryFee(isFinite(fee) ? fee : 0);
-  }, [order.order_type, order.delivery_fee, selectedCity]);
+  }, [order.order_type, order.delivery_fee, selectedCity, feeOverridden]);
 
   useEffect(() => {
     (async () => {
@@ -332,6 +346,7 @@ export function CheckoutModal({
             } catch (e) {
               console.error('orders:paymentLink:set failed', e);
             }
+            pendingPayLinkRef.current = true;
             setPayLink({
               url,
               amount: totals.grand_total,
@@ -356,8 +371,13 @@ export function CheckoutModal({
         }
       }
 
-      // Print after complete
-      await onPrintOrder(order.id);
+      // Print after complete. Deliberately not awaited into the same failure
+      // path: closing the Windows print dialog used to unwind submit, which
+      // dismissed the payment QR along with it — the cashier lost the code the
+      // customer was about to scan.
+      onPrintOrder(order.id).catch((e) =>
+        console.error('[CheckoutModal] print after complete failed', e)
+      );
 
       // Clear table on dine-in
       if (order.order_type === 3 && order.table_id) {
@@ -374,7 +394,11 @@ export function CheckoutModal({
         }
       }
 
-      await onAfterComplete();
+      // With a QR on screen the modal owns teardown; running onAfterComplete
+      // here would close the checkout and take the QR with it.
+      if (!pendingPayLinkRef.current) {
+        await onAfterComplete();
+      }
     } catch (err) {
       console.error(err);
 
@@ -805,10 +829,17 @@ export function CheckoutModal({
               />
             )}
             {order.order_type === 1 && (
-              <Row
-                label={t('cart.deliveryFee')}
-                value={money(computeDisplayTotals().delivery)}
+              <DeliveryFeeRow
+                orderId={order.id}
+                value={computeDisplayTotals().delivery}
+                isManual={Number((order as any).delivery_fee_manual) === 1}
+                isWaived={Number((order as any).void_delivery_fee) === 1}
                 theme={theme}
+                onChanged={async () => {
+                  const fresh = await window.api.invoke('orders:get', order.id);
+                  const fee = Number(fresh?.order?.delivery_fee ?? 0);
+                  setDisplayDeliveryFee(Number.isFinite(fee) ? fee : 0);
+                }}
               />
             )}
             <div

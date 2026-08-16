@@ -5,6 +5,7 @@ import {
   baseUnitPrice,
   calcLineTotal,
   variationEffectivePrice,
+  resolveDeliveryFee,
   computePromoDiscount,
   type PromoRow,
 } from './calculations';
@@ -155,5 +156,62 @@ describe('computePromoDiscount', () => {
     expect(
       computePromoDiscount(10, promo({ type: 'amount', value: -5 }))
     ).toBe(0);
+  });
+});
+
+describe('resolveDeliveryFee', () => {
+  const AREA = 1.5;
+
+  it('charges the area fee for a plain delivery order', () => {
+    expect(resolveDeliveryFee({ order_type: 1 }, AREA)).toBeCloseTo(1.5, 3);
+  });
+
+  it('never charges pickup or dine-in, whatever is stored on the row', () => {
+    // The regression this guards: an order switched from delivery to pickup
+    // kept the fee it was created with, and the customer was billed for a
+    // delivery that never happened.
+    const carried = { delivery_fee: 1.5, delivery_fee_manual: 1 };
+    expect(resolveDeliveryFee({ ...carried, order_type: 2 }, AREA)).toBe(0);
+    expect(resolveDeliveryFee({ ...carried, order_type: 3 }, AREA)).toBe(0);
+  });
+
+  it('honours an explicit waiver over both manual and area fees', () => {
+    expect(
+      resolveDeliveryFee(
+        {
+          order_type: 1,
+          void_delivery_fee: 1,
+          delivery_fee_manual: 1,
+          delivery_fee: 5,
+        },
+        AREA
+      )
+    ).toBe(0);
+  });
+
+  it('prefers a hand-entered fee over the area fee', () => {
+    expect(
+      resolveDeliveryFee(
+        { order_type: 1, delivery_fee_manual: 1, delivery_fee: 3.25 },
+        AREA
+      )
+    ).toBeCloseTo(3.25, 3);
+  });
+
+  it('falls back to the area fee when a manual amount is missing or absurd', () => {
+    for (const bad of [null, undefined, '', 'abc', -2, 0]) {
+      expect(
+        resolveDeliveryFee(
+          { order_type: 1, delivery_fee_manual: 1, delivery_fee: bad },
+          AREA
+        )
+      ).toBe(0);
+    }
+  });
+
+  it('treats a missing or unusable area fee as no charge', () => {
+    expect(resolveDeliveryFee({ order_type: 1 }, NaN)).toBe(0);
+    expect(resolveDeliveryFee({ order_type: 1 }, -1)).toBe(0);
+    expect(resolveDeliveryFee(null, AREA)).toBe(0);
   });
 });

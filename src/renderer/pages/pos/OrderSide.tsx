@@ -23,6 +23,7 @@ import { OrderLineItem } from './components/OrderLineItem';
 import { PromoDialog } from './components/PromoDialog';
 import { TablePickerModal } from './components/TablePickerModal';
 import { CheckoutModal } from './components/CheckoutModal';
+import { DeliveryFeeRow } from './components/DeliveryFeeRow';
 import { useToast } from '../../components/ToastProvider';
 import { useConfirmDialog } from '../../components/ConfirmDialogProvider';
 import { shortOrderLabel } from '../../utils/orderLabel';
@@ -549,10 +550,18 @@ export default function OrderSide({
                 />
               )}
               {currentOrder.order_type === 1 && (
-                <Row
-                  label={t('cart.deliveryFee')}
-                  value={money(currentOrder.delivery_fee)}
+                <DeliveryFeeRow
+                  orderId={currentOrder.id}
+                  value={Number(currentOrder.delivery_fee ?? 0)}
+                  isManual={
+                    Number((currentOrder as any).delivery_fee_manual) === 1
+                  }
+                  isWaived={
+                    Number((currentOrder as any).void_delivery_fee) === 1
+                  }
                   theme={theme}
+                  editable={!isOrderLocked}
+                  onChanged={() => onSelectOrder(currentOrder.id)}
                 />
               )}
               <div

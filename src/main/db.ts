@@ -391,6 +391,14 @@ export function migrate() {
     'void_delivery_fee INTEGER DEFAULT 0',
     'void_delivery_fee'
   );
+  // Set when a cashier types the delivery charge in by hand. Without this we
+  // cannot tell a hand-entered fee from one derived from the city, so a recalc
+  // either clobbers the cashier's number or freezes a stale city fee forever.
+  ensureColumn(
+    'orders',
+    'delivery_fee_manual INTEGER DEFAULT 0',
+    'delivery_fee_manual'
+  );
   ensureColumn('orders', 'table_id TEXT', 'table_id');
   ensureColumn('orders', 'covers INTEGER', 'covers');
   ensureColumn('orders', 'delivery_fee REAL DEFAULT 0', 'delivery_fee');

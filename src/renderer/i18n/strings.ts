@@ -63,6 +63,10 @@ const coreStrings = {
     en: 'Search items, barcode, or Arabic name…',
     ar: '...ابحث بالاسم أو الباركود',
   },
+  'pos.searchAllCategories': {
+    en: 'Searching all categories',
+    ar: 'البحث في كل الأقسام',
+  },
   'pos.categories': { en: 'All Categories', ar: 'كل الأقسام' },
   'pos.outOfStock': { en: 'Out of Stock', ar: 'غير متوفر' },
   'pos.from': { en: 'from', ar: 'يبدأ من' },
@@ -111,6 +115,22 @@ const coreStrings = {
   'cart.subtotal': { en: 'Subtotal', ar: 'المجموع' },
   'cart.discount': { en: 'Discount', ar: 'الخصم' },
   'cart.deliveryFee': { en: 'Delivery fee', ar: 'رسوم التوصيل' },
+  'pos.typeChangeFailed': {
+    en: 'Could not change order type',
+    ar: 'تعذّر تغيير نوع الطلب',
+  },
+  'cart.editDeliveryFee': {
+    en: 'Edit delivery fee',
+    ar: 'تعديل رسوم التوصيل',
+  },
+  'cart.noDeliveryCharge': { en: 'No charge', ar: 'بدون رسوم' },
+  'cart.deliveryFeeAuto': { en: 'Use area fee', ar: 'رسوم المنطقة' },
+  'cart.deliveryFeeInvalid': {
+    en: 'Enter a valid amount',
+    ar: 'أدخل مبلغًا صحيحًا',
+  },
+  'cart.waived': { en: 'waived', ar: 'ملغاة' },
+  'cart.manual': { en: 'manual', ar: 'يدوي' },
   'cart.grandTotal': { en: 'Grand total', ar: 'المبلغ الإجمالي' },
   'cart.placeOrder': { en: 'Place order', ar: 'تأكيد الطلب' },
   'cart.closeOrder': { en: 'Close order', ar: 'إغلاق الطلب' },

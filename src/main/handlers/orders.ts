@@ -491,11 +491,6 @@ export function registerOrdersHandlers(
       const isLocked =
         hasColumn('orders', 'is_locked') && Number(order.is_locked ?? 0) === 1;
 
-      const hasPayment =
-        hasColumn('orders', 'payment_method_id') &&
-        order.payment_method_id != null &&
-        String(order.payment_method_id) !== '';
-
       // ❌ 1) Do not allow changing type for a dine-in order that has a table
       if (currentType === 3 && order.table_id && type !== 3) {
         throw new Error(
@@ -503,26 +498,107 @@ export function registerOrdersHandlers(
         );
       }
 
-      // ❌ 2) Once the order is placed/updated, do not allow type change
-      //    (i.e. anything beyond a fresh "open" order with no lock/payment)
-      if (
-        status !== 'open' || // pending / prepared / ready / completed / closed
-        isLocked ||
-        hasPayment
-      ) {
+      // ❌ 2) A finished order is history — reopening it is a different action.
+      //
+      // This used to also refuse the change whenever a payment method was set,
+      // which made "rang up as pickup, customer wants it delivered" impossible:
+      // the POS assigns a method early, so in practice the type froze the
+      // moment the order was created. A chosen payment method says nothing
+      // about how the order leaves the shop, so it no longer blocks. Totals are
+      // recalculated below, which is what actually has to be right.
+      if (TERMINAL_STATUSES.includes(status as any) || isLocked) {
         throw new Error(
-          'Order type cannot be changed after the order has been placed or updated.'
+          'Order type cannot be changed after the order has been closed.'
         );
       }
 
-      // ✅ If we get here, it is still a fresh editable order
+      // Leaving delivery drops any fee override with it. Keeping the override
+      // would mean a pickup order that later becomes a delivery again silently
+      // charges nothing, because the manual flag survived with a zeroed amount.
+      const cols = ['order_type = ?', 'updated_at = ?'];
+      const params: any[] = [type, nowMs()];
+      if (type !== 1) {
+        if (hasColumn('orders', 'delivery_fee_manual')) {
+          cols.push('delivery_fee_manual = 0');
+        }
+        if (hasColumn('orders', 'void_delivery_fee')) {
+          cols.push('void_delivery_fee = 0');
+        }
+      }
+
       rawDb
-        .prepare(
-          `UPDATE orders SET order_type = ?, updated_at = ? WHERE id = ?`
-        )
-        .run(type, nowMs(), orderId);
+        .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
+        .run(...params, orderId);
 
       log('orders.setType', orderId, { from: currentType, to: type });
+
+      return recalcAndGet(orderId);
+    }
+  );
+
+  /**
+   * Set the delivery charge on an order by hand.
+   *
+   * Three modes, because "0" is genuinely ambiguous on a till:
+   *   auto   — clear the override, charge whatever the city table says
+   *   manual — charge exactly this amount (a driver's quote, a long trip)
+   *   none   — no delivery charge at all (a comp, or the customer collects)
+   *
+   * `none` is not "manual 0": the void flag survives a city change, whereas a
+   * manual 0 would look like "no fee entered yet" to anyone reading the row.
+   */
+  ipcMain.handle(
+    'orders:setDeliveryFee',
+    async (
+      _e,
+      orderId: string,
+      input: { mode: 'auto' | 'manual' | 'none'; amount?: number }
+    ) => {
+      if (isPosLocked()) throw new Error('POS is locked');
+
+      const order = assertOrderEditable(orderId);
+
+      if (Number(order.order_type) !== 1) {
+        throw new Error('Only delivery orders can carry a delivery charge.');
+      }
+
+      const mode = input?.mode ?? 'auto';
+      let manual = 0;
+      let voided = 0;
+      let fee = Number(order.delivery_fee ?? 0);
+
+      if (mode === 'manual') {
+        const amount = Number(input?.amount);
+        if (!Number.isFinite(amount) || amount < 0) {
+          throw new Error('Delivery charge must be a positive amount.');
+        }
+        // Guard against a mis-keyed amount becoming a customer-facing charge.
+        if (amount > 99) {
+          throw new Error('Delivery charge looks too large — check the amount.');
+        }
+        manual = 1;
+        fee = +amount.toFixed(3);
+      } else if (mode === 'none') {
+        voided = 1;
+        fee = 0;
+      }
+
+      const cols = ['delivery_fee = ?', 'updated_at = ?'];
+      const params: any[] = [fee, nowMs()];
+      if (hasColumn('orders', 'delivery_fee_manual')) {
+        cols.push('delivery_fee_manual = ?');
+        params.push(manual);
+      }
+      if (hasColumn('orders', 'void_delivery_fee')) {
+        cols.push('void_delivery_fee = ?');
+        params.push(voided);
+      }
+
+      rawDb
+        .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
+        .run(...params, orderId);
+
+      log('orders.setDeliveryFee', orderId, { mode, amount: fee });
 
       return recalcAndGet(orderId);
     }
@@ -531,6 +607,84 @@ export function registerOrdersHandlers(
   ipcMain.handle('orders:get', async (_e, orderId: string) =>
     getOrderWithLines(orderId)
   );
+
+  /**
+   * Everything about one order in a single call: header, customer, address,
+   * lines, payment state and a timeline.
+   *
+   * The timeline comes from pos_action_log, which has been written all along
+   * but was never read — so "when did this happen" was unanswerable from the
+   * till. Orders synced from the server for phone lookup have no local lines
+   * or history; the flags say so rather than rendering a convincing blank.
+   */
+  ipcMain.handle('orders:getDetail', async (_e, orderId: string) => {
+    const id = String(orderId ?? '').trim();
+    if (!id) return null;
+
+    const base = getOrderWithLines(id);
+    if (!base?.order) return null;
+
+    let timeline: any[] = [];
+    try {
+      timeline = rawDb
+        .prepare(
+          `SELECT l.action, l.meta_json, l.created_at, l.user_id,
+                  u.name AS user_name
+             FROM pos_action_log l
+             LEFT JOIN pos_users u ON CAST(u.id AS TEXT) = CAST(l.user_id AS TEXT)
+            WHERE l.order_id = ?
+            ORDER BY l.created_at ASC`
+        )
+        .all(id) as any[];
+    } catch (e) {
+      console.error('[orders:getDetail] timeline failed', e);
+    }
+
+    // Resolve geo ids to names so the address reads as an address.
+    const nameOf = (table: string, value: any) => {
+      if (value == null || value === '') return null;
+      try {
+        const r = rawDb
+          .prepare(
+            `SELECT name, name_ar FROM ${table} WHERE CAST(id AS TEXT) = CAST(? AS TEXT)`
+          )
+          .get(String(value)) as any;
+        return r ?? null;
+      } catch {
+        return null;
+      }
+    };
+
+    const o = base.order;
+    return {
+      order: o,
+      lines: base.lines,
+      isServerSeed: (base.lines?.length ?? 0) === 0,
+      geo: {
+        state: nameOf('states', o.state_id),
+        city: nameOf('cities', o.city_id),
+        block: nameOf('blocks', o.block_id),
+      },
+      payment: {
+        method_slug: o.payment_method_slug ?? null,
+        link_url: o.payment_link_url ?? null,
+        link_status: o.payment_link_status ?? null,
+        verified_at: o.payment_link_verified_at ?? null,
+      },
+      timeline: timeline.map((t) => ({
+        action: t.action,
+        at: Number(t.created_at) || null,
+        user: t.user_name ?? null,
+        meta: (() => {
+          try {
+            return t.meta_json ? JSON.parse(t.meta_json) : null;
+          } catch {
+            return null;
+          }
+        })(),
+      })),
+    };
+  });
 
   ipcMain.handle('orders:getForTable', async (_e, tableId: number) => {
     // Finds the active open order for this table
@@ -1226,11 +1380,14 @@ export function registerOrdersHandlers(
       // 2) 🔹 Now recalc with the correct city_id → will set delivery_fee, discount_total, grand_total
       const totals = recalcOrderTotals(services, orderId);
 
-      // 3) 🔹 Placing an order does NOT finish it: the line stays on the till
-      //    so the cashier can keep adding to it. `orders:close` is what clears
-      //    it. Both states are pushed to the server (PUSHABLE_STATUSES).
+      // 3) 🔹 Placing finishes the sale for pickup and delivery — the customer
+      //    pays and leaves, so holding the order open just clutters the till
+      //    and risks a second cashier adding to a settled sale. Dine-in is the
+      //    exception: the table stays open until it is released.
+      //    Both states are pushed (PUSHABLE_STATUSES); close re-queues via
+      //    markForRepush so the server sees the final state.
       const newStatus =
-        type === 3 ? ORDER_STATUS.PREPARED : ORDER_STATUS.PLACED;
+        type === 3 ? ORDER_STATUS.PREPARED : ORDER_STATUS.CLOSED;
 
       const cols = [
         'status = ?',
@@ -1261,6 +1418,12 @@ export function registerOrdersHandlers(
 
       if (type !== 3 && hasColumn('orders', 'completed_at')) {
         cols.push('completed_at = ?');
+        params.push(ts);
+      }
+      // A pickup/delivery order is finished here, so stamp closed_at too —
+      // reports and the closing report key off it.
+      if (type !== 3 && hasColumn('orders', 'closed_at')) {
+        cols.push('closed_at = ?');
         params.push(ts);
       }
 

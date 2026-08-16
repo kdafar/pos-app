@@ -297,7 +297,16 @@ export default function OrderProcessPage() {
       if (type === 3) await loadTables();
       setDefaultOrderType(type);
     } catch (e) {
+      // The main process refuses some type changes (a dine-in order holding a
+      // table, a closed order). Logging to a console nobody has open made this
+      // look like a dead button — the cashier clicked "Delivery" and nothing
+      // whatsoever happened.
       console.error(e);
+      toast({
+        tone: 'danger',
+        title: t('pos.typeChangeFailed'),
+        message: e instanceof Error ? e.message : String(e ?? ''),
+      });
     }
   };
 
@@ -637,7 +646,17 @@ export default function OrderProcessPage() {
         />
       )}
 
-      <div className='grid grid-cols-[1fr_420px] flex-1 min-h-0 overflow-hidden'>
+      {/*
+        The order panel was a hard 420px, which is a third of the window once
+        Windows scaling shrinks the viewport — the catalog got squeezed while
+        the cart sat half empty. clamp() keeps it readable on a small till and
+        stops it ballooning on a 4K screen; below 60rem it drops under the
+        catalog rather than crushing it.
+      */}
+      <div
+        className='grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26vw,30rem)]
+          flex-1 min-h-0 overflow-hidden'
+      >
         <CatalogPanel
           theme={theme}
           items={items}
