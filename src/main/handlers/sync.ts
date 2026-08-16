@@ -309,6 +309,12 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         mid
       );
 
+      // pairDevice used to return only { deviceId, branchId }, so this read was
+      // always undefined and the whole block below was dead — including the
+      // clearPosLock() that a re-pair depends on. A till carrying a stale
+      // pos.locked=1 could therefore never pair again: the check below threw
+      // every time, and the only line that could clear the flag never ran.
+      // Deleting the local DB was the sole escape.
       const device = result?.device;
       if (device) {
         // Save killswitch days
@@ -323,6 +329,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         if (device.locked_at) {
           // device is locked RIGHT NOW
           setMeta('pos.locked', '1');
+          setMeta('pos.lock_reason', 'server_locked');
           setMeta(
             'pos.locked_at',
             String(new Date(device.locked_at).getTime())

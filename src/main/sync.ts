@@ -503,7 +503,14 @@ export async function pairDevice(
     setMeta('branch_id', String(data.device.branch_id));
   await saveSecret('device_token', data.token);
 
-  return { deviceId: data.device.id, branchId: data.device.branch_id };
+  // The caller needs the whole device, not just its ids: locked_at and
+  // killswitch_after_days ride along on this response and decide whether the
+  // freshly paired till starts locked.
+  return {
+    deviceId: data.device.id,
+    branchId: data.device.branch_id,
+    device: data.device,
+  };
 }
 
 /* ---------- Bootstrap (full catalog seed) ---------- */
