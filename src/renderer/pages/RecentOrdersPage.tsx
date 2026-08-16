@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getPaginationRowModel,
-  flexRender,
-  ColumnDef,
-  SortingState,
-} from '@tanstack/react-table';
-import { Printer } from 'lucide-react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Printer, QrCode, Eye } from 'lucide-react';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
+import { PaymentMethodCell } from './PaymentMethodCell';
+import { OrderDetailModal } from './OrderDetailModal';
+import { DataTable } from '../components/DataTable';
+import { PaymentLinkModal } from './pos/components/PaymentLinkModal';
+import { useRootTheme } from './pos/useRootTheme';
 import { useI18n, useOrderTypeLabel, useStatusLabel } from '../i18n';
 import type { StringKey } from '../i18n';
 
@@ -148,6 +145,7 @@ function getTodayRangeMs() {
 }
 
 export default function TodayOrdersReport() {
+  const theme = useRootTheme();
   const { t, money, lang } = useI18n();
   const typeLabel = useOrderTypeLabel();
   const [rows, setRows] = useState<Order[]>([]);
@@ -158,11 +156,49 @@ export default function TodayOrdersReport() {
   const [type, setType] = useState<'all' | '1' | '2' | '3'>('all');
 
   // table state
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: 'updated_at', desc: true },
-  ]);
   const [pageSize, setPageSize] = useState(25);
   const toast = useToast();
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [qrOrder, setQrOrder] = useState<{
+    url: string;
+    amount: number;
+    mobile: string | null;
+    label: string | null;
+    orderId: string;
+  } | null>(null);
+
+  // Re-show the payment QR for an order that already has a link, so a customer
+  // who did not scan at the counter can be served without re-ringing the sale.
+  const showPaymentQr = useCallback(
+    async (orderId: string) => {
+      try {
+        const link = await window.api.invoke('orders:paymentLink:get', orderId);
+        if (!link?.url) {
+          toast({
+            tone: 'warning',
+            title: t('admin.orders.noPayLink'),
+            message: t('admin.orders.noPayLinkMsg'),
+          });
+          return;
+        }
+        setQrOrder({ ...link, orderId });
+      } catch (e) {
+        // Was silent: a rejected invoke left the button looking dead.
+        console.error('orders:paymentLink:get failed', e);
+        const raw = e instanceof Error ? e.message : String(e ?? '');
+        toast({
+          tone: 'danger',
+          title: t('admin.orders.noPayLink'),
+          message:
+            raw
+              .replace(/^Error invoking remote method '[^']*':\s*/i, '')
+              .replace(/^(Error|TypeError):\s*/i, '')
+              .trim() || t('admin.supportHint'),
+        });
+      }
+    },
+    [t, toast]
+  );
 
   // ---- tiny UI helpers so all fields/buttons look identical (dark & light) ----
   const fieldCls =
@@ -383,41 +419,65 @@ export default function TodayOrdersReport() {
         id: 'actions',
         header: () => t('admin.actions'),
         enableSorting: false,
-        size: 120,
+        // Wide enough for three buttons. Under `table-fixed` an undersized
+        // column does not clip — it overflows and overlaps its neighbour.
+        size: 190,
         cell: ({ row }) =>
           isAdmin ? (
-            <button
-              className={rowBtnCls}
-              onClick={() => handlePrint(row.original.id)}
-              title={t('admin.orders.printReceipt')}
-            >
-              <Printer size={14} />
-              <span>{t('admin.orders.print')}</span>
-            </button>
+            <div className='flex items-center gap-1.5 overflow-hidden'>
+              {row.original.id && (
+                <button
+                  className={rowBtnCls}
+                  onClick={() => setDetailId(String(row.original.id))}
+                  title={t('admin.orders.viewDetail')}
+                >
+                  <Eye size={14} />
+                </button>
+              )}
+              <button
+                className={rowBtnCls}
+                onClick={() => handlePrint(row.original.id)}
+                title={t('admin.orders.printReceipt')}
+              >
+                <Printer size={14} />
+                <span>{t('admin.orders.print')}</span>
+              </button>
+              {(row.original as any).payment_link_url && row.original.id && (
+                <button
+                  className={rowBtnCls}
+                  onClick={() => showPaymentQr(String(row.original.id))}
+                  title={t('admin.orders.showQr')}
+                >
+                  <QrCode size={14} />
+                </button>
+              )}
+            </div>
           ) : null,
       },
+      {
+        id: 'payment',
+        header: () => t('cust.paymentMethod'),
+        enableSorting: false,
+        size: 150,
+        cell: ({ row }) =>
+          isAdmin && row.original.id ? (
+            <PaymentMethodCell
+              orderId={String(row.original.id)}
+              slug={(row.original as any).payment_method_slug}
+              theme={theme}
+              onChanged={refresh}
+            />
+          ) : (
+            <span className='opacity-70'>
+              {(row.original as any).payment_method_slug || '—'}
+            </span>
+          ),
+      },
     ],
-    [handlePrint, isAdmin, t, money, lang, typeLabel]
+    [handlePrint, showPaymentQr, isAdmin, t, money, lang, typeLabel, theme]
   ); // keep in sync with admin state
 
-  const table = useReactTable({
-    data: filtered,
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageIndex: 0, pageSize } },
-  });
 
-  useEffect(() => {
-    table.setPageSize(pageSize);
-  }, [pageSize, table]);
-
-  useEffect(() => {
-    table.setPageIndex(0);
-  }, [q, type, table]);
 
   return (
     <div className='max-w-7xl mx-auto p-4'>
@@ -477,100 +537,53 @@ export default function TodayOrdersReport() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className='overflow-auto rounded-xl border border-white/10'>
-        <table className='w-full text-start table-fixed'>
-          <thead className='bg-white/5 sticky top-0 z-10'>
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((h) => (
-                  <th
-                    key={h.id}
-                    style={{ width: h.getSize() !== 150 ? undefined : 150 }}
-                    className='p-2 border-b border-white/10 text-start select-none'
-                  >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                    {({ asc: ' 🔼', desc: ' 🔽' } as any)[
-                      h.column.getIsSorted() as string
-                    ] ?? null}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td
-                  className='p-6 opacity-70 text-center'
-                  colSpan={columns.length}
-                >
-                  {q !== '' || type !== 'all'
-                    ? t('admin.orders.noneFiltered')
-                    : t('admin.orders.noneToday')}
-                </td>
-              </tr>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className='border-b border-white/10 hover:bg-white/5'
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className='p-2 align-top text-start'>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        data={filtered}
+        columns={columns}
+        theme={theme}
+        loading={loading}
+        initialSorting={[{ id: 'updated_at', desc: true }]}
+        pageSize={pageSize}
+        onPageSizeChange={setPageSize}
+        getRowId={(r, i) => String((r as any).id ?? i)}
+        empty={
+          q || type !== 'all'
+            ? t('admin.orders.noneFiltered')
+            : t('admin.orders.noneToday')
+        }
+      />
 
-      {/* Pagination */}
-      <div className='mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm'>
-        <div className='opacity-70'>
-          {t('admin.pageOf', {
-            page: table.getState().pagination.pageIndex + 1,
-            pages: table.getPageCount(),
-          })}{' '}
-          • <span>{t('admin.orders.count', { n: filtered.length })}</span>
-        </div>
-        <div className='flex items-center gap-2'>
-          <button
-            className={btnCls}
-            onClick={() => table.setPageIndex(0)}
-            disabled={!table.getCanPreviousPage()}
-          >
-            {t('admin.first')}
-          </button>
-          <button
-            className={btnCls}
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            {t('admin.prev')}
-          </button>
-          <button
-            className={btnCls}
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            {t('admin.next')}
-          </button>
-          <button
-            className={btnCls}
-            onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-            disabled={!table.getCanNextPage()}
-          >
-            {t('admin.last')}
-          </button>
-        </div>
-      </div>
+
+      {detailId && (
+        <OrderDetailModal
+          orderId={detailId}
+          theme={theme}
+          onShowQr={(id) => {
+            setDetailId(null);
+            showPaymentQr(id);
+          }}
+          onClose={() => setDetailId(null)}
+        />
+      )}
+
+      {qrOrder && (
+        <PaymentLinkModal
+          theme={theme}
+          url={qrOrder.url}
+          amount={qrOrder.amount}
+          mobile={qrOrder.mobile}
+          orderLabel={qrOrder.label}
+          onCheckStatus={async () => {
+            const r = await window.api.invoke(
+              'payments:checkStatus',
+              qrOrder.orderId
+            );
+            await refresh();
+            return (r?.status ?? null) as 'pending' | 'paid' | 'failed' | null;
+          }}
+          onClose={() => setQrOrder(null)}
+        />
+      )}
     </div>
   );
 }

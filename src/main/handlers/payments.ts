@@ -155,6 +155,70 @@ export function registerPaymentHandlers(ipcMain: IpcMain) {
     }
   });
 
+  /**
+   * Change the payment method on an existing order.
+   *
+   * A cashier rings up "cash", the customer then pays by KNET — with no way to
+   * correct it the day's takings are wrong by that amount. Allowed on closed
+   * orders deliberately: the correction is almost always needed after the sale.
+   *
+   * Clears synced_at so the change reaches the server; push applies payment on
+   * re-push of a known external_id.
+   */
+  ipcMain.handle(
+    'orders:setPaymentMethod',
+    async (_e, orderId: string, methodId: string) => {
+      const id = String(orderId ?? '').trim();
+      if (!id) throw new Error('Order id is required');
+
+      const method = db
+        .prepare(
+          `SELECT id, slug, name_en, name_ar FROM payment_methods WHERE id = ?`
+        )
+        .get(String(methodId)) as any;
+      if (!method) throw new Error('Unknown payment method');
+
+      const order = db
+        .prepare(`SELECT id, status FROM orders WHERE id = ?`)
+        .get(id) as any;
+      if (!order) throw new Error('Order not found');
+
+      db.prepare(
+        `UPDATE orders
+            SET payment_method_id   = ?,
+                payment_method_slug = ?,
+                updated_at          = ?,
+                synced_at           = NULL
+          WHERE id = ?`
+      ).run(String(method.id), method.slug ?? '', Date.now(), id);
+
+      console.log('[orders:setPaymentMethod]', {
+        order: id,
+        to: method.slug,
+      });
+
+      return { ok: true, slug: method.slug, name_en: method.name_en };
+    }
+  );
+
+  /** The stored payment link for an order, so the QR can be shown again. */
+  ipcMain.handle('orders:paymentLink:get', async (_e, orderId: string) => {
+    const row = db
+      .prepare(
+        `SELECT payment_link_url, payment_link_status, grand_total, mobile, number, reference_no
+           FROM orders WHERE id = ? LIMIT 1`
+      )
+      .get(String(orderId ?? '')) as any;
+    if (!row?.payment_link_url) return null;
+    return {
+      url: row.payment_link_url,
+      status: row.payment_link_status ?? null,
+      amount: Number(row.grand_total ?? 0),
+      mobile: row.mobile ?? null,
+      label: row.reference_no ? `#${row.reference_no}` : row.number ?? null,
+    };
+  });
+
   // --- List active payment methods (for payment selector) ---
   ipcMain.handle('payments:listMethods', async () => {
     return db
