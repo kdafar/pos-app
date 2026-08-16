@@ -2,7 +2,8 @@ import { BrowserWindow, ipcMain, app } from 'electron';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import db, { getSetting } from './db';
+import crypto from 'node:crypto';
+import db, { getSetting, getMeta } from './db';
 import QRCode from 'qrcode';
 import bwipjs from 'bwip-js';
 
@@ -35,6 +36,7 @@ type OrderRow = {
   branch_name?: string | null;
   branch_phone?: string | null;
   order_number?: string | null;
+  reference_no?: string | null;
   order_notes?: string | null;
   promocode?: string | null;
 };
@@ -111,6 +113,7 @@ function getOrder(orderId: string): OrderRow | undefined {
       NULL  AS branch_name,
       NULL  AS branch_phone,
       o.number AS order_number,
+      o.reference_no,
       o.note  AS order_notes,
       o.promocode
     FROM orders o
@@ -148,6 +151,8 @@ function orderStatusLabel(
         return 'مفتوح';
       case 'pending':
         return 'قيد الانتظار';
+      case 'placed':
+        return 'تم الطلب';
       case 'ready':
         return 'جاهز';
       case 'prepared':
@@ -164,6 +169,11 @@ function orderStatusLabel(
   }
   // English
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Pick a string for the receipt language. The template had none of this. */
+function L(lang: 'ar' | 'en', en: string, ar: string): string {
+  return lang === 'ar' ? ar : en;
 }
 
 function getLines(orderId: string): LineRow[] {
@@ -243,6 +253,162 @@ async function toDataUrl(
     return `data:image/${ext};base64,${buf.toString('base64')}`;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Receipts must carry the OPERATOR's brand (the restaurant running the till),
+ * never this application's own logo.
+ *
+ * Sources, in order of trust:
+ *   1. a logo synced from the server (settings key, remote URL or local path)
+ *   2. a logo the operator dropped into <userData>/branding/logo.(png|jpg|svg)
+ *
+ * If none is found we print no logo at all rather than substituting ours —
+ * a blank header is honest, someone else's mark on a receipt is not.
+ */
+const LOGO_SETTING_KEYS = [
+  // Confirmed key the backend will ship in wave one. The logo lives in the
+  // `about_us` table, not settings, which is why none of the guesses hit.
+  'branding.logo_url',
+  'assets.about_logo_path',
+  'general.logo_path',
+  'general.logo',
+  'general.shop_logo',
+  'about.logo',
+  'branding.logo',
+];
+
+async function resolveOperatorLogo(
+  getSetting: (k: string) => unknown
+): Promise<string | null> {
+  // 1) Anything the server gave us, under any of the known keys.
+  for (const key of LOGO_SETTING_KEYS) {
+    const raw = getSetting(key);
+    // An install with no logo uploaded sends an empty value — skip the
+    // block entirely rather than printing a broken image.
+    const val = raw == null ? '' : String(raw).trim();
+    if (!val) continue;
+
+    if (/^data:image\//i.test(val)) return val; // already inlined
+    if (/^https?:\/\//i.test(val)) {
+      const cached = await cacheRemoteLogo(val);
+      if (cached) return cached;
+      continue;
+    }
+    const asFile = await toDataUrl(val);
+    if (asFile) return asFile;
+  }
+
+  // 2) Operator-supplied file, so a site can brand its receipts today without
+  //    waiting for the backend to start sending one.
+  const dir = path.join(app.getPath('userData'), 'branding');
+  for (const name of ['logo.png', 'logo.jpg', 'logo.jpeg', 'logo.svg']) {
+    const hit = await toDataUrl(path.join(dir, name));
+    if (hit) return hit;
+  }
+
+  return null;
+}
+
+/** Download a remote logo once and reuse it, so printing works offline. */
+/** How long a cached logo is trusted before we revalidate against the server. */
+const LOGO_REVALIDATE_MS = 6 * 60 * 60 * 1000; // 6h
+
+/**
+ * Download a remote logo and reuse it, so printing keeps working offline.
+ *
+ * The cache filename is derived from a hash of the URL, not a fixed name. That
+ * matters: the operator uploading a new logo changes the filename (and so the
+ * URL), which must produce a fresh download rather than silently reprinting the
+ * old mark forever. Keying on a constant name was exactly that bug.
+ *
+ * A same-URL replacement is handled too — after LOGO_REVALIDATE_MS we make a
+ * conditional request and only rewrite the file when the server says it
+ * changed. If the network is down we keep printing the cached copy, because a
+ * slightly stale logo beats a receipt with no branding at all.
+ */
+async function cacheRemoteLogo(url: string): Promise<string | null> {
+  const dir = path.join(app.getPath('userData'), 'branding');
+  const key = crypto.createHash('sha1').update(url).digest('hex').slice(0, 12);
+  const ext = (path.extname(new URL(url).pathname) || '.png')
+    .slice(0, 5)
+    .toLowerCase();
+  const file = path.join(dir, `remote-logo-${key}${ext}`);
+  const mime = ext.replace('.', '') || 'png';
+
+  let stat: { mtimeMs: number } | null = null;
+  try {
+    stat = await fs.stat(file);
+  } catch {
+    stat = null;
+  }
+
+  const fresh = stat && Date.now() - stat.mtimeMs < LOGO_REVALIDATE_MS;
+  if (fresh) {
+    const cached = await toDataUrl(file);
+    if (cached) return cached;
+  }
+
+  try {
+    // Deliberately NOT using If-Modified-Since as the source of truth. A
+    // replaced file can keep its name, its length and even its Last-Modified
+    // (some CDNs and PHP storage handlers serve a stale or absent header), so
+    // header-based revalidation quietly reprints the old mark. Compare the
+    // bytes instead: hash what we get and only rewrite when the hash differs.
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length) throw new Error('empty response');
+
+    const incomingHash = crypto.createHash('sha256').update(buf).digest('hex');
+    const existingHash = await hashFile(file);
+
+    if (existingHash === incomingHash) {
+      // Identical bytes — touch it so we do not re-download for another TTL.
+      await fs.utimes(file, new Date(), new Date()).catch(() => {});
+      return `data:image/${mime};base64,${buf.toString('base64')}`;
+    }
+
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(file, buf);
+    await pruneOldRemoteLogos(dir, path.basename(file));
+
+    console.log('[print] operator logo changed — cache replaced', {
+      url,
+      bytes: buf.length,
+      was: existingHash ? existingHash.slice(0, 12) : '(none)',
+      now: incomingHash.slice(0, 12),
+    });
+    return `data:image/${mime};base64,${buf.toString('base64')}`;
+  } catch (e: any) {
+    console.warn('[print] could not refresh operator logo:', e?.message || e);
+    // Offline or server down — fall back to whatever we already have.
+    return await toDataUrl(file);
+  }
+}
+
+/** sha256 of a file's contents, or null when it does not exist. */
+async function hashFile(file: string): Promise<string | null> {
+  try {
+    const buf = await fs.readFile(file);
+    return crypto.createHash('sha256').update(buf).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+/** Remove superseded logo caches so the folder does not accumulate. */
+async function pruneOldRemoteLogos(dir: string, keep: string) {
+  try {
+    for (const name of await fs.readdir(dir)) {
+      if (name.startsWith('remote-logo-') && name !== keep) {
+        await fs.unlink(path.join(dir, name)).catch(() => {});
+      }
+    }
+  } catch {
+    /* nothing to prune */
   }
 }
 
@@ -340,10 +506,20 @@ function renderReceiptHTML(opts: {
     for (const L of section) {
       const lineTotal = L.qty * L.price;
 
+      // Kitchen tickets are read by staff who use both languages, and the
+      // transliteration in the catalog is inconsistent — one line risks the
+      // wrong dish going out. Show both when both exist and differ.
       const name =
         lang === 'ar'
           ? L.item_name_ar || L.item_name
           : L.item_name || L.item_name_ar || '';
+      const secondary =
+        lang === 'ar' &&
+        L.item_name_ar &&
+        L.item_name &&
+        L.item_name_ar !== L.item_name
+          ? L.item_name
+          : '';
 
       const optParts: string[] = [];
       if (L.variation) optParts.push(`[${L.variation}]`);
@@ -353,6 +529,7 @@ function renderReceiptHTML(opts: {
         <tr>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:left;">
             ${name} ${optParts.join(' ') || ''}
+            ${secondary ? `<span class="item-en">${secondary}</span>` : ''}
             ${
               L.item_notes
                 ? `<br><small>* ${String(L.item_notes).replace(
@@ -362,10 +539,10 @@ function renderReceiptHTML(opts: {
                 : ''
             }
           </td>
-          <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:right;">
+          <td class="num" style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;">
             ${L.qty}
           </td>
-          <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;text-align:right;">
+          <td class="money" style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:18px;vertical-align:top;">
             ${fmt(lineTotal)}
           </td>
         </tr>
@@ -474,6 +651,8 @@ function renderReceiptHTML(opts: {
     createdAt = new Date();
   }
 
+  // Always formatted with Latin digits; the .ltr class stops bidi reordering
+  // it inside an Arabic paragraph.
   const createdLabel = createdAt.toLocaleString('en-KW', {
     year: 'numeric',
     month: '2-digit',
@@ -507,12 +686,34 @@ function renderReceiptHTML(opts: {
         : ''
       : '';
 
+  const rtl = lang === 'ar';
+  // KD / د.ك — the operator's own settings carry both spellings.
+  const cur = rtl ? 'د.ك' : currency || 'KD';
+
   return `<!DOCTYPE html>
-<html>
+<html lang="${lang}" dir="${rtl ? 'rtl' : 'ltr'}">
 <head>
   <meta charset="UTF-8" />
   <title>Order #${order.number}</title>
   <style>
+    /* ---- Arabic receipt (ar-KW), operator-approved rules ---------------
+         1. Full RTL mirroring, not a half-mirrored layout.
+         2. Bilingual item names, Arabic over English, where both exist.
+         3. Latin numerals (0123) so the receipt reconciles by eye against
+            the dashboard and end-of-day reports.
+       Money, quantities and phone numbers are pinned LTR: inside an Arabic
+       paragraph bidi would otherwise reorder "12.500" into nonsense. ---- */
+    ${rtl ? `
+    body, #printDiv { direction: rtl; }
+    #printDiv td, #printDiv th, #printDiv div, #printDiv p { text-align: right; }
+    .num, .money, .ltr { direction: ltr; unicode-bidi: isolate; text-align: left; }
+    #printDiv, #printDiv td, #printDiv p { line-height: 1.7; }
+    .item-en { display: block; font-size: 12px; font-weight: 400; opacity: .75;
+               direction: ltr; text-align: right; }
+    ` : `
+    .num, .money, .ltr { direction: ltr; unicode-bidi: isolate; }
+    .item-en { display: none; }
+    `}
     #qrcode {
       width: 256px;
       height: 256px;
@@ -568,7 +769,7 @@ function renderReceiptHTML(opts: {
           ${
             branchName
               ? `<strong style="font-size:16px;"><br>${branchName}${
-                  branchPhone ? ' - ' + branchPhone : ''
+                  branchPhone ? ' - <span class="ltr">' + branchPhone + '</span>' : ''
                 }</strong><br>`
               : ''
           }
@@ -580,7 +781,24 @@ function renderReceiptHTML(opts: {
       <tr>
         <td style="font-family:'Open Sans',sans-serif;line-height:15px;vertical-align:bottom;text-align:center;font-weight:bold;">
           <h3 style="font-weight:bold;margin:8px 0;">
-            Invoice ${order.number || order.id}<br>
+            ${
+              order.reference_no
+                ? // Synced: the short running number is what a customer quotes
+                  // back, so it leads; the system number drops to small text.
+                  `${lang === 'ar' ? 'رقم الطلب' : 'Order'} #${
+                    order.reference_no
+                  }<br><small style="font-weight:normal;font-size:11px;">${
+                    order.number || order.id
+                  }</small><br>`
+                : // Offline: the reference is allocated server-side after the
+                  // push, so it cannot exist yet. Invert the hierarchy — lead
+                  // with the system number the customer CAN quote, and mark the
+                  // reference pending so staff know it will differ from the
+                  // dashboard later.
+                  `${order.number || order.id}<br><small style="font-weight:normal;font-size:11px;">${
+                    lang === 'ar' ? 'رقم الطلب: بانتظار المزامنة' : 'Order # — pending sync'
+                  }</small><br>`
+            }
             ${orderTypeText}<br>
             <small>
               ${[paymentLabel || null, statusText || null]
@@ -609,11 +827,11 @@ function renderReceiptHTML(opts: {
     <table width="85%" border="0" cellpadding="0" cellspacing="0" align="center" style="border-bottom:1px solid #000000">
       <tr style="font-size:12px;color:#000;font-family:'Open Sans',sans-serif;line-height:18px;vertical-align:bottom;text-align:left;">
         <td>
-          ${createdLabel}<br>
-          Name: ${order.full_name || ''}
+          <span class="ltr">${createdLabel}</span><br>
+          ${L(lang, 'Name', 'الاسم')}: ${order.full_name || ''}
         </td>
         <td>
-          Mobile: ${order.mobile || ''}
+          ${L(lang, 'Mobile', 'الموبايل')}: <span class="ltr">${order.mobile || ''}</span>
         </td>
       </tr>
       <tr>
@@ -651,9 +869,9 @@ function renderReceiptHTML(opts: {
     <table width="85%" border="0" cellpadding="2" cellspacing="2" align="center" style="padding-bottom:40px !important;">
       <thead>
         <tr>
-          <th style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;font-weight:normal;line-height:1;vertical-align:top;padding-bottom:5px;text-align:left;" width="50%">Item</th>
-          <th style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;font-weight:normal;line-height:1;vertical-align:top;padding-bottom:5px;text-align:right;" width="10%">Qty</th>
-          <th style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;font-weight:normal;line-height:1;vertical-align:top;padding-bottom:5px;text-align:right;" width="30%">Amount</th>
+          <th style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;font-weight:normal;line-height:1;vertical-align:top;padding-bottom:5px;text-align:left;" width="50%">${L(lang, 'Item', 'الصنف')}</th>
+          <th style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;font-weight:normal;line-height:1;vertical-align:top;padding-bottom:5px;text-align:right;" width="10%">${L(lang, 'Qty', 'الكمية')}</th>
+          <th style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;font-weight:normal;line-height:1;vertical-align:top;padding-bottom:5px;text-align:right;" width="30%">${L(lang, 'Amount', 'المبلغ')}</th>
         </tr>
       </thead>
       <tbody>
@@ -666,10 +884,10 @@ function renderReceiptHTML(opts: {
       <tbody>
         <tr>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;" width="50%">
-            <br><strong>Subtotal</strong>
+            <br><strong>${L(lang, 'Subtotal', 'المجموع')}</strong>
           </td>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:bottom;text-align:right;" width="50%">
-            <strong>${currency} ${fmt(subtotal)}</strong>
+            <strong class="money">${cur} ${fmt(subtotal)}</strong>
           </td>
         </tr>
         ${
@@ -677,10 +895,10 @@ function renderReceiptHTML(opts: {
             ? `
         <tr>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
-            <strong>Delivery charge</strong>
+            <strong>${L(lang, 'Delivery charge', 'رسوم التوصيل')}</strong>
           </td>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
-            <strong>${currency} ${fmt(deliveryCharge)}</strong>
+            <strong class="money">${cur} ${fmt(deliveryCharge)}</strong>
           </td>
         </tr>`
             : ''
@@ -690,22 +908,22 @@ function renderReceiptHTML(opts: {
             ? `
         <tr>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
-            <strong>Discount</strong> ${
+            <strong>${L(lang, 'Discount', 'الخصم')}</strong> ${
               order.promocode ? `(${order.promocode})` : ''
             }
           </td>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
-            <strong>- ${currency} ${fmt(discount)}</strong>
+            <strong class="money">- ${cur} ${fmt(discount)}</strong>
           </td>
         </tr>`
             : ''
         }
         <tr>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
-            <strong>Grand total</strong>
+            <strong>${L(lang, 'Grand total', 'الإجمالي')}</strong>
           </td>
           <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
-            <strong>${currency} ${fmt(grandTotal)}</strong>
+            <strong class="money">${cur} ${fmt(grandTotal)}</strong>
           </td>
         </tr>
       </tbody>
@@ -742,27 +960,107 @@ async function printHtmlSilently(html: string): Promise<void> {
     show: true,
     width: 420,
     height: 800,
+    title: 'Receipt',
     webPreferences: { javascript: true },
   });
+
+  let tmpFile: string | null = null;
+
   try {
-    // data URL avoids any disk writes
-    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
-    await win.loadURL(dataUrl);
+    // A temp file rather than a data: URL. Data URLs are size-limited for
+    // top-level navigation and any parse failure resolves as a silent no-op —
+    // the window stays blank, print() has nothing to render, and the button
+    // looks dead. A file:// load fails loudly instead.
+    tmpFile = path.join(os.tmpdir(), `pos-receipt-${Date.now()}.html`);
+    await fs.writeFile(tmpFile, html, 'utf8');
+    console.log('[print] rendering receipt', {
+      file: tmpFile,
+      bytes: Buffer.byteLength(html, 'utf8'),
+    });
+
+    await Promise.race([
+      win.loadFile(tmpFile),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Receipt page failed to render in time.')),
+          15_000
+        )
+      ),
+    ]);
+    console.log('[print] receipt page loaded');
 
     // tiny settle
-    await sleep(120);
+    await sleep(150);
 
-    // Trigger print from Main Process to allow preview if silent is false
+    // No printer at all makes webContents.print() fail in ways that vary by
+    // platform — sometimes an error, sometimes a callback that never fires.
+    // Check first so the cashier gets a real message instead of a dead button.
+    const printers = await win.webContents.getPrintersAsync();
+    console.log(
+      '[print] printers available:',
+      printers.map((p) => p.name)
+    );
+    if (!printers.length) {
+      throw new Error(
+        'No printer is installed on this computer. Add a printer in Windows settings, then try again.'
+      );
+    }
+
+    win.show();
+    win.focus();
+
+    // The print dialog is modal. If it is dismissed by something other than a
+    // user action — or the callback simply never fires, which happens on
+    // Windows when the spooler is wedged — the old code awaited forever, the
+    // IPC never returned, and the button looked completely dead. Bound it.
     await new Promise<void>((resolve, reject) => {
-      // silent: false => opens the dialog with preview
-      win.webContents.print(
-        { silent: false, printBackground: true, deviceName: '' },
-        (ok, reason) =>
-          ok ? resolve() : reject(new Error(reason || 'Print failed'))
+      let settled = false;
+      const done = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+
+      const timer = setTimeout(() => {
+        done(() =>
+          reject(
+            new Error(
+              'The print dialog did not respond. Check that the printer is online, then try again.'
+            )
+          )
+        );
+      }, 120_000);
+
+      // Omit deviceName entirely — passing '' is not "use the default", and on
+      // Windows it can make the call fail silently.
+      win.webContents.print({ silent: false, printBackground: true }, (ok, reason) =>
+        done(() =>
+          ok
+            ? resolve()
+            : // "cancelled" is the user closing the dialog, not a failure.
+            /cancel/i.test(reason || '')
+            ? resolve()
+            : reject(new Error(reason || 'Print failed'))
+        )
       );
     });
-  } finally {
+
+    console.log('[print] print dialog completed');
     if (!win.isDestroyed()) win.close();
+  } catch (err) {
+    // Leave the receipt on screen when printing fails. The cashier can still
+    // read it, and Ctrl+P from that window reaches the OS dialog directly —
+    // far better mid-service than a button that appears to do nothing.
+    console.error('[print] failed:', err);
+    if (!win.isDestroyed()) {
+      win.setTitle('Receipt — printing failed, use Ctrl+P');
+      win.show();
+      win.focus();
+    }
+    throw err;
+  } finally {
+    if (tmpFile) fs.unlink(tmpFile).catch(() => {});
   }
 }
 
@@ -784,17 +1082,36 @@ async function printToPdfFile(html: string): Promise<string> {
 // ---- IPCs ----------------------------------------------------------------
 
 export function registerLocalPrintHandlers() {
+  console.log('[print] registering IPC handlers');
   // Main printing IPC (OFFLINE-FIRST)
   ipcMain.handle(
     'orders:print',
     async (_e, orderId: string, opts?: { savePdf?: boolean }) => {
-      const lang = (getSetting('ui.lang') as 'ar' | 'en') || 'en';
+      // The language toggle persists ui.lang through store:set, which writes to
+      // the `meta` table — getSetting only reads `app_settings`, so the receipt
+      // silently printed English no matter what the cashier had selected.
+      // Read meta first, keep app_settings as an override for site-wide config.
+      const lang: 'ar' | 'en' =
+        (getSetting('ui.lang') as 'ar' | 'en') ||
+        (getMeta('ui.lang') as 'ar' | 'en') ||
+        'en';
       const currency = (getSetting('pos.currency') as string) || 'KD';
+
+      console.log('[print] orders:print requested', { orderId, lang });
 
       const order = getOrder(orderId);
       if (!order) throw new Error('Order not found locally');
 
       const lines = getLines(orderId);
+
+      // Orders pulled from the server for phone lookup live in the same table
+      // but carry no local line items, so there is nothing to put on a receipt.
+      // Say so rather than printing a blank docket.
+      if (!lines.length) {
+        throw new Error(
+          'This order was synced from the server for lookup only — its items are not stored on this till, so it cannot be reprinted here.'
+        );
+      }
 
       let effectiveDelivery = Number(order.delivery_fee ?? 0);
 
@@ -822,21 +1139,30 @@ export function registerLocalPrintHandlers() {
         delivery_fee: effectiveDelivery,
       };
 
-      // 🔹 Logo path (whatever key you stored in app_settings)
-      const aboutLogoPath =
-        (getSetting('assets.about_logo_path') as string) ||
-        (getSetting('general.logo_path') as string) ||
-        null;
-      const aboutLogo = await toDataUrl(aboutLogoPath);
+      // 🔹 The OPERATOR's logo — never this app's own brand mark.
+      const aboutLogo = await resolveOperatorLogo(getSetting);
 
-      // 🔹 Restaurant name & phone from settings, with fallback to branch
-      const brandName =
+      // 🔹 Operator name & phone. The previous keys (general.site_title,
+      //    about.name_en, general.phone) are not what the server actually
+      //    syncs, so every receipt silently fell back to the branch name.
+      //    The real keys are general.shop_name / shop_name_ar / contact_phone.
+      const shopNameEn =
+        (getSetting('general.shop_name') as string) ||
         (getSetting('general.site_title') as string) ||
         (getSetting('about.name_en') as string) ||
+        null;
+
+      const shopNameAr = (getSetting('general.shop_name_ar') as string) || null;
+
+      // Arabic receipts lead with the Arabic trading name where one exists.
+      const brandName =
+        (lang === 'ar' ? shopNameAr || shopNameEn : shopNameEn || shopNameAr) ||
         order.branch_name ||
         null;
 
       const brandPhone =
+        (getSetting('general.contact_phone') as string) ||
+        (getSetting('general.contact_whatsapp') as string) ||
         (getSetting('general.phone') as string) ||
         (getSetting('about.phone') as string) ||
         order.branch_phone ||
