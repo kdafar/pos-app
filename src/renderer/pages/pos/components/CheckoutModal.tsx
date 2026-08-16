@@ -14,7 +14,9 @@ import {
 import { Order, State, City, Block, Promo, Customer } from '../types';
 import { CommandSelect } from './CommandSelect';
 import { PromoDialog } from './PromoDialog';
+import { PaymentLinkModal } from './PaymentLinkModal';
 import { useToast } from '../../../components/ToastProvider'; // adjust path if needed
+import { useI18n } from '../../../i18n';
 
 declare global {
   interface Window {
@@ -36,7 +38,8 @@ function Row({
   return (
     <div className={`flex justify-between ${textMuted}`}>
       <span>{label}</span>
-      <span className='font-medium'>{value}</span>
+      {/* .money forces LTR digit order so "12.500" never mirrors in Arabic. */}
+      <span className='font-medium money'>{value}</span>
     </div>
   );
 }
@@ -87,12 +90,20 @@ export function CheckoutModal({
   const [useQuickMode, setUseQuickMode] = useState(false);
   const [customerLookup, setCustomerLookup] = useState<Customer | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [payLink, setPayLink] = useState<{
+    url: string;
+    amount: number;
+    mobile: string | null;
+    orderId: string;
+    orderNumber: string | null;
+  } | null>(null);
 
   // Local fallback lists (if props are empty)
   const [localStates, setLocalStates] = useState<State[]>(states || []);
   const [localCities, setLocalCities] = useState<City[]>(cities || []);
   const [localBlocks, setLocalBlocks] = useState<Block[]>(blocks || []);
   const toast = useToast();
+  const { t, name: localName, money } = useI18n();
   useEffect(() => {
     if (states?.length) setLocalStates(states);
   }, [states]);
@@ -245,10 +256,10 @@ export function CheckoutModal({
       // Basic validation for delivery
       if (order.order_type === 1) {
         if (!selectedState?.id || !selectedCity?.id || !selectedBlock?.id) {
-          throw new Error('Please select state, city and block for delivery.');
+          throw new Error(t('checkout.errGeo'));
         }
         if (!address.trim()) {
-          throw new Error('Delivery address is required.');
+          throw new Error(t('checkout.errAddress'));
         }
       }
 
@@ -268,7 +279,7 @@ export function CheckoutModal({
       };
 
       if (!payload.payment_method_id || !payload.payment_method_slug) {
-        throw new Error('Please select a payment method.');
+        throw new Error(t('checkout.errPayment'));
       }
 
       // Complete order on server
@@ -314,20 +325,33 @@ export function CheckoutModal({
             pay?.url || pay?.invoice_url || pay?.PaymentURL || pay?.redirectUrl;
 
           if (url) {
-            await window.api.invoke('shell:openExternal', url);
+            // Do NOT open this on the till. Persist it, then hand it to the
+            // customer via QR / WhatsApp in PaymentLinkModal.
+            try {
+              await window.api.invoke('orders:paymentLink:set', order.id, url);
+            } catch (e) {
+              console.error('orders:paymentLink:set failed', e);
+            }
+            setPayLink({
+              url,
+              amount: totals.grand_total,
+              mobile: (formData.mobile || '').trim() || null,
+              orderId: String(order.id),
+              orderNumber: order.number ?? null,
+            });
           } else {
             toast({
               tone: 'danger',
-              title: 'Payment link created but no URL returned from server',
-              message: 'Please check connection/logs or contact support.',
+              title: t('checkout.payLinkNoUrl'),
+              message: t('common.checkConn'),
             });
           }
         } catch (err) {
           console.error('payments:createLink failed', err);
           toast({
             tone: 'danger',
-            title: 'Could not create payment link',
-            message: 'Please check connection/logs or contact support.',
+            title: t('checkout.payLinkFailed'),
+            message: t('common.checkConn'),
           });
         }
       }
@@ -355,11 +379,11 @@ export function CheckoutModal({
       console.error(err);
 
       const message =
-        (err as any)?.message || 'Failed to complete order. Please try again.';
+        (err as any)?.message || t('checkout.completeFailedMsg');
 
       toast({
         tone: 'danger',
-        title: 'Failed to complete order',
+        title: t('checkout.completeFailed'),
         message,
       });
     }
@@ -386,7 +410,7 @@ export function CheckoutModal({
         <div
           className={`sticky top-0 ${bg} border-b ${border} p-4 flex items-center justify-between`}
         >
-          <h2 className={`text-xl font-bold ${text}`}>Complete Order</h2>
+          <h2 className={`text-xl font-bold ${text}`}>{t('checkout.title')}</h2>
           <div className='flex items-center gap-2'>
             <button
               type='button'
@@ -397,7 +421,7 @@ export function CheckoutModal({
                   : 'bg-gray-100 border border-gray-300 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              <Percent size={14} /> Promo
+              <Percent size={14} /> {t('promo.short')}
             </button>
             <button
               type='button'
@@ -417,7 +441,11 @@ export function CheckoutModal({
               `}
             >
               <Zap size={13} className={useQuickMode ? '' : 'opacity-70'} />
-              <span>{useQuickMode ? 'Quick Mode ON' : 'Quick Mode'}</span>
+              <span>
+                {useQuickMode
+                  ? t('checkout.quickModeOn')
+                  : t('checkout.quickMode')}
+              </span>
             </button>
 
             <button
@@ -433,7 +461,22 @@ export function CheckoutModal({
           </div>
         </div>
 
-        <form onSubmit={submit} className='p-4 pt-4 pb-6 space-y-3'>
+        <form
+          onSubmit={submit}
+          // Enter inside any field used to implicitly submit the form, which
+          // placed the order while the cashier was still filling in customer
+          // details. Placing an order must be a deliberate click on the button
+          // (or Enter while that button itself is focused).
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            const el = e.target as HTMLElement | null;
+            const tag = el?.tagName;
+            // Textareas keep Enter for newlines; buttons keep it for activation.
+            if (tag === 'TEXTAREA' || tag === 'BUTTON') return;
+            e.preventDefault();
+          }}
+          className='p-4 pt-4 pb-6 space-y-3'
+        >
           {/* Customer lookup */}
           <div
             className={`p-3 rounded-lg border ${
@@ -443,8 +486,8 @@ export function CheckoutModal({
             }`}
           >
             <label className={`block text-xs font-medium ${label} mb-1.5`}>
-              <Phone size={14} className='inline mr-1' /> Mobile Number
-              (Customer Lookup)
+              <Phone size={14} className='inline me-1' />{' '}
+              {t('checkout.mobileLookup')}
             </label>
             <div className='flex gap-3 pt-3 pb-1'>
               <input
@@ -459,11 +502,11 @@ export function CheckoutModal({
                     ? 'focus:ring-blue-500/40'
                     : 'focus:ring-blue-500'
                 }`}
-                placeholder='Enter mobile to find customer'
+                placeholder={t('checkout.mobilePlaceholder')}
               />
               {isSearching && (
                 <div className={`px-3 py-2 ${textMuted} text-xs`}>
-                  Searching...
+                  {t('checkout.searching')}
                 </div>
               )}
             </div>
@@ -474,7 +517,9 @@ export function CheckoutModal({
                 }`}
               >
                 <UserCheck size={14} />
-                <span>Found: {customerLookup.full_name}</span>
+                <span>
+                  {t('checkout.found')} {customerLookup.full_name}
+                </span>
               </div>
             )}
           </div>
@@ -483,7 +528,8 @@ export function CheckoutModal({
             <div>
               <label className={`block text-xs font-medium ${label} mb-1`}>
                 <span className='inline-flex items-center'>
-                  <User size={14} className='mr-1' /> Customer Name *
+                  <User size={14} className='me-1' />{' '}
+                  {t('checkout.customerName')} *
                 </span>
               </label>
               <input
@@ -497,13 +543,13 @@ export function CheckoutModal({
                     ? 'focus:ring-blue-500/40'
                     : 'focus:ring-blue-500'
                 }`}
-                placeholder='Full name'
+                placeholder={t('checkout.fullNamePlaceholder')}
               />
             </div>
             <div>
               <label className={`block text-xs font-medium ${label} mb-1`}>
                 <span className='inline-flex items-center'>
-                  <Mail size={14} className='mr-1' /> Email
+                  <Mail size={14} className='me-1' /> {t('checkout.email')}
                 </span>
               </label>
               <input
@@ -527,7 +573,7 @@ export function CheckoutModal({
               <div className='grid grid-cols-3 gap-3'>
                 <CommandSelect
                   theme={theme}
-                  label='State'
+                  label={t('checkout.state')}
                   required
                   value={formData.state_id}
                   onChange={async (id) => {
@@ -547,12 +593,12 @@ export function CheckoutModal({
                   }}
                   options={localStates.map((s) => ({
                     id: s.id,
-                    label: s.name,
+                    label: localName(s),
                   }))}
                 />
                 <CommandSelect
                   theme={theme}
-                  label='City'
+                  label={t('checkout.city')}
                   required
                   value={formData.city_id}
                   disabled={!formData.state_id}
@@ -568,19 +614,19 @@ export function CheckoutModal({
                   }}
                   options={localCities.map((c) => ({
                     id: c.id,
-                    label: c.name,
+                    label: localName(c),
                   }))}
                 />
                 <CommandSelect
                   theme={theme}
-                  label='Block'
+                  label={t('cust.block')}
                   required
                   value={formData.block_id}
                   disabled={!formData.city_id}
                   onChange={(id) => setFormData({ ...formData, block_id: id })}
                   options={localBlocks.map((b) => ({
                     id: b.id,
-                    label: b.name,
+                    label: localName(b),
                   }))}
                 />
               </div>
@@ -588,7 +634,7 @@ export function CheckoutModal({
               <div className='grid grid-cols-2 gap-3'>
                 <div>
                   <label className={`block text-xs font-medium ${label} mb-1`}>
-                    Street
+                    {t('cust.street')}
                   </label>
                   <input
                     value={formData.street}
@@ -600,12 +646,12 @@ export function CheckoutModal({
                         ? 'focus:ring-blue-500/40'
                         : 'focus:ring-blue-500'
                     }`}
-                    placeholder='Street name'
+                    placeholder={t('checkout.streetPlaceholder')}
                   />
                 </div>
                 <div>
                   <label className={`block text-xs font-medium ${label} mb-1`}>
-                    Building
+                    {t('cust.building')}
                   </label>
                   <input
                     value={formData.building}
@@ -617,7 +663,7 @@ export function CheckoutModal({
                         ? 'focus:ring-blue-500/40'
                         : 'focus:ring-blue-500'
                     }`}
-                    placeholder='Building no.'
+                    placeholder={t('checkout.buildingPlaceholder')}
                   />
                 </div>
               </div>
@@ -625,7 +671,7 @@ export function CheckoutModal({
               <div className='grid grid-cols-2 gap-3'>
                 <div>
                   <label className={`block text-xs font-medium ${label} mb-1`}>
-                    Floor
+                    {t('cust.floor')}
                   </label>
                   <input
                     value={formData.floor}
@@ -637,13 +683,14 @@ export function CheckoutModal({
                         ? 'focus:ring-blue-500/40'
                         : 'focus:ring-blue-500'
                     }`}
-                    placeholder='Floor number'
+                    placeholder={t('checkout.floorPlaceholder')}
                   />
                 </div>
                 <div>
                   <label className={`block text-xs font-medium ${label} mb-1`}>
                     <span className='inline-flex items-center'>
-                      <MapPin size={14} className='mr-1' /> Full Address
+                      <MapPin size={14} className='me-1' />{' '}
+                      {t('checkout.fullAddress')}
                     </span>
                   </label>
                   <textarea
@@ -657,7 +704,7 @@ export function CheckoutModal({
                         : 'focus:ring-blue-500'
                     } resize-none`}
                     rows={2}
-                    placeholder='Complete address (optional)'
+                    placeholder={t('checkout.addressPlaceholder')}
                   />
                 </div>
               </div>
@@ -666,7 +713,7 @@ export function CheckoutModal({
 
           <div>
             <label className={`block text-xs font-medium ${label} mb-1`}>
-              Order Notes
+              {t('checkout.notes')}
             </label>
             <textarea
               value={formData.note}
@@ -679,7 +726,7 @@ export function CheckoutModal({
                   : 'focus:ring-blue-500'
               } resize-none`}
               rows={2}
-              placeholder='Special instructions…'
+              placeholder={t('checkout.notesPlaceholder')}
             />
           </div>
 
@@ -687,7 +734,8 @@ export function CheckoutModal({
           <div>
             <label className={`block text-xs font-medium ${label} mb-1`}>
               <span className='inline-flex items-center'>
-                <CreditCard size={14} className='mr-1' /> Payment Method *
+                <CreditCard size={14} className='me-1' />{' '}
+                {t('cust.paymentMethod')} *
               </span>
             </label>
             <div className='grid grid-cols-2 gap-2'>
@@ -726,7 +774,9 @@ export function CheckoutModal({
                         theme === 'dark' ? 'text-white' : 'text-gray-900'
                       }
                     >
-                      {m.name_en}
+                      {/* payment_methods stores name_en/name_ar, so bridge it
+                          onto the shape localName() expects. */}
+                      {localName({ name: m.name_en, name_ar: m.name_ar })}
                     </span>
                   </label>
                 );
@@ -743,21 +793,21 @@ export function CheckoutModal({
             } space-y-1.5`}
           >
             <Row
-              label='Subtotal'
-              value={computeDisplayTotals().subtotal.toFixed(3)}
+              label={t('cart.subtotal')}
+              value={money(computeDisplayTotals().subtotal)}
               theme={theme}
             />
             {computeDisplayTotals().discount > 0 && (
               <Row
-                label='Discount'
-                value={`-${computeDisplayTotals().discount.toFixed(3)}`}
+                label={t('cart.discount')}
+                value={`-${money(computeDisplayTotals().discount)}`}
                 theme={theme}
               />
             )}
             {order.order_type === 1 && (
               <Row
-                label='Delivery Fee'
-                value={computeDisplayTotals().delivery.toFixed(3)}
+                label={t('cart.deliveryFee')}
+                value={money(computeDisplayTotals().delivery)}
                 theme={theme}
               />
             )}
@@ -768,11 +818,13 @@ export function CheckoutModal({
                 theme === 'dark' ? 'border-white/10' : 'border-gray-200'
               }`}
             >
-              <span>Total</span>
+              <span>{t('common.total')}</span>
               <span
-                className={theme === 'dark' ? 'text-blue-300' : 'text-blue-600'}
+                className={`money ${
+                  theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
+                }`}
               >
-                {computeDisplayTotals().grand_total.toFixed(3)}
+                {money(computeDisplayTotals().grand_total)}
               </span>
             </div>
             {order.order_type === 1 && selectedCity?.min_order > 0 && (
@@ -781,8 +833,9 @@ export function CheckoutModal({
                   theme === 'dark' ? 'text-amber-300' : 'text-amber-700'
                 }`}
               >
-                Min order for {selectedCity?.name}:{' '}
-                {Number(selectedCity?.min_order).toFixed(3)} KWD
+                {t('checkout.minOrder', { city: localName(selectedCity) })}{' '}
+                <span className='money'>{money(selectedCity?.min_order)}</span>{' '}
+                {t('common.currency')}
               </div>
             )}
           </div>
@@ -797,7 +850,7 @@ export function CheckoutModal({
                   : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
               }`}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type='submit'
@@ -807,7 +860,7 @@ export function CheckoutModal({
                   : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white'
               }`}
             >
-              Place Order
+              {t('cart.placeOrder')}
             </button>
           </div>
         </form>
@@ -819,6 +872,20 @@ export function CheckoutModal({
           promos={promos}
           onClose={() => setShowPromo(false)}
           onApply={onApplyPromo}
+        />
+      )}
+      {payLink && (
+        <PaymentLinkModal
+          theme={theme}
+          url={payLink.url}
+          amount={payLink.amount}
+          mobile={payLink.mobile}
+          orderLabel={payLink.orderNumber}
+          onCheckStatus={async () => {
+            const r = await window.api.invoke('payments:checkStatus', payLink.orderId);
+            return (r?.status ?? null) as 'pending' | 'paid' | 'failed' | null;
+          }}
+          onClose={() => { setPayLink(null); onClose(); }}
         />
       )}
     </div>
