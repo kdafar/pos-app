@@ -70,6 +70,44 @@ export function baseUnitPrice(row: any): number {
   return unit + addons;
 }
 
+/**
+ * Price the POS should charge for a variation.
+ *
+ * Per the backend contract (docs/BACKEND-QUESTIONS.md §5.1), `sale_price` is
+ * already resolved server-side: it is the discounted price when a promotion is
+ * genuinely active, and otherwise a straight copy of `price`. It is never a
+ * sentinel. So we charge it UNCONDITIONALLY — the old
+ * "sale_price if > 0 else price" chain would quietly charge the pre-discount
+ * price for the whole of any promotion where sale_price < price.
+ *
+ * The single exception is the server-side defect in §5.2: a variation saved
+ * without a price arrives as 0.0, indistinguishable from a real zero. Falling
+ * back to the parent item's price avoids giving stock away; if that is also
+ * zero the caller must refuse the sale rather than ring up nothing.
+ *
+ * The SQL in handlers/catalog.ts (`effective_price`, `min_variation_price`)
+ * MUST mirror this, or the picker shows one price and the line rings up another.
+ */
+export function variationEffectivePrice(v: any, item: any): number {
+  const sale = Number(v?.sale_price);
+  if (Number.isFinite(sale) && sale > 0) return sale;
+
+  // sale_price absent or zero → server bug or a legitimately free variation.
+  const base = Number(v?.price);
+  if (Number.isFinite(base) && base > 0) return base;
+
+  return Number(item?.price || 0);
+}
+
+/**
+ * True when a variation carries no usable price anywhere — the §5.2 defect.
+ * The sale must be refused rather than rung up at zero: a refused sale is
+ * recoverable, a given-away one is not.
+ */
+export function isUnpricedVariation(v: any, item: any): boolean {
+  return variationEffectivePrice(v, item) <= 0;
+}
+
 export function calcLineTotal(row: any): number {
   const unit = baseUnitPrice(row);
   const qty = Number(row.qty) || 0;

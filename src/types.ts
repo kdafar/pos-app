@@ -9,6 +9,8 @@ export interface Item {
   image_local?: string | null;
   is_outofstock: number;
   has_addons?: number | boolean;
+  has_variations?: number | boolean;
+  min_variation_price?: number | null;
   category_id: string;
   subcategory_id: string;
 }

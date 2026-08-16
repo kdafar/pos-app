@@ -6,6 +6,7 @@ import { fileUrl } from '../../utils/fileUrl';
 // Shared types
 import { Item, Category } from './types';
 import { ItemCard } from './components/ItemCard';
+import { useI18n } from '../../i18n';
 
 export default function CatalogPanel({
   theme,
@@ -20,9 +21,12 @@ export default function CatalogPanel({
   setSelectedSubcategoryId,
   onAddItem,
   onSelectWithAddons,
+  totalItems,
 }: {
   theme: 'light' | 'dark';
   items: Item[];
+  /** True number of matches; when > items.length the grid is truncated. */
+  totalItems?: number;
   categories: Category[];
   subcategories: Category[];
   searchQuery: string;
@@ -34,6 +38,8 @@ export default function CatalogPanel({
   onAddItem: (it: Item) => void;
   onSelectWithAddons?: (it: Item) => void;
 }) {
+  const { t, name: localName } = useI18n();
+
   /* ---------- Diagnostics & Normalization ---------- */
   const safeCats = React.useMemo(
     () => (categories ?? []).map((c) => ({ ...c, id: String(c.id) })),
@@ -134,7 +140,7 @@ export default function CatalogPanel({
         <div className='mb-3'>
           <div className='relative'>
             <Search
-              className={`absolute left-3 top-1/2 -translate-y-1/2 ${textMuted}`}
+              className={`absolute start-3 top-1/2 -translate-y-1/2 ${textMuted}`}
               size={18}
             />
             <input
@@ -143,8 +149,8 @@ export default function CatalogPanel({
                 console.debug('[CatalogPanel] setSearchQuery:', e.target.value);
                 setSearchQuery(e.target.value);
               }}
-              placeholder='Search items, barcode, or Arabic name…'
-              className={`w-full pl-10 pr-3 py-2.5 ${inputBg} rounded-xl ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
+              placeholder={t('pos.searchPlaceholder')}
+              className={`w-full ps-10 pe-3 py-2.5 ${inputBg} rounded-xl ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
                 theme === 'dark'
                   ? 'focus:ring-blue-500/40'
                   : 'focus:ring-blue-500'
@@ -171,7 +177,7 @@ export default function CatalogPanel({
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
               }`}
             >
-              All Categories
+              {t('pos.categories')}
             </button>
 
             {safeCats.map((cat) => (
@@ -195,7 +201,7 @@ export default function CatalogPanel({
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
                 }`}
               >
-                {cat.name}
+                {localName(cat)}
               </button>
             ))}
           </div>
@@ -219,7 +225,7 @@ export default function CatalogPanel({
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
               }`}
             >
-              All
+              {t('common.all')}
             </button>
             {filteredSubcategories.map((sub) => (
               <button
@@ -242,7 +248,7 @@ export default function CatalogPanel({
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
                 }`}
               >
-                {sub.name}
+                {localName(sub)}
               </button>
             ))}
           </div>
@@ -263,12 +269,24 @@ export default function CatalogPanel({
           ))}
         </div>
 
+        {typeof totalItems === 'number' && totalItems > items.length && (
+          <div
+            className={`mx-3 mb-3 rounded-lg px-3 py-2 text-[11px] ${
+              theme === 'dark'
+                ? 'bg-amber-500/10 text-amber-200 border border-amber-500/30'
+                : 'bg-amber-50 text-amber-800 border border-amber-200'
+            }`}
+          >
+            {t('pos.showingOf', { shown: items.length, total: totalItems })}
+          </div>
+        )}
+
         {items.length === 0 && (
           <div
             className={`flex flex-col items-center justify-center h-56 ${textMuted}`}
           >
             <Package size={40} className='mb-3 opacity-50' />
-            <p>No items found</p>
+            <p>{t('pos.noItems')}</p>
           </div>
         )}
       </div>

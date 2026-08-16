@@ -86,10 +86,24 @@ export interface Item {
   price: number;
   is_outofstock: number;
   has_addons?: number | boolean;
+  has_variations?: number | boolean;
+  /** Cheapest variation price, when the item is sold by variation. */
+  min_variation_price?: number | null;
   category_id: string;
   subcategory_id: string;
   image?: string | null;
   image_local?: string | null;
+}
+
+export interface Variation {
+  id: string;
+  item_id: string;
+  name: string;
+  name_ar?: string | null;
+  price?: number | null;
+  sale_price?: number | null;
+  /** sale_price when > 0, else price, else the item price (computed in main) */
+  effective_price: number;
 }
 
 export interface Category {
@@ -99,8 +113,33 @@ export interface Category {
   category_id?: string | number;
 }
 
+export interface AddonGroup {
+  id: string;
+  name: string;
+  name_ar?: string | null;
+  /** From item_addon_groups — SQLite gives 0/1, older payloads gave '1'/true. */
+  is_required?: number | boolean | string | null;
+  max_select?: number | null;
+}
+
+export interface Addon {
+  id: string;
+  group_id: string;
+  name: string;
+  name_ar?: string | null;
+  price: number;
+}
+
 export type SelectedAddon = {
   id: string;
   group_id: string;
+  qty: number;
+};
+
+/** What the item-options modal hands back to the order page. */
+export type ItemSelection = {
+  variation_id: string | null;
+  addons: SelectedAddon[];
+  /** Number of this exact configuration to add. */
   qty: number;
 };

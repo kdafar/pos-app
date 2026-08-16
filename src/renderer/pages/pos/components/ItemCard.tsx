@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Puzzle } from 'lucide-react';
+import { Package, Puzzle, Layers } from 'lucide-react';
 import { fileUrl } from '../../../utils/fileUrl';
+import { useI18n } from '../../../i18n';
 import { Item } from '../types';
 
 export function ItemCard({
@@ -14,6 +15,7 @@ export function ItemCard({
   onAddItem: (it: Item) => void;
   onSelectWithAddons?: (it: Item) => void;
 }) {
+  const { t, name: localName, money, isRTL } = useI18n();
   const [localImageFailed, setLocalImageFailed] = useState(false);
 
   const localSrc = item.image_local ? fileUrl(item.image_local) : null;
@@ -27,11 +29,21 @@ export function ItemCard({
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
   const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
   const hasAddons = !!item.has_addons;
+  const hasVariations = !!item.has_variations;
+  const needsOptions = hasAddons || hasVariations;
+
+  // For variation items the bare item price is usually a placeholder, so show
+  // the cheapest variation instead of a number the cashier can't actually ring up.
+  const minVariationPrice = Number(item.min_variation_price);
+  const displayPrice =
+    hasVariations && Number.isFinite(minVariationPrice) && minVariationPrice > 0
+      ? minVariationPrice
+      : Number(item.price || 0);
 
   const handleClick = () => {
     if (item.is_outofstock === 1) return;
 
-    if (hasAddons && onSelectWithAddons) {
+    if (needsOptions && onSelectWithAddons) {
       onSelectWithAddons(item);
     } else {
       onAddItem(item);
@@ -43,7 +55,7 @@ export function ItemCard({
       key={item.id}
       onClick={handleClick}
       disabled={item.is_outofstock === 1}
-      className={`group relative flex flex-col rounded-xl border text-left transition
+      className={`group relative flex flex-col rounded-xl border text-start transition
         ${
           item.is_outofstock === 1
             ? theme === 'dark'
@@ -91,17 +103,25 @@ export function ItemCard({
           </div>
         )}
 
-        {hasAddons && (
+        {needsOptions && (
           <span
             className={`absolute left-1.5 bottom-1.5 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shadow-sm
               ${
-                theme === 'dark'
+                hasVariations
+                  ? theme === 'dark'
+                    ? 'bg-amber-500/90 text-white'
+                    : 'bg-amber-600 text-white'
+                  : theme === 'dark'
                   ? 'bg-indigo-500/90 text-white'
                   : 'bg-indigo-600 text-white'
               }`}
           >
-            <Puzzle size={11} />
-            Add-ons
+            {hasVariations ? <Layers size={11} /> : <Puzzle size={11} />}
+            {hasVariations
+              ? hasAddons
+                ? t('pos.options')
+                : t('pos.sizes')
+              : t('pos.addons')}
           </span>
         )}
       </div>
@@ -111,28 +131,31 @@ export function ItemCard({
         <h3
           className={`font-semibold ${text} text-[13px] leading-snug line-clamp-2`}
         >
-          {item.name}
+          {localName(item)}
         </h3>
         <p className={`text-[11px] ${textMuted} line-clamp-1`}>
-          {item.name_ar}
+          {isRTL ? item.name : item.name_ar}
         </p>
       </div>
 
       {/* PRICE ONLY */}
-      <div className='mt-1 flex items-center justify-end'>
+      <div className='mt-1 flex items-baseline justify-end gap-1'>
+        {hasVariations && (
+          <span className={`text-[10px] ${textMuted}`}>{t('pos.from')}</span>
+        )}
         <span
           className={`text-[15px] font-bold ${
             theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
           }`}
         >
-          {item.price.toFixed(3)}
+          <span className='money'>{money(displayPrice)}</span>
         </span>
       </div>
 
       {item.is_outofstock === 1 && (
         <div className='absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl'>
           <span className='text-red-400 font-semibold text-sm'>
-            Out of Stock
+            {t('pos.outOfStock')}
           </span>
         </div>
       )}
