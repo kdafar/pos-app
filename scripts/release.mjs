@@ -203,12 +203,46 @@ async function main() {
   let n = 0;
 
   step(++n, total, 'Pre-flight');
-  await run('powershell', [
-    '-NonInteractive',
-    '-Command',
-    "Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0",
-  ], { capture: true, allowFail: true });
-  ok('stray Electron processes cleared');
+  // electron-builder rebuilds the native modules, which fails with EBUSY if
+  // anything still holds better_sqlite3.node. Orphaned Electron children are
+  // the usual culprit — `timeout npx electron .` kills the parent and leaves
+  // the renderer and GPU processes running. Kill, wait, then actually prove
+  // the file is writable rather than assuming the kill worked.
+  await run(
+    'powershell',
+    [
+      '-NonInteractive',
+      '-Command',
+      'Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; exit 0',
+    ],
+    { capture: true, allowFail: true }
+  );
+
+  const nativeModule = path.join(
+    ROOT,
+    'node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+  );
+  if (fs.existsSync(nativeModule)) {
+    let locked = true;
+    for (let attempt = 0; attempt < 5 && locked; attempt++) {
+      try {
+        fs.closeSync(fs.openSync(nativeModule, 'r+'));
+        locked = false;
+      } catch {
+        await new Promise((r) => setTimeout(r, 700));
+      }
+    }
+    if (locked) {
+      fail(
+        'better_sqlite3.node is locked by another process — packaging would\n' +
+          '       fail with EBUSY. Close any running POS App or dev instance,\n' +
+          '       then re-run.'
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
+  ok('no process is holding the native modules');
   for (const f of ['icon.png', 'icon.ico']) {
     const p = path.join(ROOT, 'build', f);
     if (fs.existsSync(p)) ok(`build/${f} present`);
