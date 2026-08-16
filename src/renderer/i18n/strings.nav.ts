@@ -101,6 +101,96 @@ export const navStrings = {
     ar: 'اختر لغة الواجهة. يتم حفظ الاختيار على هذا الجهاز ويتغير اتجاه الشاشة معه.',
   },
 
+  /* ---------- updates screen ----------
+     Versions stay Latin and LTR, like every other identifier. */
+  'nav.updates': { en: 'Updates', ar: 'التحديثات' },
+  'update.title': { en: 'Software Update', ar: 'تحديث البرنامج' },
+  'update.subtitle': {
+    en: 'The till checks for a new version on its own. Use this screen to check now or to apply one that is waiting.',
+    ar: 'يقوم الجهاز بالتحقق من وجود إصدار جديد تلقائياً. استخدم هذه الشاشة للتحقق الآن أو لتثبيت تحديث جاهز.',
+  },
+  'update.installedVersion': { en: 'Installed version', ar: 'الإصدار المثبت' },
+  'update.lastChecked': { en: 'Last checked', ar: 'آخر تحقق' },
+  'update.never': { en: 'Not yet', ar: 'لم يتم بعد' },
+  'update.checkNow': { en: 'Check for updates', ar: 'التحقق من التحديثات' },
+
+  /* status headlines */
+  'update.idleTitle': { en: 'Not checked yet', ar: 'لم يتم التحقق بعد' },
+  'update.idleHint': {
+    en: 'The first automatic check runs shortly after the till starts.',
+    ar: 'يبدأ التحقق التلقائي بعد تشغيل الجهاز بوقت قصير.',
+  },
+  'update.checkingTitle': { en: 'Checking…', ar: '...جارٍ التحقق' },
+  'update.noneTitle': {
+    en: 'You are on the latest version',
+    ar: 'لديك أحدث إصدار',
+  },
+  'update.noneHint': {
+    en: 'Nothing to install.',
+    ar: 'لا يوجد ما يتم تثبيته.',
+  },
+  'update.availableTitle': {
+    en: 'Version {v} is available',
+    ar: 'الإصدار {v} متاح',
+  },
+  'update.availableHint': {
+    en: 'Downloading in the background. You can keep taking orders.',
+    ar: 'يتم التنزيل في الخلفية. يمكنك متابعة استقبال الطلبات.',
+  },
+  'update.downloadingTitle': { en: 'Downloading update', ar: 'جارٍ تنزيل التحديث' },
+  'update.downloadingHint': {
+    en: '{done} of {total} • {speed}/s',
+    ar: '{done} من {total} • {speed}/ث',
+  },
+  'update.readyTitle': {
+    en: 'Version {v} is ready to install',
+    ar: 'الإصدار {v} جاهز للتثبيت',
+  },
+  'update.readyHint': {
+    en: 'It installs on its own the next time the till is closed. Restart now only when no order is open.',
+    ar: 'سيتم التثبيت تلقائياً عند إغلاق الجهاز في المرة القادمة. لا تعد التشغيل الآن إلا إذا لم يكن هناك طلب مفتوح.',
+  },
+  'update.installNow': { en: 'Restart and install now', ar: 'إعادة التشغيل والتثبيت الآن' },
+  'update.errorTitle': { en: 'Could not check for updates', ar: 'تعذر التحقق من التحديثات' },
+  'update.errorHint': {
+    en: 'The till keeps working normally. It will try again by itself.',
+    ar: 'يواصل الجهاز العمل بشكل طبيعي وسيعيد المحاولة تلقائياً.',
+  },
+  'update.disabledTitle': {
+    en: 'Automatic updates are off',
+    ar: 'التحديث التلقائي غير مفعّل',
+  },
+  'update.disabled.dev': {
+    en: 'This is a development build, so it never updates itself.',
+    ar: 'هذه نسخة تطوير، ولا يتم تحديثها تلقائياً.',
+  },
+  'update.disabled.portable': {
+    en: 'This is a portable build. It cannot replace itself — download the new version manually.',
+    ar: 'هذه نسخة محمولة ولا يمكنها تحديث نفسها — قم بتنزيل الإصدار الجديد يدوياً.',
+  },
+  'update.disabled.unavailable': {
+    en: 'The updater is not available on this device.',
+    ar: 'خدمة التحديث غير متوفرة على هذا الجهاز.',
+  },
+  'update.releaseNotes': { en: "What's new", ar: 'الجديد في هذا الإصدار' },
+  'update.autoNote': {
+    en: 'The till checks every 6 hours and downloads in the background. It never restarts during service on its own — a waiting update is applied when the app is closed.',
+    ar: 'يتحقق الجهاز كل 6 ساعات وينزّل التحديث في الخلفية. لا يعيد التشغيل أثناء العمل من تلقاء نفسه — يتم تثبيت التحديث المنتظر عند إغلاق التطبيق.',
+  },
+  'update.confirmInstallTitle': {
+    en: 'Restart the till now?',
+    ar: 'إعادة تشغيل الجهاز الآن؟',
+  },
+  'update.confirmInstallMessage': {
+    en: 'The app closes and reopens on version {v}. Any order that is still open should be closed first.',
+    ar: 'سيتم إغلاق التطبيق وفتحه على الإصدار {v}. يجب إغلاق أي طلب مفتوح قبل ذلك.',
+  },
+  'update.installRefused': {
+    en: 'Nothing is ready to install yet.',
+    ar: 'لا يوجد تحديث جاهز للتثبيت.',
+  },
+  'update.badgeReady': { en: 'Update ready', ar: 'تحديث جاهز' },
+
   /* ---------- confirm dialog defaults ---------- */
   'confirm.title': { en: 'Are you sure?', ar: 'هل أنت متأكد؟' },
   'confirm.message': {
