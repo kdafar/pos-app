@@ -1,4 +1,5 @@
-# Logs
+# --- Node / Electron ---
+node_modules/
 logs
 *.log
 npm-debug.log*
@@ -7,45 +8,33 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# --- Build outputs ---
+dist/
+dist-ssr/
+out/
+release/
+coverage/
+*.map
+*.asar
 *.local
 
-# Editor directories and files
+# NOTE: `build/` is electron-builder's buildResources directory (app icons),
+# it is SOURCE, not output — do not ignore it.
+
+# --- Caches ---
+.vite/
+.cache/
+.sass-cache/
+
+# --- Editor directories and files ---
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-@'
-# --- Node / Electron ---
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-*.log
-
-# --- Build outputs ---
-dist/
-out/
-build/
-release/
-coverage/
-*.map
-*.asar
-
-# --- Caches ---
-.vite/
-.vscode/
-.idea/
-.cache/
-.sass-cache/
 
 # --- OS junk ---
 .DS_Store
@@ -69,4 +58,3 @@ Thumbs.db
 *.dmg
 *.AppImage
 *.deb
-'@ | Set-Content .gitignore
