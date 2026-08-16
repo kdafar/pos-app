@@ -3,6 +3,7 @@ import { app } from 'electron';
 import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { deleteSecret } from './secureStore';
 
 const requiredb = createRequire(import.meta.url);
 const Database = requiredb('better-sqlite3') as typeof import('better-sqlite3');
@@ -367,6 +368,9 @@ export function migrate() {
   ensureColumn('promos', 'max_discount REAL', 'max_discount');
 
   ensureColumn('orders', 'status_code INTEGER', 'status_code');
+  ensureColumn('orders', 'push_legacy INTEGER DEFAULT 0', 'push_legacy');
+  ensureColumn('orders', 'server_id TEXT', 'server_id');
+  ensureColumn('orders', 'reference_no TEXT', 'reference_no');
   ensureColumn('orders', 'email TEXT', 'email');
   ensureColumn('orders', 'state_id TEXT', 'state_id');
   ensureColumn('orders', 'city_id TEXT', 'city_id');
@@ -464,6 +468,128 @@ export function migrate() {
   `);
 }
 
+/**
+ * One-time repair of rows damaged by two now-fixed sync bugs:
+ *
+ *  1. Server orders were pulled back down under their server id, colliding on
+ *     `number`, so the dedupe trigger renamed the LOCAL row to
+ *     'L-<number>-<hex>' and both rows showed in Recent Orders.
+ *  2. The numeric server status was written straight into `status`, so the
+ *     column held "2.0" alongside 'open'/'closed'.
+ */
+export function repairOrderSyncDamage() {
+  if (getMeta('repair.order_sync_v1') === 'done') return;
+
+  try {
+    // 1) Numeric statuses -> keep the code in status_code, label the status.
+    const numeric = db
+      .prepare(
+        `SELECT id, status FROM orders
+          WHERE status GLOB '[0-9]*' AND status NOT GLOB '*[a-zA-Z]*'`
+      )
+      .all() as Array<{ id: string; status: string }>;
+
+    const fixStatus = db.prepare(
+      `UPDATE orders SET status = ?, status_code = ? WHERE id = ?`
+    );
+    for (const row of numeric) {
+      const code = Math.trunc(Number(row.status));
+      if (!Number.isFinite(code)) continue;
+      fixStatus.run(`status ${code}`, code, row.id);
+    }
+
+    // 2) Un-mangle 'L-<number>-<hex>' where the collision is gone. If the
+    //    original number is now free, the local row reclaims it; if a server
+    //    row still holds it, the local row is the authoritative one, so drop
+    //    the *server* seed copy (it carries no lines) and restore ours.
+    const mangled = db
+      .prepare(`SELECT id, number FROM orders WHERE number LIKE 'L-%-%'`)
+      .all() as Array<{ id: string; number: string }>;
+
+    for (const row of mangled) {
+      const original = row.number.replace(/^L-/, '').replace(/-[0-9a-f]{6}$/i, '');
+      if (!original || original === row.number) continue;
+
+      const holder = db
+        .prepare(`SELECT id FROM orders WHERE number = ? AND id <> ?`)
+        .get(original, row.id) as { id: string } | undefined;
+
+      if (holder) {
+        const lines = db
+          .prepare(`SELECT COUNT(*) AS c FROM order_lines WHERE order_id = ?`)
+          .get(holder.id) as { c?: number };
+        // Only remove the duplicate if it is an empty server seed row.
+        if (Number(lines?.c ?? 0) > 0) continue;
+        db.prepare(`DELETE FROM orders WHERE id = ?`).run(holder.id);
+      }
+
+      db.prepare(`UPDATE orders SET number = ? WHERE id = ?`).run(
+        original,
+        row.id
+      );
+      console.log('[repair] restored order number', {
+        from: row.number,
+        to: original,
+      });
+    }
+
+    setMeta('repair.order_sync_v1', 'done');
+    console.log('[repair] order sync damage repaired', {
+      numericStatuses: numeric.length,
+      mangledNumbers: mangled.length,
+    });
+  } catch (e) {
+    console.error('[repair] order sync repair failed:', e);
+  }
+}
+
+/**
+ * One-time guard for the temp_id cut-over.
+ *
+ * Before we sent `temp_id`, the server ignored our `id` and minted its own
+ * ULID for every push — so orders pushed then are stored under a key neither
+ * side can map back. The backend is explicit: do NOT replay that outbox, since
+ * a re-push creates a duplicate of a real sale rather than matching it.
+ *
+ * Anything queued at the moment of upgrade is therefore flagged and excluded
+ * from the automatic push. The count is logged and kept in meta so it can be
+ * reconciled against the server ledger deliberately, rather than silently
+ * resent or silently dropped.
+ */
+export function guardLegacyOutbox() {
+  if (getMeta('repair.temp_id_cutover') === 'done') return;
+
+  try {
+    const rows = db
+      .prepare(
+        `SELECT o.id, o.number, o.grand_total
+           FROM orders o
+          WHERE (o.synced_at IS NULL OR o.synced_at = 0)
+            AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = o.id)`
+      )
+      .all() as Array<{ id: string; number: string; grand_total: number }>;
+
+    if (rows.length) {
+      const stmt = db.prepare(`UPDATE orders SET push_legacy = 1 WHERE id = ?`);
+      const tx = db.transaction(() => rows.forEach((r) => stmt.run(r.id)));
+      tx();
+      console.warn(
+        `[repair] ${rows.length} pre-temp_id order(s) held back from push — ` +
+          `reconcile against the server ledger before releasing them.`,
+        rows.map((r) => r.number)
+      );
+      setMeta('outbox.legacy_held', String(rows.length));
+      setMeta('outbox.legacy_numbers', JSON.stringify(rows.map((r) => r.number)));
+    } else {
+      setMeta('outbox.legacy_held', '0');
+    }
+
+    setMeta('repair.temp_id_cutover', 'done');
+  } catch (e) {
+    console.error('[repair] legacy outbox guard failed:', e);
+  }
+}
+
 export function getMeta(key: string): string | null {
   const row = db
     .prepare('SELECT value FROM meta WHERE key = ?')
@@ -490,63 +616,118 @@ export function isPosLocked(): boolean {
   return v === '1' || v === 1 || v === true || v === 'true';
 }
 
-export function enforcePosLockKillSwitch() {
-  const locked = isPosLocked(); // server lock flag
-  const killDays = Number(getMeta('security.kill_after_days') || 0);
-  const lastSyncAt = Number(getMeta('sync.last_at') || 0);
-  const lastBootstrapAt = Number(getMeta('bootstrap.last_at') || 0);
+/** Meta keys that together make the device "paired" and signed in. */
+const PAIRING_META_KEYS = [
+  'server.base_url',
+  'server.device_id',
+  'device_id',
+  'device_token',
+  'branch.id',
+  'branch_id',
+  'branch.name',
+  'auth.user_id',
+  'auth.session_id',
+  'tmp.device_name',
+  'tmp.branch_id',
+  'pos.current_user_id',
+  'pos.current_user_json',
+];
 
-  // last known-online time
-  const lastOnlineAt = Math.max(lastSyncAt, lastBootstrapAt);
-  const now = Date.now();
-  const maxOfflineMs = killDays * 24 * 60 * 60 * 1000;
-
-  let shouldWipe = false;
-
-  // ------------------------------------------
-  // 1) Server says LOCKED
-  // ------------------------------------------
-  if (locked) {
-    console.log('[pos] Device is LOCKED → wipe local DB and exit.');
-    shouldWipe = true;
+/**
+ * Sign out and forget the pairing, without touching the app process.
+ * The renderer's AuthedGate sees `paired: false` on its next status poll and
+ * routes to the Pair screen.
+ */
+export function clearAuthAndPairing(reason: string) {
+  try {
+    db.prepare(
+      `UPDATE auth_sessions SET ended_at = ? WHERE ended_at IS NULL`
+    ).run(Date.now());
+  } catch {
+    // auth_sessions may not exist yet on a very first boot
   }
 
-  // ------------------------------------------
-  // 2) Offline too long (kill-switch)
-  // ------------------------------------------
-  if (!shouldWipe && killDays > 0 && lastOnlineAt > 0) {
-    const offlineMs = now - lastOnlineAt;
-    if (offlineMs > maxOfflineMs) {
-      console.log('[pos] Offline too long → kill-switch activated.', {
+  for (const key of PAIRING_META_KEYS) setMeta(key, '');
+
+  // device_token normally lives in keytar, not meta
+  void Promise.resolve(deleteSecret('device_token')).catch((err) =>
+    console.error('[pos] Failed clearing device token:', err)
+  );
+
+  setMeta('pos.unpaired_reason', reason);
+  setMeta('pos.unpaired_at', String(Date.now()));
+  console.log('[pos] Device unpaired locally. reason=', reason);
+}
+
+export type PosLockOutcome =
+  | { action: 'none' }
+  | { action: 'locked'; reason: 'server_locked' | 'offline_too_long' }
+  | { action: 'unpaired'; reason: 'device_revoked' };
+
+/**
+ * Evaluate the device lock state.
+ *
+ * A lock is REVERSIBLE and must never destroy data. Per the backend contract
+ * (docs/BACKEND-QUESTIONS.md §6.4), HTTP 423 comes from either an admin
+ * pressing Lock, or the staleness killswitch firing on a till that was simply
+ * switched off over a holiday. Both are cleared by an admin pressing Unlock,
+ * and the same token then resumes — so the local catalog and, critically, the
+ * unsynced outbox must survive. Wiping there destroys real revenue.
+ *
+ * Only an explicitly revoked device (HTTP 401 "Device revoked", `is_active`
+ * false) is permanent, and that path is handled by markDeviceRevoked().
+ */
+export function enforcePosLockKillSwitch(): PosLockOutcome {
+  if (isPosLocked()) {
+    console.log('[pos] Device is LOCKED — halting sync, keeping all local data.');
+    return { action: 'locked', reason: 'server_locked' };
+  }
+
+  // Local staleness mirror of the server killswitch. Same rule: lock the till,
+  // never wipe it — the server will confirm on the next successful contact.
+  const killDays = Number(getMeta('security.kill_after_days') || 0);
+  const lastOnlineAt = Math.max(
+    Number(getMeta('sync.last_at') || 0),
+    Number(getMeta('bootstrap.last_at') || 0)
+  );
+
+  if (killDays > 0 && lastOnlineAt > 0) {
+    const offlineMs = Date.now() - lastOnlineAt;
+    if (offlineMs > killDays * 24 * 60 * 60 * 1000) {
+      console.log('[pos] Offline too long → locking till (data preserved).', {
         lastOnlineAt,
         offlineMs,
-        maxAllowed: maxOfflineMs,
+        maxDays: killDays,
       });
-      shouldWipe = true;
+      setMeta('pos.locked', '1');
+      setMeta('pos.lock_reason', 'offline_too_long');
+      return { action: 'locked', reason: 'offline_too_long' };
     }
   }
 
-  if (!shouldWipe) return;
+  return { action: 'none' };
+}
 
-  // ------------------------------------------
-  // WIPE DATABASE
-  // ------------------------------------------
-  const dbPath = path.join(app.getPath('userData'), 'pos.db');
+/**
+ * HTTP 401 "Device revoked" — the only permanent state. The pairing is cleared
+ * so the till returns to the Pair screen, but local data (and the outbox) is
+ * deliberately preserved: a revoked device may still hold unsynced sales that
+ * an operator needs to recover.
+ */
+export function markDeviceRevoked(): PosLockOutcome {
+  console.warn('[pos] Device REVOKED by server → unpairing (data preserved).');
+  clearAuthAndPairing('device_revoked');
+  return { action: 'unpaired', reason: 'device_revoked' };
+}
 
-  try {
-    if (fs.existsSync(dbPath)) {
-      fs.unlinkSync(dbPath);
-      console.log('[pos] Local DB wiped:', dbPath);
-    }
-  } catch (err) {
-    console.error('[pos] Failed wiping DB:', err);
+/** Cleared by an admin unlock, confirmed on the next successful sync. */
+export function clearPosLock() {
+  if (getMeta('pos.locked') === '1') {
+    console.log('[pos] Lock cleared by server.');
   }
-
-  // ------------------------------------------
-  // FORCE EXIT so app restarts fresh
-  // ------------------------------------------
-  app.relaunch();
-  app.exit(0);
+  setMeta('pos.locked', '0');
+  setMeta('pos.lock_reason', '');
+  setMeta('pos.locked_at', '');
 }
 
 export function getCurrentUserId(): string | null {
