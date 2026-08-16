@@ -1,5 +1,6 @@
 // src/main/utils/permissions.ts
 import type { MainServices } from '../types/common';
+import { allowAnonymousAdmin, isAdminRole } from './authContext';
 
 export type PosUserContext = {
   id: string | null;
@@ -39,8 +40,8 @@ export function getCurrentPosUser(services: MainServices): PosUserContext {
     store.get('pos.current_user_id') ?? store.get('auth.user_id') ?? null;
   const id = rawId != null && rawId !== '' ? String(rawId) : null;
 
-  // If nobody is set, treat as admin (owner debugging / old DBs)
-  if (!id) return { id: null, isAdmin: true };
+  // Nobody signed in → no privileges (dev builds keep the old convenience).
+  if (!id) return { id: null, isAdmin: allowAnonymousAdmin() };
 
   try {
     const row = db
@@ -54,24 +55,17 @@ export function getCurrentPosUser(services: MainServices): PosUserContext {
       )
       .get(id) as any;
 
-    const role = (row?.role || '').toString().toLowerCase();
-    const isAdmin = [
-      'admin',
-      'owner',
-      'manager',
-      'super_admin',
-      'superadmin',
-    ].includes(role);
-
     return {
       id,
-      isAdmin,
+      isAdmin: isAdminRole(row?.role),
       role: row?.role ?? null,
       branch_id: row?.branch_id ?? null,
     };
-  } catch {
-    // If pos_users table missing, don't block the app
-    return { id, isAdmin: true };
+  } catch (e) {
+    // A known user whose role lookup failed is NOT an admin — a missing table
+    // or a locked DB must never hand out elevated rights.
+    console.error('[permissions] role lookup failed; denying admin:', e);
+    return { id, isAdmin: false };
   }
 }
 

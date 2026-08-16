@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { readOrCreateMachineId } from '../machineId';
 import { loadSecret, saveSecret } from '../secureStore';
 import type { MainServices } from '../types/common';
+import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
 
 type DBUser = {
   id: number;
@@ -20,12 +21,6 @@ type DBUser = {
 
 function normalizeLaravelHash(h?: string | null) {
   return (h || '').replace(/^\$2y\$/, '$2b$');
-}
-
-// helper to decide "admin" style roles
-function isAdminRole(role: string | null | undefined): boolean {
-  const r = String(role || '').toLowerCase();
-  return ['admin', 'owner', 'manager', 'super_admin', 'superadmin'].includes(r);
 }
 
 export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
@@ -134,6 +129,9 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
       token_present,
       branch_id,
       branch_name,
+      // Why the device lost its pairing, when it was not a manual unpair:
+      // 'server_locked' | 'offline_too_long' | null
+      unpaired_reason: paired ? null : meta.get('pos.unpaired_reason') || null,
       current_user: user
         ? {
             id: user.id,
@@ -240,16 +238,18 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     try {
       const user = getCurrentUser();
 
-      // No session → treat as "Admin" for first-boot/dev
+      // No session → no privileges. Dev builds keep the old first-boot
+      // convenience so there is still something to click without a seeded user.
       if (!user) {
+        const devAdmin = allowAnonymousAdmin();
         return {
           id: null,
-          name: 'Admin',
-          role: 'admin',
+          name: devAdmin ? 'Admin (dev)' : 'Signed out',
+          role: devAdmin ? 'admin' : null,
           email: null,
-          is_admin: true,
+          is_admin: devAdmin,
           branch_id: store.get('branch_id') ?? null,
-          is_active: 1,
+          is_active: devAdmin ? 1 : 0,
         };
       }
 
@@ -265,15 +265,16 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
         is_active: user.is_active,
       };
     } catch (e) {
-      console.error('auth:whoami failed:', e);
+      // Never escalate on failure — a broken lookup is not an admin.
+      console.error('auth:whoami failed; denying admin:', e);
       return {
         id: null,
-        name: 'Admin',
-        role: 'admin',
+        name: 'Signed out',
+        role: null,
         email: null,
-        is_admin: true,
+        is_admin: false,
         branch_id: store.get('branch_id') ?? null,
-        is_active: 1,
+        is_active: 0,
       };
     }
   });
@@ -303,6 +304,9 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     // instead of meta.delete(...)
     meta.set('pos.current_user_id', null);
     meta.set('pos.current_user_json', null);
+
+    meta.set('pos.unpaired_reason', 'manual');
+    meta.set('pos.unpaired_at', String(Date.now()));
 
     return { ok: true };
   });
