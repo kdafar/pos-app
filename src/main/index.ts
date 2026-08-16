@@ -96,6 +96,24 @@ function createMainWindow() {
       console.error(`[window] failed to load ${url}: ${desc} (${code})`)
   );
 
+  // Renderer errors otherwise only exist in DevTools, which nobody has open on
+  // a till. Forwarding warnings and errors to the main process means a bug
+  // report can be read off the terminal, or a log, instead of reproduced blind.
+  mainWindow.webContents.on(
+    'console-message',
+    (_e, level, message, line, sourceId) => {
+      if (level < 2) return; // 0 verbose, 1 info — only warn (2) and error (3)
+      const where = sourceId ? ` (${sourceId.split('/').pop()}:${line})` : '';
+      const tag = level === 3 ? '[renderer:error]' : '[renderer:warn]';
+      console.log(`${tag} ${message}${where}`);
+    }
+  );
+
+  // An unhandled crash in the renderer leaves a frozen window with no clue why.
+  mainWindow.webContents.on('render-process-gone', (_e, details) =>
+    console.error('[renderer] process gone:', details.reason, details.exitCode)
+  );
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
