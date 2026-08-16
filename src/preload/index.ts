@@ -44,6 +44,17 @@ const bridge = {
 
     unpair: () => ipcRenderer.invoke('auth:unpair'),
   },
+  update: {
+    status: () => ipcRenderer.invoke('update:status'),
+    check: () => ipcRenderer.invoke('update:check'),
+    install: () => ipcRenderer.invoke('update:install'),
+    /** Returns an unsubscribe fn. */
+    onState: (cb: (s: any) => void) => {
+      const h = (_e: unknown, s: any) => cb(s);
+      ipcRenderer.on('update:state', h);
+      return () => ipcRenderer.removeListener('update:state', h);
+    },
+  },
   invoke: (channel: string, ...args: any[]) =>
     ipcRenderer.invoke(channel, ...args),
 };

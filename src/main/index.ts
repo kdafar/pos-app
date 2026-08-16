@@ -2,13 +2,19 @@
 
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
-// If you're not using fs anywhere, you can remove this
-// import fs from 'node:fs';
+import fs from 'node:fs';
 
 import type { Database as BetterSqliteDB } from 'better-sqlite3';
 
 // DB + meta
-import db, { migrate, enforcePosLockKillSwitch, getMeta, setMeta } from './db';
+import db, {
+  migrate,
+  enforcePosLockKillSwitch,
+  repairOrderSyncDamage,
+  guardLegacyOutbox,
+  getMeta,
+  setMeta,
+} from './db';
 
 // Services + handlers
 import { createMainServices } from './services';
@@ -17,6 +23,7 @@ import { registerAllHandlers } from './handlers';
 // Protocols / printing
 import { registerAppImgScheme, registerAppImgProtocol } from './protocols';
 import { registerLocalPrintHandlers } from './print';
+import { registerUpdater } from './updater';
 // Socket server currently not used
 // import { createSocketServer } from './socket';
 
@@ -28,12 +35,31 @@ let mainWindow: BrowserWindow | null = null;
 // Create BrowserWindow
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * Window icon. Packaged Windows builds take it from the exe, but in dev (and
+ * on Linux) we point at the build resource — only if it is actually there, so
+ * a missing file degrades to the default icon instead of an ugly blank one.
+ */
+function resolveWindowIcon(): string | undefined {
+  const candidates = [
+    path.join(process.env.APP_ROOT!, 'build', 'icon.png'),
+    path.join(process.resourcesPath || '', 'build', 'icon.png'),
+  ];
+  return candidates.find((p) => {
+    try {
+      return fs.existsSync(p);
+    } catch {
+      return false;
+    }
+  });
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     title: 'Majestic POS',
-    icon: path.join(process.env.APP_ROOT!, 'build', 'icon.png'),
+    icon: resolveWindowIcon(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -48,12 +74,27 @@ function createMainWindow() {
     mainWindow!.setTitle('Majestic POS'); // enforce our title
   });
 
-  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  // electron-vite exposes the dev server as ELECTRON_RENDERER_URL.
+  // VITE_DEV_SERVER_URL is the older vite-plugin-electron name (still used by
+  // the legacy electron/main.ts) — kept only as a fallback. Reading just the
+  // old name meant `npm run dev` either loaded a stale build or, if the old
+  // variable lingered in the shell, hit a port nothing was serving.
+  const devServerUrl =
+    process.env.ELECTRON_RENDERER_URL || process.env.VITE_DEV_SERVER_URL;
+
   if (devServerUrl) {
+    console.log('[window] loading dev server:', devServerUrl);
     mainWindow.loadURL(devServerUrl);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  // Surface load failures in the terminal instead of only in the window.
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_e, code, desc, url) =>
+      console.error(`[window] failed to load ${url}: ${desc} (${code})`)
+  );
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -85,8 +126,25 @@ async function boot() {
     console.error('[db] meta init failed:', e);
   }
 
-  // 3) Kill-switch: if this device is locked, format DB + restart
-  enforcePosLockKillSwitch();
+  // 2.5) Repair rows damaged by the old order-sync bugs (runs once).
+  try {
+    repairOrderSyncDamage();
+    guardLegacyOutbox();
+  } catch (e) {
+    console.error('[db] order sync repair failed:', e);
+  }
+
+  // 3) Lock policy: a locked / too-long-offline device is unpaired (and, when
+  //    the server locked it, its local data is wiped). The app keeps running
+  //    and lands on the Pair screen — it never exits on its own.
+  try {
+    const outcome = enforcePosLockKillSwitch();
+    if (outcome.action !== 'none') {
+      console.log('[pos] lock policy applied at boot:', outcome);
+    }
+  } catch (e) {
+    console.error('[pos] lock policy check failed:', e);
+  }
 
   // 4) Build MainServices facade
   const services = createMainServices(db as BetterSqliteDB);
@@ -109,6 +167,13 @@ async function boot() {
 
   // 9) Finally create main window
   createMainWindow();
+
+  // 10) Auto-update (no-op in dev / portable builds)
+  try {
+    if (mainWindow) registerUpdater(mainWindow);
+  } catch (e) {
+    console.error('[updater] failed to register:', e);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
