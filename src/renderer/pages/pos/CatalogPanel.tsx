@@ -56,6 +56,11 @@ export default function CatalogPanel({
   );
   const selCat = selectedCategoryId == null ? null : String(selectedCategoryId);
 
+  // A search spans the whole catalogue, so while one is active the category
+  // chips no longer describe what is on screen. Leaving one lit would claim a
+  // scope the results do not have.
+  const isSearching = searchQuery.trim().length > 0;
+
   const itemCatSet = React.useMemo(() => {
     const s = new Set<string>();
     for (const it of items || [])
@@ -161,14 +166,28 @@ export default function CatalogPanel({
 
         {/* Categories */}
         <div className='mb-3'>
-          <div className='flex items-center gap-1.5 overflow-x-auto nice-scroll pb-1'>
+          {isSearching && (
+            <div
+              className={`mb-1.5 text-[11px] ${
+                theme === 'dark' ? 'text-slate-400' : 'text-gray-500'
+              }`}
+            >
+              {t('pos.searchAllCategories')}
+            </div>
+          )}
+          <div
+            className={`flex items-center gap-1.5 overflow-x-auto nice-scroll pb-1 transition-opacity ${
+              isSearching ? 'opacity-50' : ''
+            }`}
+          >
             <button
               onClick={() => {
                 console.debug('[CatalogPanel] click All Categories');
+                setSearchQuery('');
                 setSelectedCategoryId(null);
               }}
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                !selCat
+                !selCat && !isSearching
                   ? theme === 'dark'
                     ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
                     : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
@@ -188,11 +207,14 @@ export default function CatalogPanel({
                     id: cat.id,
                     name: cat.name,
                   });
+                  // Picking a category is a request to browse it, which the
+                  // active search would otherwise override.
+                  setSearchQuery('');
                   setSelectedCategoryId(String(cat.id));
                   setSelectedSubcategoryId(null);
                 }}
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                  selCat === String(cat.id)
+                  selCat === String(cat.id) && !isSearching
                     ? theme === 'dark'
                       ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
                       : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
@@ -209,14 +231,19 @@ export default function CatalogPanel({
 
         {/* Subcategories */}
         {filteredSubcategories.length > 0 && (
-          <div className='flex items-center gap-1.5 overflow-x-auto nice-scroll pb-1'>
+          <div
+            className={`flex items-center gap-1.5 overflow-x-auto nice-scroll pb-1 transition-opacity ${
+              isSearching ? 'opacity-50' : ''
+            }`}
+          >
             <button
               onClick={() => {
                 console.debug('[CatalogPanel] click All subcategories');
+                setSearchQuery('');
                 setSelectedSubcategoryId(null);
               }}
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                !selectedSubcategoryId
+                !selectedSubcategoryId && !isSearching
                   ? theme === 'dark'
                     ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                     : 'bg-blue-100 text-blue-700 border-blue-300'
@@ -236,10 +263,11 @@ export default function CatalogPanel({
                     name: sub.name,
                     category_id: sub.category_id,
                   });
+                  setSearchQuery('');
                   setSelectedSubcategoryId(String(sub.id));
                 }}
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                  selectedSubcategoryId === String(sub.id)
+                  selectedSubcategoryId === String(sub.id) && !isSearching
                     ? theme === 'dark'
                       ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                       : 'bg-blue-100 text-blue-700 border-blue-300'
@@ -257,7 +285,16 @@ export default function CatalogPanel({
 
       {/* Product grid */}
       <div className='flex-1 overflow-y-auto nice-scroll'>
-        <div className='grid grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-3 p-3'>
+        {/*
+          Column count follows the available width instead of being declared.
+          The fixed `grid-cols-5` broke on exactly the screens it was meant to
+          fill: Windows display scaling at 150% turns a 1920px monitor into
+          1280 CSS px, so five cards plus the 420px order panel left each card
+          around 130px — unreadable, with the price wrapping under the name.
+          auto-fill + minmax gives four cards there and eight on a 4K panel
+          without a single breakpoint.
+        */}
+        <div className='grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3 p-3'>
           {items.map((item) => (
             <ItemCard
               key={item.id}

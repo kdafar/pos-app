@@ -34,18 +34,29 @@ function buildItemFilter(filter: CatalogListItemsFilter | null) {
   const where: string[] = [];
   const params: any[] = [];
 
-  if (filter?.q) {
-    const q = filter.q.trim();
+  const q = filter?.q?.trim();
+
+  if (q) {
     where.push(`(name LIKE ? OR name_ar LIKE ? OR barcode = ?)`);
     params.push(`%${q}%`, `%${q}%`, q);
   }
-  if (filter?.categoryId) {
-    where.push(`category_id = ?`);
-    params.push(filter.categoryId);
-  }
-  if (filter?.subcategoryId) {
-    where.push(`subcategory_id = ?`);
-    params.push(filter.subcategoryId);
+
+  // A search deliberately ignores the selected category.
+  //
+  // Combining the two meant a cashier who had tapped a category and then
+  // searched got "no items found" for something the shop plainly sells — the
+  // item was simply filed elsewhere. Nothing on screen explained why, so the
+  // usual recovery was to retype the search rather than clear the category.
+  // Browsing is scoped; searching is not.
+  if (!q) {
+    if (filter?.categoryId) {
+      where.push(`category_id = ?`);
+      params.push(filter.categoryId);
+    }
+    if (filter?.subcategoryId) {
+      where.push(`subcategory_id = ?`);
+      params.push(filter.subcategoryId);
+    }
   }
 
   return { where, params };
