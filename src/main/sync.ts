@@ -329,14 +329,94 @@ function normSubcat(sc: any) {
   };
 }
 
+/** Raw numeric status code as sent by the server, or null if not numeric. */
+/**
+ * Parse a server timestamp. Prefers Unix ms (created_at_ms). Falls back to a
+ * bare MySQL datetime by normalising it to ISO and treating it as Asia/Kuwait
+ * (UTC+3, no DST) — the app timezone the backend stores wall-clock time in.
+ */
+export function parseServerTime(v: any): number | null {
+  if (v === null || v === undefined || v === '') return null;
+
+  if (typeof v === 'number' || /^\d{10,}$/.test(String(v))) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return n < 1e12 ? n * 1000 : n; // seconds vs milliseconds
+  }
+
+  const raw = String(v).trim();
+  const iso = Date.parse(raw);
+  if (Number.isFinite(iso)) return iso;
+
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (m) {
+    const [, y, mo, d, h, mi, sec] = m;
+    return Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${sec}+03:00`);
+  }
+  return null;
+}
+
+function serverStatusCode(v: any): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+/**
+ * Map the backend's numeric order status to a POS label.
+ *
+ * TODO(backend): the code→meaning list is not documented anywhere in this repo
+ * — see docs/BACKEND-QUESTIONS.md, section 1. Until it is confirmed, unknown
+ * codes render as "Status <n>" rather than being guessed at, because guessing
+ * would show a cashier a confidently wrong state (e.g. calling a preparing
+ * order "completed").
+ */
+// Confirmed enum lives in utils/serverStatus.ts (backend §1.1). We keep the
+// numeric code in status_code and store an English label for legacy readers;
+// the UI localises from status_code so it can honour the order-type nuance.
+const SERVER_STATUS_LABELS: Record<number, string> = {
+  0: 'pending payment',
+  1: 'received',
+  2: 'preparing',
+  3: 'ready',
+  4: 'done',
+  5: 'cancelled by customer',
+  6: 'cancelled by admin',
+  7: 'awaiting pickup',
+  8: 'rejected (auto)',
+  9: 'rejected',
+};
+
+function mapServerStatus(v: any): string {
+  // Already a POS-style string (some endpoints send strings) — keep it.
+  if (typeof v === 'string' && v.trim() && !/^\d+(\.\d+)?$/.test(v.trim())) {
+    return v.trim().toLowerCase();
+  }
+
+  const code = serverStatusCode(v);
+  if (code == null) return 'unknown';
+  return SERVER_STATUS_LABELS[code] ?? `status ${code}`;
+}
+
 function normOrderSeed(o: any) {
   return {
     id: S(o.id)!,
     number: S(o.number) || '',
-    created_at: S(o.created_at), // ISO
-    opened_at: o.created_at ? Date.parse(o.created_at) : null, // ms (fallback)
+    // Human-facing running number (0001, 0002 …) allocated by the server.
+    reference_no: S(o.reference_no ?? o.reference_number),
+    // §4.1: the pull feed sends a bare MySQL datetime ("2026-08-16 10:19:03")
+    // with no timezone — not valid ISO 8601, so strict parsers fall through to
+    // epoch zero, which is the 1970 dates we were seeing. created_at_ms is
+    // unambiguous Unix milliseconds and is present on both feeds.
+    created_at: S(o.created_at),
+    opened_at: parseServerTime(o.created_at_ms ?? o.created_at),
     order_type: N(o.order_type),
-    status: N(o.status),
+    // The server sends a NUMERIC status code (1, 2, 4, …) while the POS uses
+    // strings ('open', 'placed', 'closed'). Writing the number straight into
+    // `status` mixed two vocabularies and surfaced as "2.0" in the UI. Keep the
+    // raw code in status_code; `status` gets a label via mapServerStatus().
+    status: mapServerStatus(o.status),
+    status_code: serverStatusCode(o.status),
     mobile: S(o.mobile) || '',
     full_name: S(o.full_name) || '',
     grand_total: N(o.grand_total),
@@ -490,7 +570,23 @@ export async function bootstrap(baseUrl: string) {
   const states = asArray(catalog.states ?? []);
   const cities = asArray(catalog.cities ?? []);
   const blocks = asArray(catalog.blocks ?? []);
-  const subcats = asArray(catalog.subcategories ?? []);
+  // The payload has used more than one shape for these over time; read them
+  // all, because an unread key looks identical to "the server deleted them"
+  // and would make the prune below destroy a valid catalog.
+  const subcats = (() => {
+    const flat = asArray(
+      catalog.subcategories ?? catalog.sub_categories ?? catalog.subcats ?? []
+    );
+    const nested = asArray(catalog.categories).flatMap((c: any) =>
+      asArray(c?.subcategories ?? c?.sub_categories ?? c?.children ?? [])
+    );
+    const byId = new Map<string, any>();
+    for (const r of [...flat, ...nested]) {
+      const id = S(r?.id);
+      if (id) byId.set(id, r);
+    }
+    return [...byId.values()];
+  })();
   const ordersSeed = asArray(catalog.orders_seed ?? []);
   const tables = asArray(catalog.tables ?? catalog.table_list ?? []);
   const users = asArray(data.users ?? catalog.users ?? []);
@@ -740,21 +836,124 @@ export async function bootstrap(baseUrl: string) {
     `);
     for (const sc of subcats) upSub.run(normSubcat(sc));
 
+    // Bootstrap upserts but never deleted, so anything removed in the back
+    // office survived even a full resync — deleted categories kept showing on
+    // the POS grid indefinitely. Bootstrap is the COMPLETE catalog (confirmed
+    // with the backend: no pagination, no limit), so any local row absent from
+    // the payload has genuinely gone and must be pruned.
+    //
+    // Guarded on a non-empty payload: an empty list means a failed or partial
+    // response, and wiping the catalog on that would take the till offline.
+    const pruneMissing = (
+      table: string,
+      incoming: any[],
+      label: string
+    ) => {
+      if (!Array.isArray(incoming) || incoming.length === 0) return;
+      const ids = incoming.map((r) => S(r?.id)).filter(Boolean) as string[];
+      if (!ids.length) return;
+
+      const placeholders = ids.map(() => '?').join(',');
+      const stale = db
+        .prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE id NOT IN (${placeholders})`)
+        .get(...ids) as { c?: number };
+
+      const n = Number(stale?.c ?? 0);
+      if (!n) return;
+
+      // Refuse to act on an implausibly small payload. A key we failed to read
+      // is indistinguishable from "the server deleted almost everything", and
+      // guessing wrong empties a live catalog mid-service. Deleting most of a
+      // table is a legitimate but rare admin action, so make it explicit rather
+      // than automatic.
+      const localTotal =
+        Number(
+          (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as any)?.c ?? 0
+        ) || 0;
+      const wouldRemoveShare = localTotal ? n / localTotal : 0;
+
+      if (localTotal > 10 && wouldRemoveShare > 0.75) {
+        console.warn(
+          `[sync] REFUSING to prune ${n}/${localTotal} ${label} — the payload ` +
+            `carried only ${ids.length}. That usually means a payload key ` +
+            `changed, not a mass deletion. Nothing was removed.`
+        );
+        return;
+      }
+
+      db.prepare(`DELETE FROM ${table} WHERE id NOT IN (${placeholders})`).run(...ids);
+      console.log(`[sync] pruned ${n} ${label} removed on the server`);
+    };
+
+    console.log('[sync] bootstrap payload sizes', {
+      categories: categories.length,
+      subcategories: subcats.length,
+      items: items.length,
+      variations: itemVariations.length,
+      addon_groups: groups.length,
+      tables: tables.length,
+      payment_methods: payMethods.length,
+      catalog_keys: Object.keys(catalog || {}),
+    });
+
+    pruneMissing('categories', categories, 'categories');
+    pruneMissing('subcategories', subcats, 'subcategories');
+    pruneMissing('items', items, 'items');
+    pruneMissing('variations', itemVariations, 'variations');
+    pruneMissing('addon_groups', groups, 'add-on groups');
+    pruneMissing('item_addon_groups', itemAddonGroups, 'item add-on links');
+    pruneMissing('promos', promos, 'promos');
+    pruneMissing('tables', tables, 'tables');
+    pruneMissing('payment_methods', payMethods, 'payment methods');
+
+    // Add-ons are nested under their groups in the payload, so flatten before
+    // comparing — otherwise every add-on would look absent and be deleted.
+    const allAddons = groups.flatMap((g: any) =>
+      asArray(g?.addons ?? g?.items ?? [])
+    );
+    pruneMissing('addons', allAddons, 'add-ons');
+
     // recent orders seed (for phone lookup)
     const upOrderSeed = db.prepare(`
-      INSERT INTO orders (id, number, opened_at, created_at, order_type, status, mobile, full_name, grand_total)
-      VALUES (@id, @number, COALESCE(@opened_at, strftime('%s','now')*1000), @created_at, @order_type, @status, @mobile, @full_name, @grand_total)
+      INSERT INTO orders (id, number, reference_no, opened_at, created_at, order_type, status, status_code, mobile, full_name, grand_total)
+      VALUES (@id, @number, @reference_no, COALESCE(@opened_at, strftime('%s','now')*1000), @created_at, @order_type, @status, @status_code, @mobile, @full_name, @grand_total)
       ON CONFLICT(id) DO UPDATE SET
         number      = excluded.number,
+        reference_no = COALESCE(excluded.reference_no, reference_no),
         opened_at   = COALESCE(excluded.opened_at, opened_at),
         created_at  = COALESCE(excluded.created_at, created_at),
         order_type  = excluded.order_type,
         status      = excluded.status,
+        status_code = excluded.status_code,
         mobile      = excluded.mobile,
         full_name   = excluded.full_name,
         grand_total = excluded.grand_total
     `);
-    for (const o of ordersSeed) upOrderSeed.run(normOrderSeed(o));
+    // Orders this device created are pushed up and then come back down in the
+    // seed feed under the SERVER's id. Keyed on id alone that never matches the
+    // local UUID, so it inserted a second row — colliding on `number`, which
+    // made the dedupe trigger rename OUR row to 'L-<number>-<hex>'. Match on
+    // number first and skip: the local row is the authoritative copy.
+    const findLocalByNumber = db.prepare(
+      `SELECT id FROM orders WHERE number = ? LIMIT 1`
+    );
+    for (const o of ordersSeed) {
+      const row = normOrderSeed(o);
+      if (!row.number) continue;
+
+      const local = findLocalByNumber.get(row.number) as
+        | { id: string }
+        | undefined;
+
+      if (local && String(local.id) !== String(row.id)) {
+        console.log(
+          '[sync] seed order already exists locally, skipping duplicate',
+          { number: row.number, localId: local.id, serverId: row.id }
+        );
+        continue;
+      }
+      upOrderSeed.run(row);
+    }
 
     const upUser = db.prepare(`
   INSERT INTO pos_users (
@@ -893,6 +1092,27 @@ export async function pullChanges() {
         code=excluded.code,type=excluded.type,value=excluded.value,min_total=excluded.min_total,max_discount=excluded.max_discount,
         start_at=excluded.start_at,end_at=excluded.end_at,active=excluded.active,updated_at=excluded.updated_at
     `);
+    // Categories and subcategories were missing from the change feed entirely,
+    // so a category deleted (or renamed) in the back office stayed on the till
+    // forever. They are visible on the main POS screen, which made it obvious.
+    const upCatPull = db.prepare(`
+      INSERT INTO categories (id,name,name_ar,position,visible,updated_at)
+      VALUES (@id,@name,@name_ar,@position,@visible,@updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name=excluded.name, name_ar=excluded.name_ar,
+        position=excluded.position, visible=excluded.visible,
+        updated_at=excluded.updated_at
+    `);
+    const upSubPull = db.prepare(`
+      INSERT INTO subcategories (id,category_id,name,name_ar,position,visible,updated_at)
+      VALUES (@id,@category_id,@name,@name_ar,@position,@visible,@updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        category_id=excluded.category_id,
+        name=excluded.name, name_ar=excluded.name_ar,
+        position=excluded.position, visible=excluded.visible,
+        updated_at=excluded.updated_at
+    `);
+
     const upPromoEx = db.prepare(`
       INSERT INTO promo_item_exclusions (promo_id,item_id)
       VALUES (@promo_id,@item_id)
@@ -1012,6 +1232,43 @@ export async function pullChanges() {
       } else if (tbl === 'pos_user' || tbl === 'pos_users') {
         if (op === 'delete') delBy('pos_users', c.pk);
         else if (c.data) upUser.run(normUser(c.data));
+      } else if (tbl === 'category' || tbl === 'categories') {
+        if (op === 'delete') {
+          // Subcategories and items hang off the category; drop them too so
+          // the grid cannot show orphans pointing at a category that is gone.
+          db.prepare(`DELETE FROM subcategories WHERE category_id = ?`).run(
+            S(c.pk)
+          );
+          delBy('categories', c.pk);
+        } else if (c.data) {
+          upCatPull.run(normCategory(c.data));
+        }
+      } else if (tbl === 'subcategory' || tbl === 'subcategories') {
+        if (op === 'delete') delBy('subcategories', c.pk);
+        else if (c.data) upSubPull.run(normSubcat(c.data));
+      } else if (tbl === 'table' || tbl === 'tables') {
+        if (op === 'delete') delBy('tables', c.pk);
+        else if (c.data) db.prepare(
+          `INSERT INTO tables (id,branch_id,label,number,capacity,is_available,updated_at)
+           VALUES (@id,@branch_id,@label,@number,@capacity,@is_available,@updated_at)
+           ON CONFLICT(id) DO UPDATE SET
+             branch_id=excluded.branch_id, label=excluded.label,
+             number=excluded.number, capacity=excluded.capacity,
+             is_available=excluded.is_available, updated_at=excluded.updated_at`
+        ).run(normTable(c.data));
+      } else if (tbl === 'payment_method' || tbl === 'payment_methods') {
+        if (op === 'delete') delBy('payment_methods', c.pk);
+      } else if (tbl === 'state' || tbl === 'states') {
+        if (op === 'delete') delBy('states', c.pk);
+      } else if (tbl === 'city' || tbl === 'cities') {
+        if (op === 'delete') delBy('cities', c.pk);
+      } else if (tbl === 'block' || tbl === 'blocks') {
+        if (op === 'delete') delBy('blocks', c.pk);
+      } else if (op === 'delete') {
+        console.warn('[sync] unhandled delete in change feed', {
+          table: tbl,
+          pk: c.pk,
+        });
       }
       // (extend for other tables if your /pull adds them)
     }

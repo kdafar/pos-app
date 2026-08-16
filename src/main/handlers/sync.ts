@@ -2,7 +2,15 @@ import type { IpcMain } from 'electron';
 import https from 'node:https';
 import { URL } from 'node:url';
 import axios from 'axios';
-import db, { getMeta, setMeta, enforcePosLockKillSwitch } from '../db';
+import db, {
+  getMeta,
+  setMeta,
+  enforcePosLockKillSwitch,
+  markDeviceRevoked,
+  clearPosLock,
+} from '../db';
+import { PUSHABLE_STATUSES, sqlList } from '../utils/orderStatus';
+import { pushStatusForLocal } from '../utils/serverStatus';
 import { loadSecret } from '../secureStore';
 import { readOrCreateMachineId } from '../machineId';
 import {
@@ -20,6 +28,7 @@ import {
   ensureOrderNumberDedupeTriggers,
   normalizeDuplicateOrderNumbers,
   markOrdersSynced,
+  applyPushResult,
 } from '../utils/orderNumbers';
 
 import type { MainServices } from '../types/common';
@@ -50,13 +59,28 @@ function safeBuildOrderPayload(orderId: string) {
   // Safe timestamp access
   const completedAt = o.completed_at || o.closed_at || o.updated_at;
 
+  // Split tender is expressed as payments[]; the singular payment{} form only
+  // supports a single method and takes its amount from grand_total (§A2).
+  const payments = o.payment_method_slug
+    ? [{ method: o.payment_method_slug, amount: Number(o.grand_total || 0) }]
+    : [];
+
   return {
-    id: o.id,
+    // temp_id is the server's idempotency key — it reads this, NOT `id`.
+    // Without it the server minted a fresh ULID on every push, so retries
+    // duplicated and the ack came back under an id we had never seen. Must be
+    // stable across every retry of the same order.
+    temp_id: o.id,
+    id: o.id, // harmless duplicate; unknown keys are ignored
     number: o.number,
     device_id: o.device_id,
     branch_id: o.branch_id,
-    status: o.status,
+    // Sent as a whitelisted code (1,2,3,4,7). Ignored by the server until its
+    // wave-two change lands, then honoured with no client release needed.
+    status: pushStatusForLocal(o.status),
+    local_status: o.status,
     order_type: o.order_type,
+    payments,
     customer: {
       full_name: o.full_name,
       mobile: o.mobile,
@@ -108,9 +132,17 @@ function safeCollectUnsyncedOrders(limit = 20) {
   const rows = db
     .prepare(
       `
-      SELECT id
-      FROM orders
-      WHERE status = 'completed' AND (synced_at IS NULL OR synced_at = 0)
+      SELECT o.id
+      FROM orders o
+      WHERE o.status IN (${sqlList(PUSHABLE_STATUSES)})
+        AND (o.synced_at IS NULL OR o.synced_at = 0)
+        -- Never replay pre-temp_id pushes: the server stored them under a
+        -- ULID nothing can map back, so a re-push duplicates a real sale.
+        AND COALESCE(o.push_legacy, 0) = 0
+        -- Server seed rows (recent-orders feed, for phone lookup) live here
+        -- too and carry no local lines. Pushing one back would echo the
+        -- server's own order at it.
+        AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = o.id)
       ORDER BY ${sortCol} ASC
       LIMIT ?
     `
@@ -211,7 +243,7 @@ async function getSyncStatus(): Promise<SyncStatus> {
   const unsynced =
     (db
       .prepare(
-        `SELECT COUNT(*) FROM orders WHERE status = 'completed' AND (synced_at IS NULL OR synced_at = 0)`
+        `SELECT COUNT(*) FROM orders WHERE status IN (${sqlList(PUSHABLE_STATUSES)}) AND (synced_at IS NULL OR synced_at = 0)`
       )
       .pluck()
       .get() as number) || 0;
@@ -296,14 +328,21 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
             String(new Date(device.locked_at).getTime())
           );
         } else {
-          // no lock
-          setMeta('pos.locked', '0');
-          setMeta('pos.locked_at', null);
+          clearPosLock();
         }
       }
 
-      // Immediately enforce kill-switch if server says locked
-      enforcePosLockKillSwitch();
+      // Immediately enforce lock policy if server says locked
+      const outcome = enforcePosLockKillSwitch();
+      if (outcome.action !== 'none') {
+        throw new Error(
+          'This device has been locked by the server. Contact your administrator.'
+        );
+      }
+
+      // Fresh pairing succeeded — drop the "why were we unpaired" banner.
+      setMeta('pos.unpaired_reason', '');
+      setMeta('pos.unpaired_at', '');
 
       return result;
     }
@@ -331,16 +370,27 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
           }
         );
 
+        // A lock is reversible: stop syncing, keep every local row and the
+        // whole outbox. An admin unlock resumes the same token (§6.4).
         setMeta('pos.locked', '1');
+        setMeta('pos.lock_reason', 'server_locked');
         if (lockedAt) {
           setMeta('pos.locked_at', String(new Date(lockedAt).getTime()));
         }
 
-        // This should wipe DB / exit according to your db.ts logic
-        enforcePosLockKillSwitch();
-
-        // Optional: return a structured error to renderer
         return { ok: false, reason: 'locked' as const, locked_at: lockedAt };
+      }
+
+      // 401 covers both a revoked device and a merely invalid/expired token,
+      // so distinguish on the message — only an explicit revoke unpairs, and
+      // even then local data is preserved (§6.4).
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        const msg = String((err.response.data as any)?.message ?? '');
+        if (/revoked/i.test(msg)) {
+          markDeviceRevoked();
+          return { ok: false, reason: 'revoked' as const };
+        }
+        return { ok: false, reason: 'unauthorized' as const };
       }
 
       console.error('[sync:bootstrap] failed', err);
@@ -357,17 +407,24 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       }
 
       if (device.locked_at) {
-        // backend says this device is locked
         setMeta('pos.locked', '1');
+        setMeta('pos.lock_reason', 'server_locked');
         setMeta('pos.locked_at', String(new Date(device.locked_at).getTime()));
       } else {
-        setMeta('pos.locked', '0');
-        setMeta('pos.locked_at', null);
+        clearPosLock();
       }
     }
 
-    // If locked → format DB + exit/relaunch
-    enforcePosLockKillSwitch();
+    // Locked → stop here without importing. Nothing is destroyed; the till
+    // keeps its catalog and outbox until an admin unlocks it (§6.4).
+    const lockOutcome = enforcePosLockKillSwitch();
+    if (lockOutcome.action !== 'none') {
+      return {
+        ok: false,
+        reason: 'locked' as const,
+        locked_at: device?.locked_at ?? null,
+      };
+    }
 
     const cat = payload?.catalog || {};
     console.log('[sync:bootstrap] payload snapshot', {
@@ -488,11 +545,11 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         );
 
         setMeta('pos.locked', '1');
+        setMeta('pos.lock_reason', 'server_locked');
         if (lockedAt) {
           setMeta('pos.locked_at', String(new Date(lockedAt).getTime()));
         }
 
-        enforcePosLockKillSwitch();
         return { ok: false, reason: 'locked' as const, locked_at: lockedAt };
       }
 
@@ -523,7 +580,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
           `
         SELECT COUNT(*)
         FROM orders
-        WHERE status = 'completed'
+        WHERE status IN (${sqlList(PUSHABLE_STATUSES)})
         AND (synced_at IS NULL OR synced_at = 0)
       `
         )
@@ -538,9 +595,17 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
             .toString(36)
             .slice(2)}`,
         };
-        await pushOutbox(envelope, { orders: batch });
-        markOrdersSynced(batch.map((o) => o.id));
-        pushedCount = batch.length;
+        const result = await pushOutbox(envelope, { orders: batch });
+        // Only clear what the server actually acked; retryable failures stay
+        // queued under the same temp_id so the retry is idempotent.
+        const applied = applyPushResult(result);
+        pushedCount = applied.acked;
+        if (applied.retryable || applied.dropped) {
+          console.warn('[Sync] push partial', {
+            sent: batch.length,
+            ...applied,
+          });
+        }
       }
     }
 
@@ -603,7 +668,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     const n =
       (db
         .prepare(
-          `SELECT COUNT(*) FROM orders WHERE status='completed' AND (synced_at IS NULL OR synced_at=0)`
+          `SELECT COUNT(*) FROM orders WHERE status IN (${sqlList(PUSHABLE_STATUSES)}) AND (synced_at IS NULL OR synced_at=0)`
         )
         .pluck()
         .get() as number) || 0;

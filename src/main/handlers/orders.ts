@@ -4,8 +4,18 @@ import type { MainServices } from '../types/common';
 
 // ⚙️ Utils
 import { allocUniqueOrderNumber } from '../utils/orderNumbers';
-import { recalcOrderTotals } from '../utils/calculations';
+import {
+  recalcOrderTotals,
+  variationEffectivePrice,
+} from '../utils/calculations';
 import { logAction } from '../utils/logging';
+import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
+import {
+  ORDER_STATUS,
+  ACTIVE_STATUSES,
+  TERMINAL_STATUSES,
+  sqlList,
+} from '../utils/orderStatus';
 
 export function registerOrdersHandlers(
   ipcMain: IpcMain,
@@ -41,9 +51,10 @@ export function registerOrdersHandlers(
     const id = rawId != null && rawId !== '' ? String(rawId) : null;
 
     if (!id) {
+      // Nobody signed in → no privileges (dev builds keep the old convenience).
       return {
         id: null,
-        isAdmin: true,
+        isAdmin: allowAnonymousAdmin(),
         name: null,
         mobile: null,
         email: null,
@@ -55,22 +66,19 @@ export function registerOrdersHandlers(
         .prepare(`SELECT role, name, mobile, email FROM pos_users WHERE id = ?`)
         .get(id) as any;
 
-      const role = (u?.role || '').toLowerCase();
-      const isAdmin = ['admin', 'owner', 'manager', 'super_admin'].includes(
-        role
-      );
-
       return {
         id,
-        isAdmin,
+        isAdmin: isAdminRole(u?.role),
         name: u?.name ?? null,
         mobile: u?.mobile ?? null,
         email: u?.email ?? null,
       };
-    } catch {
+    } catch (e) {
+      // Lookup failure must deny, not escalate.
+      console.error('[orders] role lookup failed; denying admin:', e);
       return {
         id,
-        isAdmin: true,
+        isAdmin: false,
         name: null,
         mobile: null,
         email: null,
@@ -102,6 +110,26 @@ export function registerOrdersHandlers(
     };
   };
 
+  /**
+   * Put an already-synced order back in the outbox.
+   *
+   * The push filter is `synced_at IS NULL`, so once an order was acked at
+   * `placed` it could never be sent again — the later close never reached the
+   * server, and with revenue posting keyed on the DONE status the sale never
+   * reached the books. Push is idempotent on temp_id and the server now applies
+   * status/totals/payment on re-push, so clearing the stamp is safe and is what
+   * makes place-then-close work end to end.
+   */
+  const markForRepush = (orderId: string) => {
+    try {
+      rawDb
+        .prepare(`UPDATE orders SET synced_at = NULL WHERE id = ?`)
+        .run(orderId);
+    } catch (e) {
+      console.error('[orders] markForRepush failed', e);
+    }
+  };
+
   const getOrderRow = (orderId: string) => {
     return rawDb.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as
       | any
@@ -130,7 +158,7 @@ export function registerOrdersHandlers(
         }
       }
 
-      if (['completed', 'cancelled', 'closed'].includes(status)) {
+      if (TERMINAL_STATUSES.includes(status as any)) {
         throw new Error('Completed orders cannot be edited');
       }
     }
@@ -157,6 +185,7 @@ export function registerOrdersHandlers(
         tax_amount,
         discount_amount,
         line_total,
+        variation_id,
         variation,
         variation_price,
         addons_id,
@@ -278,7 +307,7 @@ export function registerOrdersHandlers(
         `
         SELECT o.*
         FROM orders o
-        WHERE o.status IN ('open', 'pending', 'ready', 'prepared')
+        WHERE o.status IN (${sqlList(ACTIVE_STATUSES)})
         AND (o.opened_at > @cutoff OR o.created_at > @cutoff)
         ${userSql}
         ORDER BY o.opened_at DESC, o.created_at DESC
@@ -306,12 +335,21 @@ export function registerOrdersHandlers(
     const where: string[] = ['1=1'];
     const params: any = { ...userParams };
 
+    // `created_at` holds two different shapes: locally-created orders store
+    // epoch ms as text ("1786876189385.0"), server-seeded ones store an ISO
+    // string ("2026-08-16T08:57:27.000000Z"). SQLite sorts every TEXT value
+    // above every INTEGER, so `created_at <= @to` was ALWAYS false for the ISO
+    // rows — every order pushed by another till was silently missing from
+    // Today's Orders. `opened_at` is normalised to epoch ms for both origins,
+    // so filter and sort on that instead.
+    const TS = `COALESCE(NULLIF(opened_at, 0), CAST(created_at AS INTEGER))`;
+
     if (from > 0) {
-      where.push('created_at >= @from');
+      where.push(`${TS} >= @from`);
       params.from = from;
     }
     if (to > 0) {
-      where.push('created_at <= @to');
+      where.push(`${TS} <= @to`);
       params.to = to;
     }
     if (status) {
@@ -323,9 +361,11 @@ export function registerOrdersHandlers(
       params.branch_id = branchId;
     }
 
+    // Same reason: ordering on the raw column would float every ISO-dated
+    // server order to the top regardless of its actual time.
     const sql = `SELECT * FROM orders WHERE ${where.join(
       ' AND '
-    )} ${userSql} ORDER BY created_at DESC LIMIT 500`;
+    )} ${userSql} ORDER BY ${TS} DESC LIMIT 500`;
     return rawDb.prepare(sql).all(params);
   });
 
@@ -496,7 +536,7 @@ export function registerOrdersHandlers(
     // Finds the active open order for this table
     const order = rawDb
       .prepare(
-        `SELECT * FROM orders WHERE table_id = ? AND status NOT IN ('completed', 'cancelled', 'closed') ORDER BY created_at DESC LIMIT 1`
+        `SELECT * FROM orders WHERE table_id = ? AND status NOT IN (${sqlList(TERMINAL_STATUSES)}) ORDER BY created_at DESC LIMIT 1`
       )
       .get(tableId) as any;
 
@@ -524,6 +564,15 @@ export function registerOrdersHandlers(
         .prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`)
         .get(itemId) as any;
       if (!item) throw new Error('Item not found');
+
+      // Items sold by variation have no meaningful bare price — force the
+      // caller through orders:addLineWithAddons so a variation is picked.
+      const variationCount = rawDb
+        .prepare(`SELECT COUNT(*) AS c FROM variations WHERE item_id = ?`)
+        .get(item.id) as { c?: number };
+      if (Number(variationCount?.c ?? 0) > 0) {
+        throw new Error('Please choose a variation for this item');
+      }
 
       const isLockedDineIn =
         Number(order.order_type) === 3 &&
@@ -605,7 +654,9 @@ export function registerOrdersHandlers(
         allowAddOnLockedDineIn: true,
       });
 
-      if (qty <= 0) throw new Error('Quantity must be > 0');
+      qty = Math.trunc(Number(qty));
+      if (!Number.isFinite(qty) || qty <= 0)
+        throw new Error('Quantity must be > 0');
 
       // Base item
       const item = rawDb
@@ -613,51 +664,103 @@ export function registerOrdersHandlers(
         .get(itemId) as any;
       if (!item) throw new Error('Item not found');
 
-      // (Optional) variation support — for now we ignore; you can extend later
-      const variationId = payload?.variation_id || null;
+      // ── Variations ───────────────────────────────────────────────
+      // An item that has variations MUST be sold as one of them, otherwise
+      // we would silently charge the (often placeholder) bare item price.
+      const variationId =
+        payload?.variation_id != null && payload.variation_id !== ''
+          ? String(payload.variation_id)
+          : null;
+
+      const itemVariations = rawDb
+        .prepare(
+          `SELECT id, name, price, sale_price FROM variations WHERE item_id = ?`
+        )
+        .all(item.id) as any[];
+
       let variationName: string | null = null;
       let variationPrice: number | null = null;
 
       if (variationId) {
-        const v = rawDb
-          .prepare(
-            `SELECT id, name, price, sale_price FROM variations WHERE id = ?`
-          )
-          .get(variationId) as any;
-        if (v) {
-          variationName = v.name || null;
-          variationPrice = Number(v.sale_price || v.price || 0);
+        const v = itemVariations.find((x) => String(x.id) === variationId);
+        if (!v) {
+          throw new Error('Selected variation is not available for this item');
         }
+        variationName = v.name || null;
+        variationPrice = variationEffectivePrice(v, item);
+
+        // §5.2: a variation saved without a price reaches us as 0.0 and is
+        // indistinguishable from a real zero. Refuse rather than give it away.
+        if (variationPrice <= 0) {
+          throw new Error(
+            `"${item.name} — ${v.name || 'variation'}" has no price set. ` +
+              `Fix it in the back office before selling it.`
+          );
+        }
+      } else if (itemVariations.length > 0) {
+        throw new Error('Please choose a variation for this item');
       }
 
       const basePrice =
         variationPrice != null ? variationPrice : Number(item.price || 0);
 
-      // Build addons snapshot
+      // ── Addons ───────────────────────────────────────────────────
+      // Only addons belonging to a group actually attached to this item may
+      // be charged, and the group's required/max_select rules are enforced
+      // here too — the renderer's checks are UX, not authorization.
       const selections = Array.isArray(payload?.addons) ? payload.addons : [];
+
+      const itemGroups = rawDb
+        .prepare(
+          `SELECT ag.id, ag.name, iag.is_required, iag.max_select
+             FROM addon_groups ag
+             JOIN item_addon_groups iag ON iag.group_id = ag.id
+            WHERE iag.item_id = ?`
+        )
+        .all(item.id) as any[];
+      const itemGroupIds = new Set(itemGroups.map((g) => String(g.id)));
 
       const addonIds: string[] = [];
       const addonNames: string[] = [];
       const addonPrices: number[] = [];
       const addonQtys: number[] = [];
+      const qtyByGroup = new Map<string, number>();
 
       for (const sel of selections) {
         if (!sel?.addon_id) continue;
         const a = rawDb
-          .prepare(`SELECT id, name, price FROM addons WHERE id = ?`)
+          .prepare(`SELECT id, group_id, name, price FROM addons WHERE id = ?`)
           .get(sel.addon_id) as any;
-        if (!a) continue;
+        if (!a) throw new Error('Selected add-on no longer exists');
 
-        const q = Number(sel.qty || 1) || 1;
+        const groupId = String(a.group_id ?? '');
+        if (!itemGroupIds.has(groupId)) {
+          throw new Error(`"${a.name}" is not available for this item`);
+        }
+
+        const q = Math.trunc(Number(sel.qty ?? 1));
+        if (!Number.isFinite(q) || q <= 0) continue;
         const price = Number(a.price || 0);
 
         addonIds.push(a.id);
         addonPrices.push(price);
         addonQtys.push(q);
+        qtyByGroup.set(groupId, (qtyByGroup.get(groupId) ?? 0) + q);
 
         // Nice label: "Ketchup" or "Ketchup ×2"
         const label = q > 1 ? `${a.name} ×${q}` : a.name;
         addonNames.push(label);
+      }
+
+      for (const g of itemGroups) {
+        const count = qtyByGroup.get(String(g.id)) ?? 0;
+        if (Number(g.is_required) === 1 && count === 0) {
+          throw new Error(`Please select an option for "${g.name}"`);
+        }
+        const max = Number(g.max_select);
+        if (Number.isFinite(max) && max > 0 && count > max) {
+          throw new Error(`You can select up to ${max} options for "${g.name}"`);
+        }
       }
 
       // Extra per-unit from addons
@@ -670,8 +773,48 @@ export function registerOrdersHandlers(
       const perUnitTotal = basePrice + addonsExtraPerUnit;
       const lineTotal = +(perUnitTotal * qty).toFixed(3);
 
-      // IMPORTANT: we always insert a NEW line (no merging),
-      // so different addon combos stay as separate rows.
+      const addonsIdJson = addonIds.length > 0 ? JSON.stringify(addonIds) : null;
+      const addonsQtyJson =
+        addonQtys.length > 0 ? JSON.stringify(addonQtys) : null;
+
+      // Different variation/addon combos stay as separate rows, but adding the
+      // *same* combo again bumps the existing line instead of stacking
+      // duplicate rows the cashier then has to edit one by one.
+      const hasLineLockCol = hasColumn('order_lines', 'is_locked');
+      const twin = rawDb
+        .prepare(
+          `
+            SELECT id, qty
+              FROM order_lines
+             WHERE order_id = ?
+               AND item_id = ?
+               AND IFNULL(variation_id, '') = IFNULL(?, '')
+               AND IFNULL(addons_id, '')    = IFNULL(?, '')
+               AND IFNULL(addons_qty, '')   = IFNULL(?, '')
+               ${hasLineLockCol ? 'AND COALESCE(is_locked, 0) = 0' : ''}
+             LIMIT 1
+          `
+        )
+        .get(orderId, item.id, variationId, addonsIdJson, addonsQtyJson) as any;
+
+      if (twin) {
+        const newQty = Number(twin.qty || 0) + qty;
+        rawDb
+          .prepare(
+            `UPDATE order_lines SET qty = ?, unit_price = ?, line_total = ? WHERE id = ?`
+          )
+          .run(newQty, perUnitTotal, +(perUnitTotal * newQty).toFixed(3), twin.id);
+
+        log('orders.addLineWithAddons (merged)', orderId, {
+          line_id: twin.id,
+          item_id: item.id,
+          qty: newQty,
+          variation_id: variationId,
+        });
+
+        return recalcAndGet(orderId);
+      }
+
       const id = crypto.randomUUID();
 
       rawDb
@@ -732,11 +875,11 @@ export function registerOrdersHandlers(
           variation_id: variationId,
           variation: variationName,
           variation_price: variationPrice,
-          addons_id: addonIds.length > 0 ? JSON.stringify(addonIds) : null,
+          addons_id: addonsIdJson,
           addons_name: addonNames.length > 0 ? addonNames.join(', ') : null,
           addons_price:
             addonPrices.length > 0 ? JSON.stringify(addonPrices) : null,
-          addons_qty: addonQtys.length > 0 ? JSON.stringify(addonQtys) : null,
+          addons_qty: addonsQtyJson,
         });
 
       log('orders.addLineWithAddons', orderId, {
@@ -930,7 +1073,7 @@ export function registerOrdersHandlers(
     }
 
     const cols: string[] = ['status = ?', 'updated_at = ?'];
-    const params: any[] = ['closed', ts];
+    const params: any[] = [ORDER_STATUS.CLOSED, ts];
 
     // Make sure customer fields are not empty
     if (hasColumn('orders', 'full_name')) {
@@ -988,6 +1131,8 @@ export function registerOrdersHandlers(
       .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
       .run(...params);
 
+    markForRepush(orderId);
+
     log('orders.close', orderId, {
       status: 'closed',
       autoFilled: {
@@ -1003,7 +1148,9 @@ export function registerOrdersHandlers(
 
   ipcMain.handle('orders:reopen', async (_e, orderId: string) => {
     rawDb
-      .prepare(`UPDATE orders SET status = 'open', updated_at = ? WHERE id = ?`)
+      .prepare(
+        `UPDATE orders SET status = '${ORDER_STATUS.OPEN}', updated_at = ? WHERE id = ?`
+      )
       .run(nowMs(), orderId);
     return getOrderWithLines(orderId);
   });
@@ -1079,8 +1226,11 @@ export function registerOrdersHandlers(
       // 2) 🔹 Now recalc with the correct city_id → will set delivery_fee, discount_total, grand_total
       const totals = recalcOrderTotals(services, orderId);
 
-      // 3) 🔹 Mark order as prepared + set payment + totals
-      const newStatus = type === 3 ? 'prepared' : 'completed';
+      // 3) 🔹 Placing an order does NOT finish it: the line stays on the till
+      //    so the cashier can keep adding to it. `orders:close` is what clears
+      //    it. Both states are pushed to the server (PUSHABLE_STATUSES).
+      const newStatus =
+        type === 3 ? ORDER_STATUS.PREPARED : ORDER_STATUS.PLACED;
 
       const cols = [
         'status = ?',
@@ -1124,6 +1274,8 @@ export function registerOrdersHandlers(
         console.error('Orders:complete SQL Error:', err.message);
         throw new Error('Database error during completion: ' + err.message);
       }
+
+      markForRepush(orderId);
 
       log('orders.complete', orderId, { customer, totals, status: newStatus });
       return recalcAndGet(orderId);
