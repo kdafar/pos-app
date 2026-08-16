@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # electron-builder's postinstall (install-app-deps) needs a full Electron
+      # download and is pointless on CI, where we never package.
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Unit tests
+        run: npm run test:run
+
+      - name: Build
+        run: npm run build
+
+  # Non-blocking on purpose: the repo carries a backlog of ~69 pre-existing
+  # type errors. This job makes the number visible so it can be driven down;
+  # flip `continue-on-error` off once it reaches zero.
+  typecheck:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck

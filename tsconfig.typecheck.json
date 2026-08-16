@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src", "electron"],
+  "//": "src/App.tsx and src/main.tsx are the dead pre-electron-vite entry (Vite's root is src/renderer). src/App.tsx is also syntactically corrupt.",
+  "exclude": ["src/App.tsx", "src/main.tsx", "node_modules", "out", "release"]
+}
