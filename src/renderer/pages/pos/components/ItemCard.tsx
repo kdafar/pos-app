@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Package, Puzzle, Layers } from 'lucide-react';
 import { fileUrl } from '../../../utils/fileUrl';
 import { useI18n } from '../../../i18n';
@@ -6,11 +6,15 @@ import { Item } from '../types';
 
 export function ItemCard({
   item,
-  theme,
   onAddItem,
   onSelectWithAddons,
 }: {
   item: Item;
+  /**
+   * No longer read: every colour on this card is a HeroUI semantic token that
+   * resolves correctly under both themes. Kept on the type so existing call
+   * sites still compile until they are cleaned up.
+   */
   theme: 'light' | 'dark';
   onAddItem: (it: Item) => void;
   onSelectWithAddons?: (it: Item) => void;
@@ -26,8 +30,6 @@ export function ItemCard({
     setLocalImageFailed(false);
   }, [item.id, item.image_local]);
 
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-700';
   const hasAddons = !!item.has_addons;
   const hasVariations = !!item.has_variations;
   const needsOptions = hasAddons || hasVariations;
@@ -40,8 +42,10 @@ export function ItemCard({
       ? minVariationPrice
       : Number(item.price || 0);
 
+  const outOfStock = item.is_outofstock === 1;
+
   const handleClick = () => {
-    if (item.is_outofstock === 1) return;
+    if (outOfStock) return;
 
     if (needsOptions && onSelectWithAddons) {
       onSelectWithAddons(item);
@@ -54,20 +58,25 @@ export function ItemCard({
     <button
       key={item.id}
       onClick={handleClick}
-      disabled={item.is_outofstock === 1}
-      className={`group relative flex flex-col rounded-xl border text-start transition
+      disabled={outOfStock}
+      /*
+        The whole card used to drop to opacity-50 when out of stock, which faded
+        the "out of stock" label itself along with the name and the price — the
+        one card on the grid that has something to say was the hardest to read.
+        The card now stays at full strength and only the image dims; the state
+        is stated by a solid danger pill instead.
+      */
+      className={`group relative flex flex-col rounded-xl border text-start transition-colors
         ${
-          item.is_outofstock === 1
-            ? 'bg-default-100 border-default-100 opacity-50 cursor-not-allowed'
-            : 'bg-default-100 border-default-200 hover:bg-default-200 hover:border-blue-500/40'
+          outOfStock
+            ? 'bg-default-100 border-default-200 cursor-not-allowed'
+            : 'bg-content1 border-default-200 hover:bg-default-100 hover:border-primary'
         } p-2.5`}
     >
       {/* IMAGE + ADDONS BADGE */}
       <div
-        className={`relative w-full pos-thumb rounded-lg overflow-hidden border mb-2
-          ${
-            'bg-slate-900 border-default-100'
-          }`}
+        className={`relative w-full pos-thumb rounded-lg overflow-hidden border border-default-200 mb-2
+          bg-default-100 ${outOfStock ? 'opacity-40' : ''}`}
       >
         {activeSrc ? (
           <img
@@ -90,24 +99,21 @@ export function ItemCard({
           />
         ) : (
           <div className='w-full h-full flex items-center justify-center'>
-            <Package
-              size={30}
-              className={theme === 'dark' ? 'text-slate-600' : 'text-gray-400'}
-            />
+            <Package size={30} className='text-default-700' />
           </div>
         )}
 
         {needsOptions && (
+          // Both badges are solid fills paired with their own `-foreground`
+          // token, which is the only combination that is guaranteed legible on
+          // either theme — the previous four-way light/dark branch put white on
+          // amber, which is under 2:1.
           <span
-            className={`absolute left-1.5 bottom-1.5 inline-flex items-center gap-1 pos-xs px-1.5 py-0.5 rounded-full font-medium shadow-sm
+            className={`absolute start-1.5 bottom-1.5 inline-flex items-center gap-1 pos-xs px-1.5 py-0.5 rounded-full font-semibold shadow-sm
               ${
                 hasVariations
-                  ? theme === 'dark'
-                    ? 'bg-amber-500/90 text-white'
-                    : 'bg-amber-600 text-white'
-                  : theme === 'dark'
-                  ? 'bg-indigo-500/90 text-white'
-                  : 'bg-indigo-600 text-white'
+                  ? 'bg-warning text-warning-foreground'
+                  : 'bg-primary text-primary-foreground'
               }`}
           >
             {hasVariations ? <Layers size={11} /> : <Puzzle size={11} />}
@@ -122,12 +128,10 @@ export function ItemCard({
 
       {/* TITLE */}
       <div className='flex-1 mb-1'>
-        <h3
-          className={`font-semibold ${text} pos-sm leading-snug line-clamp-2`}
-        >
+        <h3 className='font-semibold text-foreground pos-sm leading-snug line-clamp-2'>
           {localName(item)}
         </h3>
-        <p className={`pos-xs ${textMuted} line-clamp-1`}>
+        <p className='pos-xs text-default-700 line-clamp-1'>
           {isRTL ? item.name : item.name_ar}
         </p>
       </div>
@@ -135,20 +139,32 @@ export function ItemCard({
       {/* PRICE ONLY */}
       <div className='mt-1 flex items-baseline justify-end gap-1'>
         {hasVariations && (
-          <span className={`pos-xs ${textMuted}`}>{t('pos.from')}</span>
+          <span className='pos-xs font-medium text-default-700'>
+            {t('pos.from')}
+          </span>
         )}
-        <span
-          className={`pos-price font-bold ${
-            'text-primary'
-          }`}
-        >
+        {/*
+          `text-foreground`, not `text-primary`, and this is not a style
+          preference: theme/brand.ts writes the operator's brand hex straight
+          into --heroui-primary and shares that one ramp between the light and
+          the dark theme. Only `-foreground` is recomputed per brand, so
+          `bg-primary text-primary-foreground` is always safe while bare
+          `text-primary` is only as legible as the shop's brand colour happens
+          to be — a navy or maroon brand hides it on the dark theme. The price
+          is the number the card exists to show, so it does not get to depend on
+          that. Same call PageShell's StatCard makes for its headline figure.
+        */}
+        <span className='pos-price font-bold text-foreground'>
           <span className='money'>{money(displayPrice)}</span>
         </span>
       </div>
 
-      {item.is_outofstock === 1 && (
-        <div className='absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl'>
-          <span className='text-red-400 font-semibold text-sm'>
+      {outOfStock && (
+        // A scrim in `content1` rather than black: on the light theme a black
+        // wash turned a pale card into a dark one, so the grid read as if the
+        // unavailable items were the selected ones.
+        <div className='absolute inset-0 flex items-center justify-center rounded-xl bg-content1/70'>
+          <span className='rounded-md bg-danger px-2.5 py-1 pos-sm font-bold text-danger-foreground shadow-sm'>
             {t('pos.outOfStock')}
           </span>
         </div>

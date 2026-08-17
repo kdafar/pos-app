@@ -1,5 +1,6 @@
 // components/OrderLineItem.tsx
 import React from 'react';
+import { Button, Chip } from '@heroui/react';
 import { Trash2 } from 'lucide-react';
 import { OrderLine } from '../types';
 import { QtyStepper } from '../../../components/QtyStepper';
@@ -19,15 +20,32 @@ type OrderLineWithExtras = OrderLine & {
   notes?: string | null;
 };
 
+/**
+ * One line in the cart.
+ *
+ * Every colour here is a HeroUI semantic token, so the row, its meta pills and
+ * the price all resolve themselves in either theme from a single definition.
+ * The previous version branched on `theme === 'dark'` for the variation pill,
+ * the addon pills, the name and the line total — four places where the light
+ * branch (`bg-sky-50`, `text-blue-700`) rendered near-invisibly whenever the
+ * dark theme was actually on.
+ *
+ * Sizes come from the fluid POS scale rather than fixed 11px: this is read at
+ * arm's length while a customer waits, so nothing that carries meaning is
+ * rendered at a size or tone that has to be leaned into.
+ */
 export function OrderLineItem({
   line,
   orderId,
-  theme,
   onUpdate,
 }: {
   line: OrderLineWithExtras;
   orderId: string;
-  theme: 'light' | 'dark';
+  /**
+   * Unused — colour comes from semantic tokens now. Kept declared and optional
+   * only because OrderSide.tsx still passes it; it can go with that call site.
+   */
+  theme?: 'light' | 'dark';
   onUpdate: () => void;
 }) {
   const { t, name: localName, money } = useI18n();
@@ -66,10 +84,9 @@ export function OrderLineItem({
 
   const remove = async () => setQty(0);
 
-  const bg =
-    'bg-default-100 hover:bg-default-200';
+  const bg = 'bg-default-100 hover:bg-default-200';
   const border = 'border-default-200';
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
+  const text = 'text-foreground';
   const textMuted = 'text-default-700';
 
   const unitPrice = Number(line.unit_price || 0);
@@ -93,64 +110,63 @@ export function OrderLineItem({
       {/* Top row: name + remove */}
       <div className='flex items-start justify-between gap-2 mb-2'>
         <div className='flex-1 pe-1'>
-          <h4 className={`font-semibold ${text} leading-snug line-clamp-2`}>
+          <h4 className={`font-semibold pos-base ${text} leading-snug line-clamp-2`}>
             {localName(line)}
           </h4>
 
           {/* Variation + addons meta */}
           <div className='mt-1 space-y-1'>
             {hasVariation && (
-              <div className='flex flex-wrap items-center gap-1 text-[11px]'>
-                <span
-                  className={
-                    theme === 'dark'
-                      ? 'px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-200 border border-sky-500/40'
-                      : 'px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200'
-                  }
-                >
+              <div className='flex flex-wrap items-center gap-1'>
+                <Chip size='sm' variant='flat' color='primary' className='font-semibold'>
                   {line.variation}
-                </span>
+                </Chip>
               </div>
             )}
 
             {addonPills.length > 0 && (
-              <div className='flex flex-wrap items-center gap-1 text-[11px]'>
+              <div className='flex flex-wrap items-center gap-1'>
                 {addonPills.map((label, idx) => (
-                  <span
+                  <Chip
                     key={idx}
-                    className={
-                      theme === 'dark'
-                        ? 'px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-100 border border-indigo-500/40'
-                        : 'px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200'
-                    }
+                    size='sm'
+                    variant='flat'
+                    color='success'
+                    className='font-semibold'
                   >
                     + {label}
-                  </span>
+                  </Chip>
                 ))}
               </div>
             )}
 
-            <p className={`text-[11px] ${textMuted} font-medium`}>
-              <span className='money'>{money(unitPrice)}</span> × {qty}
+            <p className={`pos-xs ${textMuted} font-medium`}>
+              <span className='money'>{money(unitPrice)}</span> ×{' '}
+              <span className='money'>{qty}</span>
             </p>
 
             {hasNote && (
-              <p className={`text-[11px] ${textMuted} italic line-clamp-2`}>
+              <p className={`pos-xs ${textMuted} italic line-clamp-2`}>
                 {t('cart.note')}: {line.notes}
               </p>
             )}
           </div>
         </div>
 
-        <button
-          onClick={remove}
-          className={
-            'text-default-700 hover:text-red-400'
-          }
+        {/* A finger-sized target rather than a bare 16px glyph — this is the
+            control that deletes a line mid-order. */}
+        <Button
+          isIconOnly
+          size='sm'
+          variant='light'
+          color='danger'
+          onPress={remove}
           title={t('common.remove')}
+          aria-label={t('common.remove')}
+          className='shrink-0 text-danger'
         >
-          <Trash2 size={16} />
-        </button>
+          <Trash2 size={18} />
+        </Button>
       </div>
 
       {/* Bottom row: qty controls + total */}
@@ -166,11 +182,7 @@ export function OrderLineItem({
           onChange={setQty}
         />
 
-        <div
-          className={`text-[15px] font-bold ${
-            theme === 'dark' ? 'text-blue-200' : 'text-blue-700'
-          }`}
-        >
+        <div className='pos-price font-bold text-primary'>
           <span className='money'>{money(lineTotal)}</span>
         </div>
       </div>

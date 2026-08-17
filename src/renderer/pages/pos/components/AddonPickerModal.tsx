@@ -1,6 +1,16 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { X, Check, AlertTriangle } from 'lucide-react';
+import { useEffect, useState, useMemo } from 'react';
+import {
+  Button,
+  Chip,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from '@heroui/react';
+import { Check, AlertTriangle } from 'lucide-react';
 import { QtyStepper } from '../../../components/QtyStepper';
+import { DataState } from '../../../components/PageShell';
 import { useI18n } from '../../../i18n';
 import {
   Item,
@@ -18,6 +28,11 @@ declare global {
 }
 
 type Props = {
+  /**
+   * Unused — every colour in here is a HeroUI semantic token that resolves
+   * itself in both themes. Kept declared only because CatalogPanel still passes
+   * it; it can go when that call site is migrated.
+   */
   theme: 'light' | 'dark';
   item: Item;
   onClose: () => void;
@@ -26,7 +41,19 @@ type Props = {
 
 type GroupWithAddons = AddonGroup & { addons: Addon[] };
 
-export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
+/**
+ * A tile in this modal is either chosen or not, and a cashier has to tell which
+ * at a glance mid-order. So the chosen state is the primary token — a real
+ * border plus a tint of the same hue — and never a hand-mixed `bg-blue-50`,
+ * which is invisible on the dark theme.
+ */
+const TILE_BASE =
+  'w-full flex items-center justify-between gap-2 min-h-12 px-3 py-2.5 rounded-lg border text-start text-sm transition';
+const TILE_SELECTED = 'border-primary bg-primary/20 text-foreground';
+const TILE_IDLE =
+  'border-default-200 bg-default-100 text-foreground hover:bg-default-200';
+
+export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
   const { t, name: localName, money } = useI18n();
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<GroupWithAddons[]>([]);
@@ -35,11 +62,12 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
   const [selection, setSelection] = useState<Record<string, number>>({});
   const [lineQty, setLineQty] = useState(1);
   const [error, setError] = useState<string | null>(null);
-
-  const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-700';
-  const border = 'border-default-200';
+  // Tracked separately from `error`, which also carries validation messages.
+  // Without it, a failed load leaves groups and variations empty, which
+  // validateSelection() reads as "nothing to choose" and passes — so the item
+  // goes into the order at its base price, with required groups skipped and
+  // no variation, and the cashier gets no signal at all.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +75,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
       try {
         setLoading(true);
         setError(null);
+        setLoadFailed(false);
 
         const [rawGroups, vars]: [AddonGroup[], Variation[]] = await Promise.all(
           [
@@ -74,6 +103,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
         console.error('[AddonPickerModal] Failed to load item options', e);
         if (!cancelled) {
           setError(t('opts.loadFailed'));
+          setLoadFailed(true);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -152,6 +182,10 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
   }, [groups, selection]);
 
   const validateSelection = (): { ok: boolean; msg?: string } => {
+    // An item whose options could not be read must not be priced as though it
+    // had none — that is how a sized item gets sold at 0.000.
+    if (loadFailed) return { ok: false, msg: t('opts.loadFailed') };
+
     if (variations.length > 0 && !selectedVariation) {
       return { ok: false, msg: t('opts.pickVariation') };
     }
@@ -208,296 +242,278 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
   const totalWithAddons = +(itemBasePrice + addonsExtraTotal).toFixed(3);
   const lineTotal = +(totalWithAddons * lineQty).toFixed(3);
 
+  const hasNothingToPick = groups.length === 0 && variations.length === 0;
+
   return (
-    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm px-3'>
-      <div
-        className={`${bg} ${border} border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[82vh] flex flex-col overflow-hidden`}
-      >
-        {/* Header */}
-        <div
-          className={`flex items-start justify-between px-5 py-4 border-b ${border}`}
-        >
-          <div className='space-y-1'>
-            <div
-              className={`text-[11px] uppercase tracking-[0.14em] ${textMuted}`}
-            >
-              {t('opts.title')}
-            </div>
-            <div className={`text-base font-semibold ${text} leading-snug`}>
-              {localName(item)}
-            </div>
-            <div className={`text-xs ${textMuted}`}>
-              {t('opts.basePrice')}:{' '}
-              <span className='font-semibold money'>{money(itemBasePrice)}</span>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className={`rounded-full p-1.5 mt-1
-              ${
-                'hover:bg-default-200 text-default-700'
-              }`}
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <Modal
+      isOpen
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      size='2xl'
+      placement='center'
+      backdrop='blur'
+      scrollBehavior='inside'
+      className='rounded-2xl'
+    >
+      <ModalContent>
+        {() => (
+          <>
+            <ModalHeader className='flex flex-col gap-1'>
+              <span className='text-[11px] font-semibold uppercase tracking-[0.14em] text-default-700'>
+                {t('opts.title')}
+              </span>
+              <span className='text-lg font-bold leading-snug text-foreground'>
+                {localName(item)}
+              </span>
+              <span className='text-sm font-medium text-default-700'>
+                {t('opts.basePrice')}:{' '}
+                <span className='money font-semibold text-foreground'>
+                  {money(itemBasePrice)}
+                </span>
+              </span>
+            </ModalHeader>
 
-        {/* Body */}
-        <div className='flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 nice-scroll'>
-          {loading && (
-            <div className={`text-center py-8 ${textMuted} text-sm`}>
-              {t('common.loading')}
-            </div>
-          )}
-
-          {!loading && groups.length === 0 && variations.length === 0 && (
-            <div className={`text-center py-8 ${textMuted} text-sm`}>
-              {t('opts.none')}
-            </div>
-          )}
-
-          {/* Variations — exactly one must be picked */}
-          {!loading && variations.length > 0 && (
-            <div className={`rounded-xl border ${border} p-3.5 sm:p-4 space-y-3`}>
-              <div className='space-y-1'>
-                <div className={`font-medium ${text}`}>{t('opts.variation')}</div>
-                <div className='flex flex-wrap items-center gap-1 text-[11px]'>
-                  <span
-                    className={`inline-flex items-center px-1.5 py-0.5 rounded-full ${
-                      theme === 'dark'
-                        ? 'bg-rose-500/10 text-rose-200 border border-rose-500/40'
-                        : 'bg-rose-50 text-rose-700 border border-rose-200'
-                    }`}
-                  >
-                    {t('common.required')}
-                  </span>
-                  <span className={textMuted}>{t('opts.chooseOne')}</span>
-                </div>
-              </div>
-
-              <div className='grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2'>
-                {variations.map((v) => {
-                  const isSelected = String(v.id) === variationId;
-                  return (
-                    <button
-                      key={v.id}
-                      type='button'
-                      onClick={() => {
-                        setVariationId(String(v.id));
-                        setError(null);
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-start text-sm transition
-                        ${
-                          isSelected
-                            ? theme === 'dark'
-                              ? 'bg-blue-500/20 border border-blue-500/40 text-blue-50'
-                              : 'bg-blue-50 border border-blue-300 text-blue-900'
-                            : 'bg-default-100 border border-default-200 text-foreground hover:bg-default-200'
-                        }`}
-                    >
-                      <div className='space-y-0.5 min-w-0'>
-                        <div className='font-medium truncate'>{localName(v)}</div>
-                        {v.name_ar && (
-                          <div className={`text-[11px] ${textMuted} truncate`}>
-                            {v.name_ar}
-                          </div>
-                        )}
-                      </div>
-                      <span className='text-xs font-semibold shrink-0 ms-2'>
-                        <span className='money'>{money(v.effective_price)}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {!loading &&
-            groups.map((g) => {
-              const groupSelected = selectionByGroup[g.id] ?? [];
-              const isRequired =
-                g.is_required === 1 ||
-                g.is_required === true ||
-                g.is_required === '1';
-              const max = g.max_select ?? null;
-              const selectedCount = groupSelected.reduce(
-                (sum, s) => sum + s.qty,
-                0
-              );
-
-              return (
-                <div
-                  key={g.id}
-                  className={`rounded-xl border ${border} p-3.5 sm:p-4 space-y-3`}
-                >
-                  <div className='flex items-start justify-between gap-2'>
-                    <div className='space-y-1'>
-                      <div className={`font-medium ${text}`}>{localName(g)}</div>
-                      <div className='flex flex-wrap items-center gap-1 text-[11px]'>
-                        <span
-                          className={`inline-flex items-center px-1.5 py-0.5 rounded-full ${
-                            isRequired
-                              ? theme === 'dark'
-                                ? 'bg-rose-500/10 text-rose-200 border border-rose-500/40'
-                                : 'bg-rose-50 text-rose-700 border border-rose-200'
-                              : theme === 'dark'
-                              ? 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/30'
-                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}
-                        >
-                          {isRequired ? t('common.required') : t('common.optional')}
-                        </span>
-                        {max != null && max > 0 && (
-                          <span className={`${textMuted}`}>
-                            {t('opts.maxChoices', { n: max })}
+            <ModalBody className='gap-4'>
+              <DataState
+                loading={loading}
+                // A load failure also leaves this empty, but it already speaks
+                // for itself in the banner below — don't also claim the item
+                // simply has no options.
+                empty={hasNothingToPick && !error}
+                emptyTitle={t('opts.none')}
+              >
+                <div className='flex flex-col gap-4'>
+                  {/* Variations — exactly one must be picked */}
+                  {variations.length > 0 && (
+                    <div className='space-y-3 rounded-xl border border-default-200 p-3.5 sm:p-4'>
+                      <div className='space-y-1.5'>
+                        <div className='font-semibold text-foreground'>
+                          {t('opts.variation')}
+                        </div>
+                        <div className='flex flex-wrap items-center gap-2'>
+                          <Chip
+                            size='sm'
+                            variant='flat'
+                            color='danger'
+                            className='font-semibold'
+                          >
+                            {t('common.required')}
+                          </Chip>
+                          <span className='text-xs font-medium text-default-700'>
+                            {t('opts.chooseOne')}
                           </span>
-                        )}
+                        </div>
+                      </div>
+
+                      <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                        {variations.map((v) => {
+                          const isSelected = String(v.id) === variationId;
+                          return (
+                            <button
+                              key={v.id}
+                              type='button'
+                              onClick={() => {
+                                setVariationId(String(v.id));
+                                setError(null);
+                              }}
+                              className={`${TILE_BASE} ${
+                                isSelected ? TILE_SELECTED : TILE_IDLE
+                              }`}
+                            >
+                              <div className='min-w-0 space-y-0.5'>
+                                <div className='truncate font-medium'>
+                                  {localName(v)}
+                                </div>
+                                {v.name_ar && (
+                                  <div className='truncate text-xs font-medium text-default-700'>
+                                    {v.name_ar}
+                                  </div>
+                                )}
+                              </div>
+                              <span className='money ms-2 shrink-0 text-sm font-semibold'>
+                                {money(v.effective_price)}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
+                  )}
 
-                    {selectedCount > 0 && (
+                  {groups.map((g) => {
+                    const groupSelected = selectionByGroup[g.id] ?? [];
+                    const isRequired =
+                      g.is_required === 1 ||
+                      g.is_required === true ||
+                      g.is_required === '1';
+                    const max = g.max_select ?? null;
+                    const selectedCount = groupSelected.reduce(
+                      (sum, s) => sum + s.qty,
+                      0
+                    );
+
+                    return (
                       <div
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ${
-                          theme === 'dark'
-                            ? 'bg-blue-500/15 text-blue-100 border border-blue-500/40'
-                            : 'bg-blue-50 text-blue-800 border border-blue-200'
-                        }`}
+                        key={g.id}
+                        className='space-y-3 rounded-xl border border-default-200 p-3.5 sm:p-4'
                       >
-                        <Check size={12} /> {t('opts.selected', { n: selectedCount })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Addons grid */}
-                  <div className='grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2'>
-                    {g.addons.map((a) => {
-                      const qty = selection[a.id] ?? 0;
-                      const isSelected = qty > 0;
-                      return (
-                        <div
-                          key={a.id}
-                          onClick={() => !isSelected && toggleAddon(a)}
-                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-start text-sm transition
-                            ${
-                              isSelected
-                                ? theme === 'dark'
-                                  ? 'bg-blue-500/20 border border-blue-500/40 text-blue-50'
-                                  : 'bg-blue-50 border border-blue-300 text-blue-900'
-                                : 'bg-default-100 border border-default-200 text-foreground hover:bg-default-200 cursor-pointer'
-                            }`}
-                        >
-                          <div className='space-y-0.5 min-w-0'>
-                            <div className='font-medium truncate'>{localName(a)}</div>
-                            <div className={`text-[11px] ${textMuted}`}>
-                              + <span className='money'>{money(a.price)}</span>
-                              {qty > 1 && (
-                                <span className='ms-1 font-semibold'>
-                                  × {qty} = <span className='money'>{money(a.price * qty)}</span>
+                        <div className='flex items-start justify-between gap-2'>
+                          <div className='space-y-1.5'>
+                            <div className='font-semibold text-foreground'>
+                              {localName(g)}
+                            </div>
+                            <div className='flex flex-wrap items-center gap-2'>
+                              <Chip
+                                size='sm'
+                                variant='flat'
+                                color={isRequired ? 'danger' : 'success'}
+                                className='font-semibold'
+                              >
+                                {isRequired
+                                  ? t('common.required')
+                                  : t('common.optional')}
+                              </Chip>
+                              {max != null && max > 0 && (
+                                <span className='text-xs font-medium text-default-700'>
+                                  {t('opts.maxChoices', { n: max })}
                                 </span>
                               )}
                             </div>
                           </div>
 
-                          {isSelected ? (
-                            <QtyStepper
-                              value={qty}
-                              min={0}
-                              max={maxForAddon(g, a)}
-                              label={`${a.name} quantity`}
-                              onChange={(n) => setAddonQty(a, n)}
-                            />
-                          ) : (
-                            <span className={`text-[11px] ${textMuted} shrink-0`}>
-                              {t('opts.tapToAdd')}
-                            </span>
+                          {selectedCount > 0 && (
+                            <Chip
+                              size='sm'
+                              variant='flat'
+                              color='primary'
+                              className='shrink-0 font-semibold'
+                              startContent={<Check size={13} />}
+                            >
+                              {t('opts.selected', { n: selectedCount })}
+                            </Chip>
                           )}
                         </div>
-                      );
-                    })}
+
+                        {/* Addons grid */}
+                        <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                          {g.addons.map((a) => {
+                            const qty = selection[a.id] ?? 0;
+                            const isSelected = qty > 0;
+                            return (
+                              <div
+                                key={a.id}
+                                onClick={() => !isSelected && toggleAddon(a)}
+                                className={`${TILE_BASE} ${
+                                  isSelected
+                                    ? TILE_SELECTED
+                                    : `${TILE_IDLE} cursor-pointer`
+                                }`}
+                              >
+                                <div className='min-w-0 space-y-0.5'>
+                                  <div className='truncate font-medium'>
+                                    {localName(a)}
+                                  </div>
+                                  <div className='text-xs font-medium text-default-700'>
+                                    + <span className='money'>{money(a.price)}</span>
+                                    {qty > 1 && (
+                                      <span className='ms-1 font-semibold'>
+                                        × {qty} ={' '}
+                                        <span className='money'>
+                                          {money(a.price * qty)}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {isSelected ? (
+                                  <QtyStepper
+                                    value={qty}
+                                    min={0}
+                                    max={maxForAddon(g, a)}
+                                    label={`${a.name} quantity`}
+                                    onChange={(n) => setAddonQty(a, n)}
+                                  />
+                                ) : (
+                                  <span className='shrink-0 text-xs font-medium text-default-700'>
+                                    {t('opts.tapToAdd')}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </DataState>
+
+              {error && (
+                <div className='flex items-start gap-2 rounded-lg border border-danger bg-danger/10 px-3 py-2.5 text-sm font-medium text-danger'>
+                  <AlertTriangle size={16} className='mt-0.5 shrink-0' />
+                  <span>{error}</span>
+                </div>
+              )}
+            </ModalBody>
+
+            <ModalFooter className='flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+              <div className='flex items-center gap-4'>
+                <div className='flex items-center gap-2'>
+                  <span className='text-[11px] font-semibold uppercase tracking-wide text-default-700'>
+                    {t('common.qty')}
+                  </span>
+                  <QtyStepper
+                    value={lineQty}
+                    min={1}
+                    max={999}
+                    size='md'
+                    label='Item quantity'
+                    onChange={setLineQty}
+                  />
+                </div>
+
+                <div className='text-xs font-medium text-default-700'>
+                  <div>
+                    {t('common.each')}:{' '}
+                    <span className='money font-semibold text-foreground'>
+                      {money(totalWithAddons)}
+                    </span>{' '}
+                    (<span className='money'>{money(itemBasePrice)}</span> +{' '}
+                    <span className='money'>{money(addonsExtraTotal)}</span>)
+                  </div>
+                  <div className='mt-0.5'>
+                    {t('opts.lineTotal')}:&nbsp;
+                    <span className='money font-bold text-primary'>
+                      {money(lineTotal)}
+                    </span>
                   </div>
                 </div>
-              );
-            })}
-
-          {error && (
-            <div
-              className={`mt-1 flex items-start gap-2 text-xs rounded-lg px-3 py-2 ${
-                theme === 'dark'
-                  ? 'bg-rose-500/10 text-rose-200 border border-rose-500/40'
-                  : 'bg-rose-50 text-rose-700 border border-rose-200'
-              }`}
-            >
-              <AlertTriangle size={14} className='mt-0.5 shrink-0' />
-              <span>{error}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div
-          className={`px-4 sm:px-5 py-3 border-t ${border} flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3`}
-        >
-          <div className='flex items-center gap-4'>
-            <div className='flex items-center gap-2'>
-              <span className={`text-[11px] uppercase tracking-wide ${textMuted}`}>
-                {t('common.qty')}
-              </span>
-              <QtyStepper
-                value={lineQty}
-                min={1}
-                max={999}
-                size='md'
-                label='Item quantity'
-                onChange={setLineQty}
-              />
-            </div>
-
-            <div className={`text-xs ${textMuted}`}>
-              <div>
-                {t('common.each')}:{' '}
-                <span className='font-semibold'>
-                  <span className='money'>{money(totalWithAddons)}</span>
-                </span>
-                <span className='text-default-700'>
-                  {' '}
-                  (<span className='money'>{money(itemBasePrice)}</span> + <span className='money'>{money(addonsExtraTotal)}</span>)
-                </span>
               </div>
-              <div className='mt-0.5 text-[11px]'>
-                {t('opts.lineTotal')}:&nbsp;
-                <span className='font-semibold text-blue-600 dark:text-blue-300'>
-                  <span className='money'>{money(lineTotal)}</span>
-                </span>
-              </div>
-            </div>
-          </div>
 
-          <div className='flex items-center justify-end gap-2'>
-            <button
-              onClick={onClose}
-              className={`px-3.5 py-1.5 rounded-lg text-sm
-                ${
-                  'bg-default-100 text-foreground hover:bg-default-200'
-                }`}
-            >
-              {t('common.cancel')}
-            </button>
-            <button
-              onClick={handleConfirm}
-              className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1.5
-                ${
-                  theme === 'dark'
-                    ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                }`}
-            >
-              <Check size={16} />
-              {t('opts.addToOrder')}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+              <div className='flex items-center justify-end gap-2'>
+                <Button variant='flat' size='lg' onPress={onClose}>
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  color='primary'
+                  size='lg'
+                  className='font-semibold'
+                  startContent={<Check size={18} />}
+                  // Blocked outright rather than left clickable-and-refused:
+                  // the options are unknown, so there is no correct price to
+                  // add at.
+                  isDisabled={loadFailed}
+                  onPress={handleConfirm}
+                >
+                  {t('opts.addToOrder')}
+                </Button>
+              </div>
+            </ModalFooter>
+          </>
+        )}
+      </ModalContent>
+    </Modal>
   );
 }

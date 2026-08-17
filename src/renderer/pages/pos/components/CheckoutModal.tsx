@@ -427,7 +427,12 @@ export function CheckoutModal({
   return (
     <div className='fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4'>
       <div
-        className={`${bg} border ${border} rounded-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto`}
+        // max-w-2xl (42rem) forced three address selects into a cramped row
+        // and left the form scrolling far more than it needed to. 64rem gives
+        // the fields room on a normal till without running the width on 4K.
+        // nice-scroll replaces the default chunky bar, matching every other
+        // scroller in the app.
+        className={`${bg} border ${border} rounded-xl w-full max-w-[64rem] max-h-[92vh] overflow-y-auto nice-scroll`}
       >
         <div
           className={`sticky top-0 ${bg} border-b ${border} p-4 flex items-center justify-between`}

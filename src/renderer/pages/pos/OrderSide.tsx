@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { Button, Chip } from '@heroui/react';
 import {
   ShoppingCart,
   Check,
@@ -6,7 +7,6 @@ import {
   Percent,
   UtensilsCrossed,
   Table2,
-  LogOut,
   Lock,
 } from 'lucide-react';
 
@@ -35,6 +35,19 @@ declare global {
   }
 }
 
+/**
+ * The cart.
+ *
+ * Colour here is entirely HeroUI semantic tokens, so one definition is correct
+ * in both themes. `theme` is still destructured only because three child modals
+ * (CheckoutModal above all) have not been migrated yet and still require it —
+ * nothing in this file's own markup consults it.
+ *
+ * The panel is a till surface read at arm's length mid-transaction, so nothing
+ * that carries meaning is faded: the empty-cart hint, the totals and the badges
+ * are all solid tones at full opacity, and every control keeps a finger-sized
+ * target.
+ */
 export default function OrderSide({
   theme,
   currentOrder,
@@ -74,9 +87,9 @@ export default function OrderSide({
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [showPromoDialog, setShowPromoDialog] = useState(false);
 
-  const bg = theme === 'dark' ? 'bg-slate-900/60' : 'bg-white';
-  const border = 'border-default-100';
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
+  const bg = 'bg-content1';
+  const border = 'border-default-200';
+  const text = 'text-foreground';
   const textMuted = 'text-default-700';
   const cardBg = 'bg-default-100';
   const toast = useToast();
@@ -107,7 +120,7 @@ export default function OrderSide({
     const ok = await confirm({
       title: t('cart.clearTitle'),
       message: (
-        <div className='space-y-1 text-[13px]'>
+        <div className='space-y-1 pos-sm'>
           <p>
             {t('cart.clearBodyBefore')} <b>{t('cart.clearBodyAllItems')}</b>{' '}
             {t('cart.clearBodyAfter')}
@@ -278,7 +291,7 @@ export default function OrderSide({
 
   return (
     <div
-      className={`${bg} backdrop-blur border-s ${border} flex flex-col h-full overflow-hidden`}
+      className={`${bg} border-s ${border} flex flex-col h-full overflow-hidden`}
     >
       {/* Header */}
       <div className={`p-4 border-b ${border} shrink-0`}>
@@ -289,14 +302,19 @@ export default function OrderSide({
               {/* Left: order number + table button */}
               <div className='space-y-1.5'>
                 <div>
-                  <div className={`text-xs ${textMuted}`}>
+                  <div className={`pos-xs font-medium ${textMuted}`}>
                     {t('cart.orderNumber')}
                   </div>
-                  <div className={`text-xl font-bold ${text} money`}>
-                    {shortOrderLabel(currentOrder as any)}
+                  <div
+                    className={`flex flex-wrap items-center gap-2 text-xl font-bold ${text}`}
+                  >
+                    {/* .money forces LTR digit order so the number never
+                        mirrors in Arabic. */}
+                    <span className='money'>
+                      {shortOrderLabel(currentOrder as any)}
+                    </span>
                     <PaymentBadge
                       status={(currentOrder as any).payment_link_status}
-                      theme={theme}
                     />
                   </div>
                 </div>
@@ -305,31 +323,37 @@ export default function OrderSide({
                 {currentOrder.order_type === 3 && (
                   <div className='flex items-center gap-2'>
                     {currentOrder.table_id ? (
-                      <button
-                        onClick={() => setShowTablePicker(true)}
-                        className={`px-3 py-1.5 rounded-lg border text-xs ${
-                          'bg-emerald-500/15 text-success border-emerald-600/30'
-                        }`}
+                      <Button
+                        size='sm'
+                        variant='flat'
+                        color='success'
+                        className='font-semibold'
+                        onPress={() => setShowTablePicker(true)}
+                        startContent={<Table2 size={15} />}
                       >
-                        <Table2 size={14} className='inline me-1' />
                         {currentOrder.table_name || t('cust.table')} •{' '}
                         <span className='money'>{currentOrder.covers || 1}</span>
-                      </button>
+                      </Button>
                     ) : (
-                      <button
-                        onClick={() => setShowTablePicker(true)}
-                        className={`px-3 py-1.5 rounded-lg border text-xs ${
-                          'border-default-200 bg-default-100 text-foreground hover:bg-default-200'
-                        }`}
+                      <Button
+                        size='sm'
+                        variant='flat'
+                        className='font-semibold'
+                        onPress={() => setShowTablePicker(true)}
+                        startContent={<UtensilsCrossed size={15} />}
                       >
-                        <UtensilsCrossed size={14} className='inline me-1' />{' '}
                         {t('tables.assign')}
-                      </button>
+                      </Button>
                     )}
 
                     {currentOrder.table_id && orderLines.length === 0 && (
-                      <button
-                        onClick={async () => {
+                      <Button
+                        isIconOnly
+                        size='sm'
+                        variant='flat'
+                        title={t('admin.tables.clear')}
+                        aria-label={t('admin.tables.clear')}
+                        onPress={async () => {
                           try {
                             await window.api.invoke(
                               'orders:clearTable',
@@ -341,12 +365,9 @@ export default function OrderSide({
                             console.error(e);
                           }
                         }}
-                        className={`px-3 py-1.5 rounded-lg border text-xs ${
-                          'border-default-200 bg-default-100 text-foreground hover:bg-default-200'
-                        }`}
                       >
-                        <X size={14} />
-                      </button>
+                        <X size={16} />
+                      </Button>
                     )}
                   </div>
                 )}
@@ -354,52 +375,45 @@ export default function OrderSide({
 
               {/* Right: type pill + lock / pending badges */}
               <div className='flex flex-col items-end gap-1.5'>
-                <div
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${
-                    'bg-blue-500/20 text-primary border border-blue-500/30'
-                  }`}
+                <Chip
+                  size='md'
+                  variant='flat'
+                  color='primary'
+                  className='font-semibold'
                 >
                   {labelForType(currentOrder.order_type)}
-                </div>
+                </Chip>
 
                 {hasMainLockedLines && (
                   <div className='flex flex-wrap justify-end gap-1.5'>
                     {/* Main order locked badge */}
-                    <div
-                      className={`
-                  inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium
-                  border
-                  ${
-                    'bg-amber-500/10 text-warning border-amber-400/40'
-                  }
-                `}
+                    <Chip
+                      size='sm'
+                      variant='flat'
+                      color='warning'
+                      className='font-semibold'
+                      startContent={<Lock size={14} />}
                     >
-                      <Lock size={13} />
-                      <span>{t('cart.lockedBadge')}</span>
-                    </div>
+                      {t('cart.lockedBadge')}
+                    </Chip>
 
                     {/* New items pending badge */}
                     {hasPendingNewItems && (
-                      <div
-                        className={`
-                    inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold
-                    border
-                    ${
-                      theme === 'dark'
-                        ? 'bg-emerald-500/10 text-emerald-200 border-emerald-400/40'
-                        : 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                    }
-                  `}
+                      <Chip
+                        size='sm'
+                        variant='flat'
+                        color='success'
+                        className='font-semibold'
+                        startContent={
+                          <span className='w-1.5 h-1.5 rounded-full bg-current inline-block' />
+                        }
                       >
-                        <span className='w-1.5 h-1.5 rounded-full bg-current inline-block' />
-                        <span>
-                          {pendingNewItemsCount > 1
-                            ? t('cart.pendingMany', {
-                                n: pendingNewItemsCount,
-                              })
-                            : t('cart.pendingOne')}
-                        </span>
-                      </div>
+                        {pendingNewItemsCount > 1
+                          ? t('cart.pendingMany', {
+                              n: pendingNewItemsCount,
+                            })
+                          : t('cart.pendingOne')}
+                      </Chip>
                     )}
                   </div>
                 )}
@@ -408,80 +422,67 @@ export default function OrderSide({
 
             {/* Promo section */}
             {currentOrder.promocode ? (
-              <div
-                className={`flex items-center justify-between p-2.5 rounded-lg border ${
-                  theme === 'dark'
-                    ? 'bg-green-500/10 border-green-500/30'
-                    : 'bg-green-50 border-green-300'
-                }`}
-              >
-                <div className='flex items-center gap-2'>
-                  <Percent
-                    size={16}
-                    className={
-                      theme === 'dark' ? 'text-green-400' : 'text-green-600'
-                    }
-                  />
-                  <span
-                    className={`text-xs font-medium ${
-                      'text-success'
-                    }`}
-                  >
+              <div className='flex items-center justify-between gap-2 p-2 rounded-lg border border-success bg-success/10'>
+                <div className='flex items-center gap-2 min-w-0'>
+                  <Percent size={16} className='text-success shrink-0' />
+                  <span className='pos-sm font-semibold text-success truncate'>
                     {currentOrder.promocode}
                   </span>
                 </div>
-                <button
-                  onClick={onRemovePromo}
-                  className={`text-xs ${
-                    'text-green-400 hover:text-success'
-                  }`}
+                <Button
+                  isIconOnly
+                  size='sm'
+                  variant='light'
+                  color='danger'
+                  className='shrink-0 text-danger'
+                  title={t('common.remove')}
+                  aria-label={t('common.remove')}
+                  onPress={onRemovePromo}
                 >
                   <X size={16} />
-                </button>
+                </Button>
               </div>
             ) : (
-              <button
-                onClick={() => setShowPromoDialog(true)}
-                className={`w-full py-2 rounded-lg border text-xs font-medium transition ${
-                  'border-default-200 bg-default-100 text-default-700 hover:bg-default-200'
-                }`}
+              <Button
+                fullWidth
+                variant='flat'
+                className='font-semibold'
+                onPress={() => setShowPromoDialog(true)}
+                startContent={<Percent size={16} />}
               >
-                <Percent size={14} className='inline me-1' />
                 {t('promo.title')}
-              </button>
+              </Button>
             )}
 
             {/* Clear cart – full width, aligned with online POS look */}
             {orderLines.length > 0 && (
-              <button
-                type='button'
-                onClick={handleClearCart}
-                className='
-                  w-full mt-2 h-9
-                  rounded-lg text-xs font-semibold
-                  flex items-center justify-center gap-1.5
-                  bg-red-600 text-white
-                  hover:bg-red-700
-                  active:scale-[0.99]
-                  transition
-                '
+              // Solid danger, not a red-600 hard-code: the fill is genuinely
+              // solid so HeroUI's own foreground token keeps the label legible
+              // in either theme.
+              <Button
+                fullWidth
+                color='danger'
+                className='mt-2 font-semibold'
+                onPress={handleClearCart}
+                startContent={<X size={16} />}
               >
-                <X size={14} />
                 {t('cart.clearCart')}
-              </button>
+              </Button>
             )}
           </div>
         ) : (
           <div className='text-center py-3'>
-            <p className={`${textMuted} mb-2`}>{t('cart.noActiveOrder')}</p>
-            <button
-              onClick={onCreateOrder}
-              className={`px-4 py-2.5 rounded-lg text-sm font-medium ${
-                'bg-primary text-primary-foreground'
-              }`}
+            <p className={`${textMuted} font-medium mb-2`}>
+              {t('cart.noActiveOrder')}
+            </p>
+            <Button
+              color='primary'
+              size='lg'
+              className='font-semibold'
+              onPress={onCreateOrder}
             >
               {t('cart.createOrder')}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -491,11 +492,14 @@ export default function OrderSide({
         <>
           <div className='grow overflow-y-auto nice-scroll p-4'>
             {orderLines.length === 0 ? (
+              // Solid, not faded: an empty cart is a state the cashier has to
+              // read across the counter, and `opacity-70` on top of a muted
+              // tone made it a whisper.
               <div
-                className={`flex flex-col items-center justify-center min-h-[200px] ${textMuted} opacity-70`}
+                className={`flex flex-col items-center justify-center min-h-[200px] ${textMuted}`}
               >
                 <ShoppingCart size={40} className='mb-3' />
-                <p className='text-center'>
+                <p className='text-center font-medium'>
                   {t('cart.empty')}
                   <br />
                   {t('cart.emptyHint')}
@@ -524,13 +528,11 @@ export default function OrderSide({
               <Row
                 label={t('cart.subtotal')}
                 value={money(currentOrder.subtotal)}
-                theme={theme}
               />
               {currentOrder.discount_total > 0 && (
                 <Row
                   label={t('cart.discount')}
                   value={`-${money(currentOrder.discount_total)}`}
-                  theme={theme}
                 />
               )}
               {currentOrder.order_type === 1 && (
@@ -548,16 +550,10 @@ export default function OrderSide({
                 />
               )}
               <div
-                className={`flex justify-between pos-price font-bold ${text} pt-2 border-t ${
-                  'border-default-200'
-                }`}
+                className={`flex justify-between pos-price font-bold ${text} pt-2 border-t border-default-200`}
               >
                 <span>{t('common.total')}</span>
-                <span
-                  className={`money ${
-                    'text-primary'
-                  }`}
-                >
+                <span className='money text-primary'>
                   {money(currentOrder.grand_total)}
                 </span>
               </div>
@@ -565,41 +561,35 @@ export default function OrderSide({
 
             {/* BUTTONS – match online POS style */}
             <div className='flex gap-3'>
-              {/* Place Order (black) */}
-              <button
-                type='button'
-                onClick={() => setShowCheckout(true)}
-                disabled={orderLines.length === 0}
-                className={`
-                  flex-1 h-11 rounded-lg text-sm font-semibold
-                  flex items-center justify-center gap-1.5
-                  bg-black text-white
-                  hover:bg-gray-900
-                  disabled:opacity-40 disabled:cursor-not-allowed
-                `}
+              {/* Place Order — the one action this panel exists for, so it is
+                  the only solid fill down here. */}
+              <Button
+                size='lg'
+                color='primary'
+                className='flex-1 font-semibold'
+                onPress={() => setShowCheckout(true)}
+                isDisabled={orderLines.length === 0}
+                startContent={<Check size={18} />}
               >
-                <Check size={18} />
                 {currentOrder.order_type === 3
                   ? t('cart.updatePay')
                   : t('cart.placeOrder')}
-              </button>
+              </Button>
 
-              {/* Close / Release (blue) */}
-              <button
-                type='button'
-                onClick={
+              {/* Close / Release — deliberately secondary, but `flat` rather
+                  than ghost: it is still a full-size target, not decoration. */}
+              <Button
+                size='lg'
+                variant='flat'
+                className='flex-1 font-semibold'
+                onPress={
                   currentOrder.order_type === 3 &&
                   currentOrder.table_id &&
                   orderLines.length > 0
                     ? handleReleaseTable
                     : handleClose
                 }
-                className={`
-                  flex-1 h-11 rounded-lg text-sm font-semibold
-                  flex items-center justify-center gap-1.5
-                  bg-blue-600 text-white
-                  hover:bg-blue-700
-                `}
+                startContent={<X size={16} />}
                 title={
                   currentOrder.order_type === 3 &&
                   currentOrder.table_id &&
@@ -610,13 +600,12 @@ export default function OrderSide({
                     : t('cart.tipDeleteEmpty')
                 }
               >
-                <X size={16} />
                 {currentOrder.order_type === 3 &&
                 currentOrder.table_id &&
                 orderLines.length > 0
                   ? t('cart.closeRelease')
                   : t('cart.closeOrder')}
-              </button>
+              </Button>
             </div>
           </div>
         </>
@@ -709,18 +698,21 @@ export default function OrderSide({
 function Row({
   label,
   value,
-  theme,
 }: {
   label: string;
   value: string;
-  theme: 'light' | 'dark';
+  /**
+   * Unused — the row is a semantic token in both themes. Kept declared and
+   * optional so nothing breaks if a caller still passes it.
+   */
+  theme?: 'light' | 'dark';
 }) {
   const textMuted = 'text-default-700';
   return (
-    <div className={`flex justify-between ${textMuted}`}>
+    <div className={`flex justify-between pos-sm font-medium ${textMuted}`}>
       <span>{label}</span>
       {/* .money forces LTR digit order so "12.500" never mirrors in Arabic. */}
-      <span className='font-medium money'>{value}</span>
+      <span className='font-semibold money'>{value}</span>
     </div>
   );
 }

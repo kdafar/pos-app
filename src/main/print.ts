@@ -783,21 +783,16 @@ function renderReceiptHTML(opts: {
           <h3 style="font-weight:bold;margin:8px 0;">
             ${
               order.reference_no
-                ? // Synced: the short running number is what a customer quotes
-                  // back, so it leads; the system number drops to small text.
-                  `${lang === 'ar' ? 'رقم الطلب' : 'Order'} #${
-                    order.reference_no
-                  }<br><small style="font-weight:normal;font-size:11px;">${
-                    order.number || order.id
-                  }</small><br>`
-                : // Offline: the reference is allocated server-side after the
-                  // push, so it cannot exist yet. Invert the hierarchy — lead
-                  // with the system number the customer CAN quote, and mark the
-                  // reference pending so staff know it will differ from the
-                  // dashboard later.
-                  `${order.number || order.id}<br><small style="font-weight:normal;font-size:11px;">${
-                    lang === 'ar' ? 'رقم الطلب: بانتظار المزامنة' : 'Order # — pending sync'
-                  }</small><br>`
+                ? // The server's running number is what the customer quotes
+                  // back and what the dashboard shows, so it is the only
+                  // number on the receipt.
+                  `${lang === 'ar' ? 'رقم الطلب' : 'Order'} #${order.reference_no}<br>`
+                : // No reference yet. Print the system number alone rather than
+                  // annotating it "pending sync": that phrase is an internal
+                  // state, it means nothing to the customer holding the slip,
+                  // and it reads as though something went wrong with their
+                  // order. Staff can see sync state in the app.
+                  `${order.number || order.id}<br>`
             }
             ${orderTypeText}<br>
             <small>

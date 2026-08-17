@@ -1,7 +1,7 @@
 // src/renderer/pages/pos/CatalogPanel.tsx
 import React from 'react';
-import { Search, Package } from 'lucide-react';
-import { fileUrl } from '../../utils/fileUrl';
+import { Input } from '@heroui/react';
+import { Search, Package, AlertTriangle } from 'lucide-react';
 
 // Shared types
 import { Item, Category } from './types';
@@ -121,73 +121,78 @@ export default function CatalogPanel({
     return out;
   }, [safeSubs, selCat]);
 
-  const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-  const border = 'border-default-100';
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-700';
-  const inputBg =
-    'bg-default-100 border-default-200';
-
-  const imgSrcFor = (it: Pick<Item, 'image' | 'image_local' | 'name'>) => {
-    const local = it.image_local ? fileUrl(it.image_local) : null;
-    return local ?? it.image ?? null;
-  };
+  /**
+   * One chip style for both rows, so "selected" reads the same wherever it
+   * appears. Every colour here is a HeroUI semantic token: the two hand-rolled
+   * light/dark branches this replaced disagreed about which one was authoritative,
+   * and the loser was always unreadable on one of the two themes.
+   */
+  const chipBase =
+    'shrink-0 px-3.5 py-2 pos-sm font-medium rounded-lg whitespace-nowrap border transition-colors';
+  const chipIdle =
+    'bg-default-100 text-default-700 border-default-200 hover:bg-default-200';
+  /**
+   * Solid fill. `-foreground` is the one token theme/brand.ts recomputes from
+   * the operator's brand luminance, so it is the only text colour guaranteed to
+   * survive an arbitrary brand hex sitting underneath it.
+   */
+  const chipOnStrong = 'bg-primary text-primary-foreground border-primary';
+  /**
+   * Tinted fill, so a chosen subcategory reads as subordinate to its category.
+   * The label stays `text-foreground` rather than `text-primary`: brand.ts
+   * shares one primary ramp across both themes, so brand-coloured text on a
+   * neutral surface is only legible for brands that happen to be mid-toned.
+   * The selection is carried by the solid border and the wash instead.
+   */
+  const chipOnSoft = 'bg-primary/20 text-foreground border-primary';
 
   return (
     <div className='flex flex-col overflow-hidden'>
       {/* Filters */}
-      <div
-        className={`sticky top-0 z-10 ${bg} backdrop-blur p-4 border-b ${border}`}
-      >
+      <div className='sticky top-0 z-10 bg-content1 backdrop-blur p-4 border-b border-default-200'>
         {/* Search */}
         <div className='mb-3'>
-          <div className='relative'>
-            <Search
-              className={`absolute start-3 top-1/2 -translate-y-1/2 ${textMuted}`}
-              size={18}
-            />
-            <input
-              value={searchQuery}
-              onChange={(e) => {
-                console.debug('[CatalogPanel] setSearchQuery:', e.target.value);
-                setSearchQuery(e.target.value);
-              }}
-              placeholder={t('pos.searchPlaceholder')}
-              className={`w-full ps-10 pe-3 py-2.5 ${inputBg} rounded-xl ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                theme === 'dark'
-                  ? 'focus:ring-blue-500/40'
-                  : 'focus:ring-blue-500'
-              }`}
-            />
-          </div>
+          <Input
+            value={searchQuery}
+            onValueChange={(v) => {
+              console.debug('[CatalogPanel] setSearchQuery:', v);
+              setSearchQuery(v);
+            }}
+            placeholder={t('pos.searchPlaceholder')}
+            aria-label={t('pos.searchPlaceholder')}
+            // `lg`, not the default: this is the control a cashier hits most on
+            // the busiest screen in the app, and it is aimed at with a finger.
+            size='lg'
+            isClearable
+            onClear={() => setSearchQuery('')}
+            startContent={<Search size={18} className='text-default-700' />}
+          />
         </div>
 
         {/* Categories */}
         <div className='mb-3'>
           {isSearching && (
-            <div
-              className={`mb-1.5 text-[11px] ${
-                'text-default-700'
-              }`}
-            >
+            <div className='mb-1.5 pos-xs font-medium text-default-700'>
               {t('pos.searchAllCategories')}
             </div>
           )}
-          <div
-            className={`flex items-center gap-1.5 overflow-x-auto chip-scroll pb-1 transition-opacity ${
-              isSearching ? 'opacity-50' : ''
-            }`}
-          >
+          {/*
+            The chips used to drop to opacity-50 while a search was running.
+            They stay live controls in that state — tapping one clears the
+            search and browses the category — so half-fading their labels hid
+            the way out of the search instead of explaining it. The note above
+            says the same thing without making anything harder to read; nothing
+            being lit already shows that no category is in scope.
+          */}
+          <div className='flex items-center gap-1.5 overflow-x-auto chip-scroll pb-1'>
             <button
               onClick={() => {
                 console.debug('[CatalogPanel] click All Categories');
                 setSearchQuery('');
                 setSelectedCategoryId(null);
               }}
-              className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                !selCat && !isSearching
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-default-100 text-default-700 hover:bg-default-200 border border-default-200'
+              className={`${chipBase} ${
+                !selCat && !isSearching ? chipOnStrong : chipIdle
               }`}
             >
               {t('pos.categories')}
@@ -207,10 +212,10 @@ export default function CatalogPanel({
                   setSelectedCategoryId(String(cat.id));
                   setSelectedSubcategoryId(null);
                 }}
-                className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
+                className={`${chipBase} ${
                   selCat === String(cat.id) && !isSearching
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-default-100 text-default-700 hover:bg-default-200 border border-default-200'
+                    ? chipOnStrong
+                    : chipIdle
                 }`}
               >
                 {localName(cat)}
@@ -221,21 +226,15 @@ export default function CatalogPanel({
 
         {/* Subcategories */}
         {filteredSubcategories.length > 0 && (
-          <div
-            className={`flex items-center gap-1.5 overflow-x-auto chip-scroll pb-1 transition-opacity ${
-              isSearching ? 'opacity-50' : ''
-            }`}
-          >
+          <div className='flex items-center gap-1.5 overflow-x-auto chip-scroll pb-1'>
             <button
               onClick={() => {
                 console.debug('[CatalogPanel] click All subcategories');
                 setSearchQuery('');
                 setSelectedSubcategoryId(null);
               }}
-              className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
-                !selectedSubcategoryId && !isSearching
-                  ? 'bg-blue-500/20 text-primary border border-blue-500/30'
-                  : 'bg-default-100 text-default-700 hover:bg-default-200 border border-default-200'
+              className={`${chipBase} ${
+                !selectedSubcategoryId && !isSearching ? chipOnSoft : chipIdle
               }`}
             >
               {t('common.all')}
@@ -252,10 +251,10 @@ export default function CatalogPanel({
                   setSearchQuery('');
                   setSelectedSubcategoryId(String(sub.id));
                 }}
-                className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
+                className={`${chipBase} ${
                   selectedSubcategoryId === String(sub.id) && !isSearching
-                    ? 'bg-blue-500/20 text-primary border border-blue-500/30'
-                    : 'bg-default-100 text-default-700 hover:bg-default-200 border border-default-200'
+                    ? chipOnSoft
+                    : chipIdle
                 }`}
               >
                 {localName(sub)}
@@ -289,21 +288,22 @@ export default function CatalogPanel({
         </div>
 
         {typeof totalItems === 'number' && totalItems > items.length && (
-          <div
-            className={`mx-3 mb-3 rounded-lg px-3 py-2 text-[11px] ${
-              'bg-amber-500/10 text-warning border border-amber-500/30'
-            }`}
-          >
-            {t('pos.showingOf', { shown: items.length, total: totalItems })}
+          // The warning tone is carried by the icon and the border, not by the
+          // sentence: `text-warning` on a warning tint is amber-on-amber, and
+          // this line exists to tell a cashier that the item they cannot find
+          // may simply not be on screen.
+          <div className='mx-3 mb-3 flex items-center gap-2 rounded-lg border border-warning/50 bg-warning/15 px-3 py-2'>
+            <AlertTriangle size={16} className='shrink-0 text-warning' />
+            <span className='pos-xs font-medium text-foreground'>
+              {t('pos.showingOf', { shown: items.length, total: totalItems })}
+            </span>
           </div>
         )}
 
         {items.length === 0 && (
-          <div
-            className={`flex flex-col items-center justify-center h-56 ${textMuted}`}
-          >
-            <Package size={40} className='mb-3 opacity-50' />
-            <p>{t('pos.noItems')}</p>
+          <div className='flex flex-col items-center justify-center h-56 text-default-700'>
+            <Package size={40} className='mb-3' />
+            <p className='pos-base font-medium'>{t('pos.noItems')}</p>
           </div>
         )}
       </div>
