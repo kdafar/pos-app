@@ -181,6 +181,54 @@
 }
 
 /* ---------------------------------------------------------------
+   POS screen: a fluid type and spacing scale
+   ---------------------------------------------------------------
+   Every size on the order screen was a hard pixel value — text-[13px],
+   text-[11px], text-[10px], h-24 — which cannot serve both ends of the range
+   it has to run on. The same 10px label is unreadable on a 27" 4K panel at
+   100% and crowds its own row on a 13" at 150%, because a CSS pixel means a
+   different physical size on each.
+
+   clamp() ties each step to viewport width between a floor and a ceiling, so
+   the scale grows on a large screen and stops before it gets silly, while
+   never dropping below a legible minimum on a small one. Only the POS screen
+   opts into the fluid base size, so admin pages are unaffected.
+
+   The floors are what matter on a till: nothing here goes below 11px, because
+   staff read these at arm's length across a counter, not at desk distance.
+   --------------------------------------------------------------- */
+/* Defined on :root, not .pos-screen: modals and toasts render through portals
+   attached to <body>, so a variable scoped to the screen subtree would be
+   undefined exactly where a dialog needs it. */
+:root {
+  --pos-xs: clamp(0.6875rem, 0.15vw + 0.64rem, 0.8125rem); /* 11 → 13px */
+  --pos-sm: clamp(0.75rem, 0.2vw + 0.69rem, 0.9375rem); /* 12 → 15px */
+  --pos-base: clamp(0.8125rem, 0.25vw + 0.74rem, 1.0625rem); /* 13 → 17px */
+  --pos-price: clamp(0.9375rem, 0.35vw + 0.84rem, 1.25rem); /* 15 → 20px */
+  --pos-thumb: clamp(4.5rem, 6vw, 7.5rem); /* card image height */
+}
+
+.pos-screen {
+  font-size: var(--pos-base);
+}
+
+.pos-xs {
+  font-size: var(--pos-xs);
+}
+.pos-sm {
+  font-size: var(--pos-sm);
+}
+.pos-base {
+  font-size: var(--pos-base);
+}
+.pos-price {
+  font-size: var(--pos-price);
+}
+.pos-thumb {
+  height: var(--pos-thumb);
+}
+
+/* ---------------------------------------------------------------
    Vertical density
    ---------------------------------------------------------------
    Windows display scaling is what makes a 13" laptop hard to fit: at 150% a

@@ -565,7 +565,7 @@ export default function OrderSide({
                 />
               )}
               <div
-                className={`flex justify-between text-[15px] font-bold ${text} pt-2 border-t ${
+                className={`flex justify-between pos-price font-bold ${text} pt-2 border-t ${
                   theme === 'dark' ? 'border-white/10' : 'border-gray-200'
                 }`}
               >

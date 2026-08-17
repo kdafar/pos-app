@@ -526,10 +526,10 @@ export default function OrderProcessPage() {
   const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
 
   return (
-    <div className={`h-screen flex flex-col ${bg} text-[13px]`}>
+    <div className={`pos-screen h-screen flex flex-col ${bg}`}>
       {/* Header */}
       <header
-        className={`border-b ${border} ${headerBg} backdrop-blur h-14 shrink-0 shadow-sm z-20`}
+        className={`border-b ${border} ${headerBg} backdrop-blur min-h-14 py-1.5 shrink-0 shadow-sm z-20`}
       >
         <div className='px-4 h-full'>
           <div className='flex h-full items-center gap-4'>

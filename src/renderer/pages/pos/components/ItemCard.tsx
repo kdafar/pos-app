@@ -68,7 +68,7 @@ export function ItemCard({
     >
       {/* IMAGE + ADDONS BADGE */}
       <div
-        className={`relative w-full h-24 rounded-lg overflow-hidden border mb-2
+        className={`relative w-full pos-thumb rounded-lg overflow-hidden border mb-2
           ${
             theme === 'dark'
               ? 'bg-slate-900 border-white/5'
@@ -105,7 +105,7 @@ export function ItemCard({
 
         {needsOptions && (
           <span
-            className={`absolute left-1.5 bottom-1.5 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shadow-sm
+            className={`absolute left-1.5 bottom-1.5 inline-flex items-center gap-1 pos-xs px-1.5 py-0.5 rounded-full font-medium shadow-sm
               ${
                 hasVariations
                   ? theme === 'dark'
@@ -127,13 +127,13 @@ export function ItemCard({
       </div>
 
       {/* TITLE */}
-      <div className='flex-1 min-h-[2.3rem] mb-1'>
+      <div className='flex-1 mb-1'>
         <h3
-          className={`font-semibold ${text} text-[13px] leading-snug line-clamp-2`}
+          className={`font-semibold ${text} pos-sm leading-snug line-clamp-2`}
         >
           {localName(item)}
         </h3>
-        <p className={`text-[11px] ${textMuted} line-clamp-1`}>
+        <p className={`pos-xs ${textMuted} line-clamp-1`}>
           {isRTL ? item.name : item.name_ar}
         </p>
       </div>
@@ -141,10 +141,10 @@ export function ItemCard({
       {/* PRICE ONLY */}
       <div className='mt-1 flex items-baseline justify-end gap-1'>
         {hasVariations && (
-          <span className={`text-[10px] ${textMuted}`}>{t('pos.from')}</span>
+          <span className={`pos-xs ${textMuted}`}>{t('pos.from')}</span>
         )}
         <span
-          className={`text-[15px] font-bold ${
+          className={`pos-price font-bold ${
             theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
           }`}
         >
