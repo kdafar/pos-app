@@ -618,7 +618,12 @@ function NavLink({
   const baseClasses =
     'group relative flex items-center rounded-xl text-sm font-medium transition-colors duration-200';
   const activeClasses =
-    'bg-slate-900 text-slate-50 shadow-sm dark:bg-slate-100 dark:text-foreground';
+    // Inverts against the surface in both themes, so the active row is a dark
+    // pill on light and a light pill on dark without a `dark:` pair. The pair
+    // it replaces had drifted: a sweep rewrote `dark:text-slate-900` to
+    // `dark:text-foreground`, which in dark mode is light ink on the light
+    // pill — the active nav item was unreadable.
+    'bg-foreground text-background shadow-sm';
   const inactiveClasses =
     'text-muted-foreground hover:text-foreground hover:bg-slate-100/80 dark:hover:bg-slate-800/80';
   // Collapsed rows are square and centred so the icons form a straight column.

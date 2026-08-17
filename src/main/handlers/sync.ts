@@ -157,6 +157,63 @@ function safeCollectUnsyncedOrders(limit = 20) {
   return payloads;
 }
 
+/**
+ * Reserve the server's order reference for an order still being built.
+ *
+ * The reference is allocated server-side and only comes back in a push ack, and
+ * until now nothing was pushed before `placed`. So the number a customer quotes
+ * and the number on the dashboard did not exist while the order was on screen,
+ * and the receipt fell back to the local POS-… string.
+ *
+ * This pushes the order once, as soon as it has a line, purely to obtain that
+ * number. It is safe to do early because the push is idempotent on `temp_id`
+ * (the server matches on it, not on `id`), so the real push at place/close
+ * updates the same record rather than creating a second one — and `markForRepush`
+ * clears `synced_at` at those points, so that later push still happens.
+ *
+ * Deliberately best-effort: it never throws, never blocks the cashier, and a
+ * till that is offline or whose server rejects an incomplete order simply
+ * carries on with the local number, exactly as before.
+ */
+async function reserveOrderReference(orderId: string): Promise<string | null> {
+  try {
+    const row = db
+      .prepare(
+        `SELECT id, status, reference_no,
+                (SELECT COUNT(*) FROM order_lines l WHERE l.order_id = o.id) AS lines
+         FROM orders o WHERE o.id = ?`
+      )
+      .get(orderId) as any;
+
+    if (!row) return null;
+    if (row.reference_no) return String(row.reference_no); // already have one
+    if (!Number(row.lines)) return null; // nothing to reserve against
+    if (Number(row.push_legacy ?? 0) === 1) return null;
+
+    const payload = safeBuildOrderPayload(orderId);
+    if (!payload) return null;
+
+    const envelope = {
+      client_msg_id: `pos-res-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`,
+    };
+    const result = await pushOutbox(envelope, { orders: [payload] });
+    applyPushResult(result);
+
+    const after = db
+      .prepare('SELECT reference_no FROM orders WHERE id = ?')
+      .pluck()
+      .get(orderId) as string | null;
+    return after ?? null;
+  } catch (e) {
+    // An order that cannot be reserved is not an error the cashier can act on;
+    // it just means the receipt shows the local number.
+    console.warn('[sync] reference reservation failed', (e as any)?.message);
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------
  * Sync status + connectivity helpers
  * ------------------------------------------------------------------ */
@@ -497,6 +554,19 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     }
 
     return payload;
+  });
+
+  /**
+   * Ask the server for this order's reference number now, rather than at place.
+   *
+   * Fired when the first line lands in the cart, so the number is on screen and
+   * on the receipt for the whole of the sale. Returns null when it cannot be
+   * had — offline, or a server that will not take an incomplete order — and the
+   * caller simply keeps showing the local number.
+   */
+  ipcMain.handle('sync:reserveReference', async (_e, orderId: string) => {
+    if (!orderId) return null;
+    return reserveOrderReference(String(orderId));
   });
 
   ipcMain.handle('sync:run', async () => {

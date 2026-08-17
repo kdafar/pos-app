@@ -302,6 +302,26 @@ export default function OrderProcessPage() {
     }
   };
 
+  /**
+   * Ask the server for this order's reference number once it has something in
+   * it. The number is what the customer quotes back and what the dashboard
+   * shows, so it should exist while the sale is happening rather than appearing
+   * afterwards. Fire-and-forget: offline, or a server that declines, just means
+   * the local number stays on screen.
+   */
+  const reserveReference = async (orderId: string, lineCount: number) => {
+    if (!orderId || lineCount !== 1) return; // only on the first line
+    try {
+      const ref = await window.api.invoke('sync:reserveReference', orderId);
+      if (!ref) return;
+      const fresh = await window.api.invoke('orders:get', orderId);
+      if (fresh?.order) setCurrentOrder(fresh.order);
+      await loadActiveOrders();
+    } catch {
+      /* the local number remains correct */
+    }
+  };
+
   const addItemToOrder = async (item: Item, qty = 1) => {
     if (item.is_outofstock) return;
 
@@ -322,6 +342,7 @@ export default function OrderProcessPage() {
       setCurrentOrder(res.order);
       // Optionally refresh active orders bar
       await loadActiveOrders();
+      reserveReference(order.id, (res.lines || []).length);
     } catch (e: any) {
       console.error('[addItemToOrder] error', e);
 
