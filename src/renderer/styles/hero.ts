@@ -13,9 +13,11 @@ import { heroui } from '@heroui/react';
 
 export default heroui({
   layout: {
-    // Modernist: radius 0. Square corners read as precise and industrial, and
-    // on a dense screen they stop every control looking like a pill.
-    radius: { small: '0px', medium: '0px', large: '0px' },
+    // Modernist specifies radius 0, and taken literally it made every control
+    // square while the sidebar kept its Tailwind rounded-xl rows — so the one
+    // part of the app that looked right was the part the token did not reach.
+    // Matched to the sidebar instead: softened, not pill-shaped.
+    radius: { small: '8px', medium: '10px', large: '14px' },
     borderWidth: { small: '1px', medium: '1px', large: '2px' },
   },
   themes: {

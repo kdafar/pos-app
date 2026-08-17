@@ -1,15 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useStore } from '../src/store'; // adjust if your path differs
-import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getPaginationRowModel,
-  flexRender,
-  ColumnDef,
-  SortingState,
-} from '@tanstack/react-table';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useStore } from '../src/store';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Button, Chip } from '@heroui/react';
+import { Check, Minus, X } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { DataTable } from '../components/DataTable';
+import {
+  DataState,
+  FilterSelect,
+  PageShell,
+  SearchField,
+} from '../components/PageShell';
 
 type Category = {
   id: string | number;
@@ -28,63 +29,92 @@ type Subcategory = {
   visible: boolean | number;
 };
 
-// (Only if you don't already have this global declaration)
-declare global {
-  interface Window {
-    api?: { invoke: (channel: string, ...args: any[]) => Promise<any> };
-  }
+const norm = (s: any) => String(s ?? '').toLowerCase();
+const toBool = (v: any) => (typeof v === 'boolean' ? v : !!Number(v));
+
+/**
+ * Visibility decides whether an item appears on the till at all, so it is the
+ * reason anyone opens this page — "why can't I find X". A tick and an em dash
+ * made those two states nearly identical at a glance; a tone does not.
+ */
+function VisibleChip({ value }: { value: any }) {
+  const { t } = useI18n();
+  const on = toBool(value);
+  return (
+    <Chip
+      size='sm'
+      variant='flat'
+      color={on ? 'success' : 'default'}
+      className='font-semibold'
+      startContent={on ? <Check size={13} /> : <Minus size={13} />}
+    >
+      {on ? t('admin.cats.visibleOnly') : t('admin.cats.hiddenOnly')}
+    </Chip>
+  );
+}
+
+/** Shared search + visibility filter, since both halves of this page need it. */
+function useVisibilityOptions() {
+  const { t } = useI18n();
+  return [
+    { value: 'all', label: t('common.all') },
+    { value: 'visible', label: t('admin.cats.visibleOnly') },
+    { value: 'hidden', label: t('admin.cats.hiddenOnly') },
+  ];
 }
 
 export function CategoriesPage() {
   const { t, name: localName } = useI18n();
   const cats = useStore((s) => s.cats) as Category[] | undefined;
   const fetchInitialData = useStore((s) => s.actions.fetchInitialData);
+  const visibilityOptions = useVisibilityOptions();
 
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [subcats, setSubcats] = useState<Subcategory[]>([]);
+  const [loadingSubs, setLoadingSubs] = useState(true);
+  const [subsError, setSubsError] = useState<string | null>(null);
 
-  // search + filter state
   const [catSearch, setCatSearch] = useState('');
-  const [catVisFilter, setCatVisFilter] = useState<'all' | 'visible' | 'hidden'>('all');
-
+  const [catVisFilter, setCatVisFilter] = useState('all');
   const [subsSearch, setSubsSearch] = useState('');
-  const [subsVisFilter, setSubsVisFilter] = useState<'all' | 'visible' | 'hidden'>('all');
-  const [subsSorting, setSubsSorting] = useState<SortingState>([]);
-  const [subsPageSize, setSubsPageSize] = useState<number>(25);
+  const [subsVisFilter, setSubsVisFilter] = useState('all');
 
-  // Initial load (categories + any other data your store fetches)
   useEffect(() => {
     fetchInitialData();
   }, [fetchInitialData]);
 
-  // Load subcategories when the selected category changes
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const res: Subcategory[] =
-          (await window.api?.invoke(
-            'catalog:listSubcategories',
-            selectedCatId || null
-          )) || [];
-        setSubcats(res);
-      } catch (e) {
-        console.error('Failed to load subcategories', e);
-        setSubcats([]);
-      }
-    };
-    load();
+  const loadSubs = useCallback(async () => {
+    setLoadingSubs(true);
+    setSubsError(null);
+    try {
+      const res: Subcategory[] =
+        (await window.api.invoke(
+          'catalog:listSubcategories',
+          selectedCatId || null
+        )) || [];
+      setSubcats(res);
+    } catch (e) {
+      // Was a console.error and an empty array, which renders identically to a
+      // category that genuinely has no subcategories.
+      setSubsError(e instanceof Error ? e.message : String(e ?? ''));
+      setSubcats([]);
+    } finally {
+      setLoadingSubs(false);
+    }
   }, [selectedCatId]);
 
-  // helpers
-  const norm = (s: any) => String(s ?? '').toLowerCase();
+  useEffect(() => {
+    loadSubs();
+  }, [loadSubs]);
 
-  const toBool = (v: any) => {
-    if (typeof v === 'boolean') return v;
-    const n = Number(v);
-    return !!n;
-  };
+  const byPositionThenName = <T extends { position: number; name: string }>(
+    a: T,
+    b: T
+  ) =>
+    a.position === b.position
+      ? norm(a.name).localeCompare(norm(b.name))
+      : a.position - b.position;
 
-  // ------- Filtered datasets -------
   const filteredCats = useMemo(() => {
     let arr = (cats ?? []).slice();
     if (catSearch.trim()) {
@@ -97,13 +127,7 @@ export function CategoriesPage() {
       const want = catVisFilter === 'visible';
       arr = arr.filter((c) => toBool(c.visible) === want);
     }
-    // sort by position then name for UX
-    arr.sort((a, b) =>
-      a.position === b.position
-        ? norm(a.name).localeCompare(norm(b.name))
-        : a.position - b.position
-    );
-    return arr;
+    return arr.sort(byPositionThenName);
   }, [cats, catSearch, catVisFilter]);
 
   const filteredSubcats = useMemo(() => {
@@ -118,287 +142,188 @@ export function CategoriesPage() {
       const want = subsVisFilter === 'visible';
       arr = arr.filter((s) => toBool(s.visible) === want);
     }
-    // basic natural ordering first; TanStack sorting still applies afterwards
-    arr.sort((a, b) =>
-      a.position === b.position
-        ? norm(a.name).localeCompare(norm(b.name))
-        : a.position - b.position
-    );
-    return arr;
+    return arr.sort(byPositionThenName);
   }, [subcats, subsSearch, subsVisFilter]);
 
-  // ------- Categories table -------
-  const catColumns = useMemo<ColumnDef<Category>[]>(() => [
-    { accessorKey: 'position', header: () => '#', cell: (info) => String(info.getValue() ?? '') },
-    { accessorKey: 'name',     header: () => t('admin.nameEn'), cell: (info) => String(info.getValue() ?? '') },
-    { accessorKey: 'name_ar',  header: () => t('admin.nameAr'), cell: (info) => String(info.getValue() ?? '') },
-    {
-      accessorKey: 'visible',
-      header: () => t('admin.cats.visible'),
-      cell: (info) => (toBool(info.getValue()) ? '✅' : '—'),
-    },
-  ], [t]);
-
-  const catTable = useReactTable({
-    data: filteredCats,
-    columns: catColumns,
-    getCoreRowModel: getCoreRowModel(),
-  });
-
-  // ------- Subcategories table -------
-  const subsColumns = useMemo<ColumnDef<Subcategory>[]>(() => [
-    { accessorKey: 'position', header: () => '#', cell: (info) => String(info.getValue() ?? '') },
-    { accessorKey: 'name',     header: () => t('admin.nameEn'), cell: (info) => String(info.getValue() ?? '') },
-    { accessorKey: 'name_ar',  header: () => t('admin.nameAr'), cell: (info) => String(info.getValue() ?? '') },
-    {
-      accessorKey: 'visible',
-      header: () => t('admin.cats.visible'),
-      cell: (info) => (toBool(info.getValue()) ? '✅' : '—'),
-    },
-    {
-      accessorKey: 'category_id',
-      header: () => t('admin.subs.category'),
-      cell: (info) => {
-        const id = String(info.getValue() ?? '');
-        const c = (cats ?? []).find((x) => String(x.id) === id);
-        return c ? `${c.name} / ${c.name_ar}` : id;
+  /** Both tables show the same four things, so they share a column builder. */
+  const nameColumns = useMemo<ColumnDef<Category & Subcategory, any>[]>(
+    () => [
+      {
+        accessorKey: 'position',
+        header: () => '#',
+        size: 60,
+        meta: { nowrap: true, align: 'end' },
+        cell: (info) => (
+          <span className='money text-default-600'>
+            {String(info.getValue() ?? '')}
+          </span>
+        ),
       },
-      enableSorting: false,
-    },
-  ], [cats, t]);
+      {
+        accessorKey: 'name',
+        header: () => t('admin.nameEn'),
+        size: 200,
+        cell: (info) => (
+          <span className='font-semibold'>{String(info.getValue() ?? '')}</span>
+        ),
+      },
+      {
+        accessorKey: 'name_ar',
+        header: () => t('admin.nameAr'),
+        size: 200,
+        cell: (info) => String(info.getValue() ?? ''),
+      },
+      {
+        accessorKey: 'visible',
+        header: () => t('admin.cats.visible'),
+        size: 120,
+        meta: { nowrap: true },
+        cell: (info) => <VisibleChip value={info.getValue()} />,
+      },
+    ],
+    [t]
+  );
 
-  const subsTable = useReactTable({
-    data: filteredSubcats,
-    columns: subsColumns,
-    state: { sorting: subsSorting },
-    onSortingChange: setSubsSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageIndex: 0, pageSize: subsPageSize } },
-  });
-
-  useEffect(() => {
-    subsTable.setPageSize(subsPageSize);
-  }, [subsPageSize]);
-
-  // Reset subcat page when filters/search/selectedCat change
-  useEffect(() => {
-    subsTable.setPageIndex(0);
-  }, [subsSearch, subsVisFilter, selectedCatId]);
+  const subsColumns = useMemo<ColumnDef<Subcategory, any>[]>(
+    () => [
+      ...(nameColumns as ColumnDef<Subcategory, any>[]),
+      {
+        accessorKey: 'category_id',
+        header: () => t('admin.subs.category'),
+        size: 200,
+        enableSorting: false,
+        cell: (info) => {
+          const id = String(info.getValue() ?? '');
+          const c = (cats ?? []).find((x) => String(x.id) === id);
+          return c ? localName(c) : id;
+        },
+      },
+    ],
+    [cats, nameColumns, t, localName]
+  );
 
   const selectedCat =
-    selectedCatId && cats ? cats.find((c) => String(c.id) === String(selectedCatId)) : null;
+    selectedCatId && cats
+      ? cats.find((c) => String(c.id) === String(selectedCatId))
+      : null;
 
   return (
-    <div style={{ margin: 24 }}>
-      {/* Categories */}
-      <div className="card" style={{ marginBottom: 24, padding: 24 }}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">{t('admin.cats.title')}</h3>
-          <span className="muted">{t('admin.readOnly')}</span>
-        </div>
-
-        {/* Categories search & filter */}
-        <div className="flex items-center gap-3 mb-3">
-          <input
-            className="px-3 py-2 rounded-lg border border-default-200 bg-transparent"
-            placeholder={t('admin.cats.searchPlaceholder')}
-            value={catSearch}
-            onChange={(e) => setCatSearch(e.target.value)}
-            style={{ minWidth: 260 }}
-          />
-          <select
-            className="ui-field"
-            value={catVisFilter}
-            onChange={(e) => setCatVisFilter(e.target.value as any)}
-          >
-            <option value="all">{t('common.all')}</option>
-            <option value="visible">{t('admin.cats.visibleOnly')}</option>
-            <option value="hidden">{t('admin.cats.hiddenOnly')}</option>
-          </select>
-        </div>
-
-        <div className="overflow-auto rounded-xl border border-slate-700/60">
-          <table className="w-full text-start text-sm">
-            <thead className="bg-slate-900/40">
-              {catTable.getHeaderGroups().map((hg) => (
-                <tr key={hg.id}>
-                  {hg.headers.map((h) => (
-                    <th key={h.id} className="p-2 border-b border-slate-700/60 text-start">
-                      {h.isPlaceholder
-                        ? null
-                        : flexRender(h.column.columnDef.header, h.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {catTable.getRowModel().rows.map((row) => {
-                const isSelected = String(selectedCatId) === String(row.original.id);
-                return (
-                  <tr
-                    key={row.id}
-                    className={`border-b border-slate-800/60 cursor-pointer ${
-                      isSelected ? 'bg-blue-500/10' : 'hover:bg-default-100'
-                    }`}
-                    onClick={() => setSelectedCatId(String(row.original.id))}
-                    title={t('admin.cats.clickHint')}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="p-2 text-start">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
-              {filteredCats.length === 0 && (
-                <tr>
-                  <td className="p-3 muted" colSpan={catColumns.length}>
-                    {t('admin.cats.none')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Controls */}
-        <div className="mt-3 flex items-center gap-8">
-          <div className="text-sm">
-            {selectedCat
-              ? <>{t('admin.cats.selected')}:&nbsp;<strong>{localName(selectedCat)}</strong></>
-              : <span className="text-default-600">{t('admin.cats.noneSelected')}</span>}
-          </div>
-          <button
-            type="button"
-            onClick={() => setSelectedCatId(null)}
-            className="px-3 py-1.5 rounded-lg border border-default-200 hover:bg-default-100 text-sm"
-          >
-            {t('admin.cats.showAllSubs')}
-          </button>
-        </div>
-      </div>
-
-      {/* Subcategories */}
-      <div className="card" style={{ padding: 24 }}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">
-            {t('admin.subs.title')}{' '}
-            {selectedCat ? `— ${localName(selectedCat)}` : t('admin.subs.all')}
-          </h3>
-          <div className="flex items-center gap-3 text-sm">
-            {/* Subcategories search & filter */}
-            <input
-              className="px-3 py-2 rounded-lg border border-default-200 bg-transparent"
-              placeholder={t('admin.subs.searchPlaceholder')}
-              value={subsSearch}
-              onChange={(e) => setSubsSearch(e.target.value)}
-              style={{ minWidth: 260 }}
+    <PageShell
+      title={t('admin.cats.title')}
+      subtitle={t('admin.readOnly')}
+      count={filteredCats.length}
+      onRefresh={() => {
+        fetchInitialData();
+        loadSubs();
+      }}
+    >
+      <div className='space-y-6'>
+        {/* Categories */}
+        <section className='space-y-3'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <SearchField
+              value={catSearch}
+              onChange={setCatSearch}
+              placeholder={t('admin.cats.searchPlaceholder')}
             />
-            <select
-              className="ui-field"
-              value={subsVisFilter}
-              onChange={(e) => setSubsVisFilter(e.target.value as any)}
-            >
-              <option value="all">{t('common.all')}</option>
-              <option value="visible">{t('admin.cats.visibleOnly')}</option>
-              <option value="hidden">{t('admin.cats.hiddenOnly')}</option>
-            </select>
-
-            <label className="opacity-70 ms-4">{t('admin.rows')}</label>
-            <select
-              className="ui-field"
-              value={subsPageSize}
-              onChange={(e) => setSubsPageSize(Number(e.target.value))}
-            >
-              {[10, 25, 50, 100].map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+            <FilterSelect
+              label={t('admin.cats.visible')}
+              value={catVisFilter}
+              onChange={setCatVisFilter}
+              options={visibilityOptions}
+            />
           </div>
-        </div>
 
-        <div className="overflow-auto rounded-xl border border-slate-700/60">
-          <table className="w-full text-start text-sm">
-            <thead className="bg-slate-900/40">
-              {subsTable.getHeaderGroups().map((hg) => (
-                <tr key={hg.id}>
-                  {hg.headers.map((h) => (
-                    <th key={h.id} className="p-2 border-b border-slate-700/60 text-start">
-                      {h.isPlaceholder
-                        ? null
-                        : flexRender(h.column.columnDef.header, h.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {subsTable.getRowModel().rows.length === 0 ? (
-                <tr>
-                  <td className="p-3 muted" colSpan={subsColumns.length}>
-                    {t('admin.subs.none')}
-                  </td>
-                </tr>
+          <DataState
+            empty={filteredCats.length === 0}
+            emptyTitle={t('admin.cats.none')}
+          >
+            <DataTable
+              data={filteredCats}
+              columns={nameColumns as ColumnDef<Category, any>[]}
+              getRowId={(r, i) => String(r.id ?? i)}
+              // Selecting a category is what filters the list below, so the
+              // whole row is the control rather than a hidden affordance.
+              onRowClick={(row) => setSelectedCatId(String(row.id))}
+            />
+          </DataState>
+        </section>
+
+        {/* Subcategories */}
+        <section className='space-y-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <h2 className='text-lg font-bold text-foreground flex items-center gap-2 min-w-0'>
+              <span className='truncate'>{t('admin.subs.title')}</span>
+              {selectedCat ? (
+                // The filter is stated as a removable chip rather than a line of
+                // prose plus a separate "show all" button — a filtered list that
+                // does not say so is how a subcategory looks deleted.
+                <Chip
+                  color='primary'
+                  variant='flat'
+                  className='font-semibold'
+                  endContent={
+                    <button
+                      type='button'
+                      onClick={() => setSelectedCatId(null)}
+                      aria-label={t('admin.cats.showAllSubs')}
+                      title={t('admin.cats.showAllSubs')}
+                      className='ms-0.5'
+                    >
+                      <X size={14} />
+                    </button>
+                  }
+                >
+                  {localName(selectedCat)}
+                </Chip>
               ) : (
-                subsTable.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="border-b border-slate-800/60 hover:bg-default-100">
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="p-2 text-start">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                ))
+                <Chip variant='flat' className='font-semibold'>
+                  {t('admin.subs.all')}
+                </Chip>
               )}
-            </tbody>
-          </table>
-        </div>
+            </h2>
 
-        {/* Simple pagination controls */}
-        <div className="mt-3 flex items-center justify-between text-sm">
-          <div className="text-default-600">
-            {t('admin.pageOf', {
-              page: subsTable.getState().pagination.pageIndex + 1,
-              pages: subsTable.getPageCount(),
-            })}{' '}
-            • <span>{t('admin.subs.count', { n: filteredSubcats.length })}</span>
+            <div className='flex flex-wrap items-center gap-2'>
+              <SearchField
+                value={subsSearch}
+                onChange={setSubsSearch}
+                placeholder={t('admin.subs.searchPlaceholder')}
+              />
+              <FilterSelect
+                label={t('admin.cats.visible')}
+                value={subsVisFilter}
+                onChange={setSubsVisFilter}
+                options={visibilityOptions}
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              className="px-2 py-1 rounded border border-default-200 disabled:opacity-50"
-              onClick={() => subsTable.setPageIndex(0)}
-              disabled={!subsTable.getCanPreviousPage()}
-            >
-              {t('admin.first')}
-            </button>
-            <button
-              className="px-2 py-1 rounded border border-default-200 disabled:opacity-50"
-              onClick={() => subsTable.previousPage()}
-              disabled={!subsTable.getCanPreviousPage()}
-            >
-              {t('admin.prev')}
-            </button>
-            <button
-              className="px-2 py-1 rounded border border-default-200 disabled:opacity-50"
-              onClick={() => subsTable.nextPage()}
-              disabled={!subsTable.getCanNextPage()}
-            >
-              {t('admin.next')}
-            </button>
-            <button
-              className="px-2 py-1 rounded border border-default-200 disabled:opacity-50"
-              onClick={() => subsTable.setPageIndex(subsTable.getPageCount() - 1)}
-              disabled={!subsTable.getCanNextPage()}
-            >
-              {t('admin.last')}
-            </button>
-          </div>
-        </div>
+
+          <DataState
+            loading={loadingSubs}
+            error={subsError}
+            onRetry={loadSubs}
+            empty={filteredSubcats.length === 0}
+            emptyTitle={t('admin.subs.none')}
+            action={
+              selectedCat ? (
+                <Button
+                  color='primary'
+                  variant='flat'
+                  onPress={() => setSelectedCatId(null)}
+                >
+                  {t('admin.cats.showAllSubs')}
+                </Button>
+              ) : undefined
+            }
+          >
+            <DataTable
+              data={filteredSubcats}
+              columns={subsColumns}
+              getRowId={(r, i) => String(r.id ?? i)}
+            />
+          </DataState>
+        </section>
       </div>
-    </div>
+    </PageShell>
   );
 }
