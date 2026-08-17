@@ -193,8 +193,26 @@ async function main() {
           'n'
         );
   if (publish) {
+    // Publishing needs a human. In non-interactive mode `yes()` returns the
+    // default, which here is "no" — correct, but it used to abort the whole
+    // run silently, so `--version=patch --publish` looked like it had worked
+    // and simply published nothing. Say so instead.
+    if (NON_INTERACTIVE) {
+      fail(
+        'refusing to publish non-interactively.\n' +
+          '  Publishing reaches every paired till within ~6h and cannot be undone,\n' +
+          '  so it requires an interactive confirmation. Run `npm run release`\n' +
+          '  with no --version/--yes flags and answer the prompts.'
+      );
+      rl?.close();
+      process.exit(1);
+    }
     warn('this will push an update to every paired till.');
-    if (!(await yes('  are you sure?', 'n'))) return rl?.close();
+    if (!(await yes('  are you sure?', 'n'))) {
+      rl?.close();
+      console.log(C.dim('\n  Cancelled — nothing was built or published.'));
+      return;
+    }
   }
   rl?.close();
 
