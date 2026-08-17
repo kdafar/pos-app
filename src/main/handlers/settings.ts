@@ -6,6 +6,7 @@ import {
   readSettingBool,
   readSettingNumber,
 } from '../services/settings'; // still used for generic settings handlers
+import { fetchOperatorLogo } from '../print';
 
 // type for the POS user we return to the renderer
 type PosUserInfo = {
@@ -108,6 +109,8 @@ export function registerSettingsHandlers(ipcMain: IpcMain) {
 
   ipcMain.handle('settings:all', async () => getAllSettings());
   ipcMain.handle('settings:getAll', async () => getAllSettings()); // alias
+
+  ipcMain.handle('settings:fetchLogo', async () => fetchOperatorLogo());
 
   ipcMain.handle('meta:list', () => {
     return db.prepare('SELECT key, value FROM meta ORDER BY key').all();

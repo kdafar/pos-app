@@ -560,10 +560,9 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
   });
 
   /**
-   * Ask the server for this order's reference number now, rather than at place.
+   * Ask the server for this order's reference number after it is placed.
    *
-   * Fired when the first line lands in the cart, so the number is on screen and
-   * on the receipt for the whole of the sale. Returns null when it cannot be
+   * Fired by checkout only after completion. Returns null when it cannot be
    * had — offline, or a server that will not take an incomplete order — and the
    * caller simply keeps showing the local number.
    */

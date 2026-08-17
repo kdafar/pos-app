@@ -166,10 +166,8 @@ export function CheckoutModal({
     setDisplayDeliveryFee(isFinite(fee) ? fee : 0);
   }, [order.order_type, order.delivery_fee, selectedCity, feeOverridden]);
 
-  /**
-   * Reserve the server's order reference when checkout opens.
-   *
-   * Deliberately here and not when the first item is rung up. The push creates
+  /** Load payment methods without creating or pushing an order. */
+  /*
    * a real Received order — the backend has no draft concept — so triggering it
    * per line would turn every mis-rung item and every cleared cart into an
    * order on the dashboard. The money is unaffected (revenue posts only at
@@ -181,24 +179,6 @@ export function CheckoutModal({
    * abandoned at the payment step does still create an order; that is a rarer
    * event than clearing a mis-rung line.
    */
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!order?.id || (order as any).reference_no) return;
-      try {
-        const ref = await window.api.invoke('sync:reserveReference', order.id);
-        // Best-effort: offline, or a server that declines, simply leaves the
-        // local number in place. It must never block the sale.
-        if (!cancelled && ref) await onAfterReserve?.();
-      } catch {
-        /* keep the local number */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => {
     (async () => {
       const methods = await window.api.invoke('payments:listMethods');
@@ -333,11 +313,26 @@ export function CheckoutModal({
       }
 
       // Complete order on server
-      const result = await window.api.invoke(
+      await window.api.invoke(
         'orders:complete',
         order.id,
         payload
       );
+
+      // Creating a reference pushes a real order to the backend. Do this only
+      // after Place Order succeeds; simply opening checkout and pressing
+      // Cancel/Close must leave no server order behind.
+      if (!(order as any).reference_no) {
+        try {
+          const ref = await window.api.invoke(
+            'sync:reserveReference',
+            order.id
+          );
+          if (ref) await onAfterReserve?.();
+        } catch {
+          // Best-effort: offline sales keep their local order number.
+        }
+      }
 
       const isOnlinePayment = (slug?: string | null) => {
         const s = (slug ?? '').toLowerCase();

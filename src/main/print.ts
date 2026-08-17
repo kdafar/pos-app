@@ -291,8 +291,9 @@ async function resolveOperatorLogo(
     if (!val) continue;
 
     if (/^data:image\//i.test(val)) return val; // already inlined
-    if (/^https?:\/\//i.test(val)) {
-      const cached = await cacheRemoteLogo(val);
+    const remoteUrl = resolveLogoUrl(val);
+    if (remoteUrl) {
+      const cached = await cacheRemoteLogo(remoteUrl);
       if (cached) return cached;
       continue;
     }
@@ -309,6 +310,54 @@ async function resolveOperatorLogo(
   }
 
   return null;
+}
+
+/**
+ * Turn a server-supplied absolute or relative logo value into a download URL.
+ * Laravel commonly exposes uploaded files as `/storage/...`; treating that as
+ * a Windows file path is why a clean till never populated its logo cache.
+ */
+function resolveLogoUrl(value: string): string | null {
+  if (/^https?:\/\//i.test(value)) return value;
+  if (!value.startsWith('/') && !value.startsWith('./')) return null;
+
+  const baseUrl = String(getMeta('server.base_url') || '').trim();
+  if (!/^https?:\/\//i.test(baseUrl)) return null;
+
+  try {
+    return new URL(value, baseUrl.replace(/\/+$/, '') + '/').toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch and cache the configured receipt logo on demand from Settings. */
+export async function fetchOperatorLogo(): Promise<{
+  ok: true;
+  key: string;
+  url?: string;
+}> {
+  for (const key of LOGO_SETTING_KEYS) {
+    const value = String(getSetting(key) || '').trim();
+    if (!value) continue;
+
+    if (/^data:image\//i.test(value)) return { ok: true, key };
+
+    const remoteUrl = resolveLogoUrl(value);
+    if (!remoteUrl) {
+      const local = await toDataUrl(value);
+      if (local) return { ok: true, key };
+      throw new Error(`Logo setting ${key} is not a valid server URL or local file.`);
+    }
+
+    const cached = await cacheRemoteLogo(remoteUrl);
+    if (!cached) throw new Error(`Could not download the logo from ${remoteUrl}`);
+    return { ok: true, key, url: remoteUrl };
+  }
+
+  throw new Error(
+    'The server did not provide a receipt logo setting (expected branding.logo_url).'
+  );
 }
 
 /** Download a remote logo once and reuse it, so printing works offline. */

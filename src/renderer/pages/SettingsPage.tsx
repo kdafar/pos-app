@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button, Card, CardBody, Chip } from '@heroui/react';
-import { AlertTriangle, Check, Copy, Languages, Lock } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Download, Languages, Lock } from 'lucide-react';
 import { LANGS, useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import {
@@ -103,6 +103,10 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   /** One source failed while the other answered — data is real but incomplete. */
   const [partial, setPartial] = useState<string | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [logoResult, setLogoResult] = useState<
+    { kind: 'success' | 'error'; message: string } | null
+  >(null);
 
   const [q, setQ] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'meta' | 'server'>(
@@ -160,6 +164,22 @@ export function SettingsPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const fetchLogo = useCallback(async () => {
+    setLogoBusy(true);
+    setLogoResult(null);
+    try {
+      await window.api.invoke('settings:fetchLogo');
+      setLogoResult({ kind: 'success', message: t('settings.logoFetched') });
+    } catch (e) {
+      setLogoResult({
+        kind: 'error',
+        message: e instanceof Error ? e.message : String(e ?? ''),
+      });
+    } finally {
+      setLogoBusy(false);
+    }
+  }, [t]);
 
   const copyValue = useCallback((row: Row) => {
     const id = `${row.source}:${row.key}`;
@@ -339,6 +359,40 @@ export function SettingsPage() {
                 </Button>
               );
             })}
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
+        <CardBody className='gap-3'>
+          <div>
+            <h2 className='text-base font-bold text-foreground'>
+              {t('settings.invoiceLogo')}
+            </h2>
+            <p className='mt-0.5 text-sm font-medium text-default-700'>
+              {t('settings.invoiceLogoHint')}
+            </p>
+          </div>
+          <div className='flex flex-wrap items-center gap-3'>
+            <Button
+              color='primary'
+              variant='flat'
+              onPress={fetchLogo}
+              isLoading={logoBusy}
+              startContent={!logoBusy ? <Download size={18} /> : undefined}
+              className='font-semibold'
+            >
+              {t('settings.fetchLogo')}
+            </Button>
+            {logoResult && (
+              <span
+                className={`text-sm font-semibold ${
+                  logoResult.kind === 'success' ? 'text-success' : 'text-danger'
+                }`}
+              >
+                {logoResult.message}
+              </span>
+            )}
           </div>
         </CardBody>
       </Card>

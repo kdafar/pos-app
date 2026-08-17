@@ -132,7 +132,8 @@ export function DataTable<T>({
                     style={{ minWidth: header.column.columnDef.size }}
                     className={`px-3 py-3 font-bold text-foreground whitespace-nowrap
                       border-b-2 border-default-300
-                      ${alignEnd ? 'text-end' : 'text-start'}`}
+                      ${alignEnd ? 'text-end' : 'text-start'}
+                      ${meta.className ?? ''}`}
                   >
                     {header.isPlaceholder ? null : canSort ? (
                       // The whole header is the hit target, not just the arrow.
@@ -250,7 +251,8 @@ export function DataTable<T>({
                         key={cell.id}
                         className={`px-3 py-3 align-middle text-foreground
                           ${meta.nowrap ? 'whitespace-nowrap' : ''}
-                          ${meta.align === 'end' ? 'text-end' : 'text-start'}`}
+                          ${meta.align === 'end' ? 'text-end' : 'text-start'}
+                          ${meta.className ?? ''}`}
                       >
                         {flexRender(
                           cell.column.columnDef.cell,

@@ -100,6 +100,16 @@ export const navStrings = {
     en: 'Choose the till language. The choice is saved on this device and the screen direction changes with it.',
     ar: 'اختر لغة الواجهة. يتم حفظ الاختيار على هذا الجهاز ويتغير اتجاه الشاشة معه.',
   },
+  'settings.invoiceLogo': { en: 'Invoice logo', ar: 'شعار الفاتورة' },
+  'settings.invoiceLogoHint': {
+    en: 'Download and cache the logo supplied by the server for offline invoices.',
+    ar: 'تنزيل شعار الفاتورة من الخادم وحفظه للاستخدام دون اتصال.',
+  },
+  'settings.fetchLogo': { en: 'Fetch logo from server', ar: 'تنزيل الشعار من الخادم' },
+  'settings.logoFetched': {
+    en: 'Logo downloaded and ready for invoices.',
+    ar: 'تم تنزيل الشعار وهو جاهز للفواتير.',
+  },
 
   /* ---------- updates screen ----------
      Versions stay Latin and LTR, like every other identifier. */

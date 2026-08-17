@@ -338,19 +338,19 @@ export default function TodayOrdersReport() {
         accessorKey: 'number',
         header: () => t('admin.orders.number'),
         cell: (info) => info.getValue() as string,
-        size: 150,
+        size: 105,
       },
       {
         accessorKey: 'status',
         header: () => t('admin.status'),
         cell: ({ row }) => <StatusBadge order={row.original} />,
         enableSorting: false,
-        size: 120,
+        size: 100,
       },
       {
         id: 'setStatus',
         header: () => t('admin.orders.changeStatus'),
-        size: 170,
+        size: 135,
         enableSorting: false,
         meta: { nowrap: true },
         // Read-only badge above shows where the order is; this moves it on.
@@ -366,9 +366,9 @@ export default function TodayOrdersReport() {
       {
         id: 'paid',
         header: () => t('admin.orders.paid'),
-        size: 150,
+        size: 105,
         enableSorting: false,
-        meta: { nowrap: true },
+        meta: { nowrap: true, className: 'hidden xl:table-cell' },
         // The till creates payment links and then never surfaced the outcome,
         // so a cashier handing over food had no way to tell whether the
         // customer had actually paid.
@@ -379,7 +379,7 @@ export default function TodayOrdersReport() {
         header: () => t('admin.type'),
         cell: ({ row }) => typeLabel(row.original.order_type),
         sortingFn: 'alphanumeric',
-        size: 120,
+        size: 85,
       },
       {
         id: 'customer',
@@ -393,7 +393,7 @@ export default function TodayOrdersReport() {
           </div>
         ),
         enableSorting: false,
-        size: 260,
+        size: 170,
       },
       {
         accessorKey: 'grand_total',
@@ -404,7 +404,7 @@ export default function TodayOrdersReport() {
           </span>
         ),
         sortingFn: 'alphanumeric',
-        size: 120,
+        size: 85,
       },
       {
         id: 'updated_at',
@@ -425,7 +425,8 @@ export default function TodayOrdersReport() {
           );
         },
         sortingFn: 'basic',
-        size: 200,
+        size: 145,
+        meta: { nowrap: true, className: 'hidden 2xl:table-cell' },
       },
       {
         id: 'actions',
@@ -433,7 +434,7 @@ export default function TodayOrdersReport() {
         enableSorting: false,
         // Wide enough for three buttons. Under `table-fixed` an undersized
         // column does not clip — it overflows and overlaps its neighbour.
-        size: 190,
+        size: 110,
         cell: ({ row }) =>
           isAdmin ? (
             <div className='flex items-center gap-1.5 overflow-hidden'>
@@ -452,7 +453,6 @@ export default function TodayOrdersReport() {
                 title={t('admin.orders.printReceipt')}
               >
                 <Printer size={14} />
-                <span>{t('admin.orders.print')}</span>
               </button>
               {(row.original as any).payment_link_url && row.original.id && (
                 <button
@@ -470,7 +470,7 @@ export default function TodayOrdersReport() {
         id: 'payment',
         header: () => t('cust.paymentMethod'),
         enableSorting: false,
-        size: 150,
+        size: 105,
         cell: ({ row }) =>
           isAdmin && row.original.id ? (
             <PaymentMethodCell
@@ -491,7 +491,7 @@ export default function TodayOrdersReport() {
 
 
   return (
-    <div className='max-w-7xl mx-auto p-4'>
+    <div className='mx-auto w-full max-w-[110rem] p-3 sm:p-4'>
       {/* Header + Toolbar */}
       <div className='mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between'>
         <div>
