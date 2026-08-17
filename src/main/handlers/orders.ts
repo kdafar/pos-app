@@ -340,7 +340,16 @@ export function registerOrdersHandlers(
     const status = (args?.status ?? '').toString().trim();
     const branchId = args?.branch_id;
     const { sql: userSql, params: userParams } = buildUserFilter('orders');
-    const where: string[] = ['1=1'];
+    const where: string[] = [
+      // Drafts are created locally as soon as New is pressed. They are not
+      // sales and must not appear in the orders report before an item exists.
+      `NOT (
+        lower(COALESCE(status, '')) IN ('open', 'pending')
+        AND NOT EXISTS (
+          SELECT 1 FROM order_lines ol WHERE ol.order_id = orders.id
+        )
+      )`,
+    ];
     const params: any = { ...userParams };
 
     // `created_at` holds two different shapes: locally-created orders store
@@ -582,6 +591,7 @@ export function registerOrdersHandlers(
         ORDER_STATUS.READY,
         ORDER_STATUS.AWAITING_PICKUP,
         ORDER_STATUS.CLOSED,
+        ORDER_STATUS.CANCELLED_CLIENT,
       ] as string[];
 
       const target = String(next || '').toLowerCase();
@@ -591,6 +601,21 @@ export function registerOrdersHandlers(
 
       const current = String(order.status || '').toLowerCase();
       if (current === target) return getOrderWithLines(orderId);
+
+      if (target === ORDER_STATUS.CANCELLED_CLIENT) {
+        const lineCount = Number(
+          rawDb
+            .prepare('SELECT COUNT(*) FROM order_lines WHERE order_id = ?')
+            .pluck()
+            .get(orderId) ?? 0
+        );
+        // Server-seeded lookup rows intentionally do not store their lines on
+        // this till, so a positive server total is also valid sale evidence.
+        // A genuinely empty local draft has neither lines nor a positive total.
+        if (lineCount === 0 && Number(order.grand_total || 0) <= 0) {
+          throw new Error('An empty draft cannot be sent as a cancelled order.');
+        }
+      }
 
       const serverCode = Number(order.status_code);
       if (Number.isFinite(serverCode) && isTerminalServerStatus(serverCode)) {
@@ -612,6 +637,13 @@ export function registerOrdersHandlers(
       // Reaching a terminal state is what finishes the sale, and it is the
       // point the server posts revenue against (DONE).
       if (target === ORDER_STATUS.CLOSED && hasColumn('orders', 'closed_at')) {
+        cols.push('closed_at = ?');
+        params.push(nowMs());
+      }
+      if (
+        target === ORDER_STATUS.CANCELLED_CLIENT &&
+        hasColumn('orders', 'closed_at')
+      ) {
         cols.push('closed_at = ?');
         params.push(nowMs());
       }
@@ -813,6 +845,9 @@ export function registerOrdersHandlers(
       if (Number(variationCount?.c ?? 0) > 0) {
         throw new Error('Please choose a variation for this item');
       }
+      if (Number(item.price ?? 0) <= 0) {
+        throw new Error(`"${item.name}" has no price set and cannot be sold.`);
+      }
 
       const isLockedDineIn =
         Number(order.order_type) === 3 &&
@@ -943,6 +978,9 @@ export function registerOrdersHandlers(
 
       const basePrice =
         variationPrice != null ? variationPrice : Number(item.price || 0);
+      if (!Number.isFinite(basePrice) || basePrice <= 0) {
+        throw new Error(`"${item.name}" has no price set and cannot be sold.`);
+      }
 
       // ── Addons ───────────────────────────────────────────────────
       // Only addons belonging to a group actually attached to this item may
@@ -1263,6 +1301,25 @@ export function registerOrdersHandlers(
       itemsCount = row?.c ?? 0;
     } catch (err) {
       console.error('[orders:close] failed to count order_lines', err);
+      throw new Error('Could not verify the order items. Please try again.');
+    }
+
+    // Closing an empty draft is a discard, not a sale or a cancellation.
+    // Remove it completely so it never appears in history or reaches sync.
+    if (itemsCount === 0) {
+      log('orders.discardEmpty', orderId, {
+        previous_status: order.status,
+      });
+
+      rawDb.transaction(() => {
+        // Explicit child cleanup also covers legacy databases where foreign
+        // key enforcement may not have been enabled when the DB was created.
+        rawDb.prepare('DELETE FROM active_orders WHERE order_id = ?').run(orderId);
+        rawDb.prepare('DELETE FROM order_lines WHERE order_id = ?').run(orderId);
+        rawDb.prepare('DELETE FROM orders WHERE id = ?').run(orderId);
+      })();
+
+      return { order: null, lines: [], discarded: true };
     }
 
     // ── 0.1) DELIVERY GUARD: require address if there are items ───────────────
@@ -1418,6 +1475,16 @@ export function registerOrdersHandlers(
 
       const order = getOrderRow(orderId);
       if (!order) throw new Error('Order not found');
+
+      const lineCount = Number(
+        rawDb
+          .prepare('SELECT COUNT(*) FROM order_lines WHERE order_id = ?')
+          .pluck()
+          .get(orderId) ?? 0
+      );
+      if (lineCount === 0) {
+        throw new Error('Cannot place an empty order. Add at least one item.');
+      }
 
       const type = Number(order.order_type || 0);
       const errors: string[] = [];

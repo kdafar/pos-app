@@ -522,17 +522,17 @@ export default function OrderProcessPage() {
   };
 
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-  const headerBg = theme === 'dark' ? 'bg-slate-900/95' : 'bg-content1';
-  const border = 'border-default-100';
+  const headerBg = 'bg-content1';
+  const border = 'border-default-200';
 
   return (
     <div className={`pos-screen h-screen flex flex-col ${bg}`}>
       {/* Header */}
       <header
-        className={`border-b ${border} ${headerBg} backdrop-blur min-h-14 py-1.5 shrink-0 shadow-sm z-20`}
+        className={`border-b ${border} ${headerBg} min-h-14 shrink-0 z-20`}
       >
         <div className='px-4 h-full'>
-          <div className='flex h-full items-center gap-4'>
+          <div className='flex min-h-14 items-center gap-3'>
             {/*
               "Signed in as <name> <role>" used to live here as well as in the
               sidebar, so on any screen wide enough to show both, the operator's
@@ -542,28 +542,26 @@ export default function OrderProcessPage() {
               180px, which is the difference between seeing three open orders
               and seeing one on a scaled 13" display.
             */}
-            <div className='flex-1 flex items-center gap-2 overflow-x-auto chip-scroll min-w-0 px-2 pb-0.5'>
+            <div className='flex-1 flex items-center gap-2 overflow-x-auto chip-scroll min-w-0 py-2'>
               {activeOrders.map((order) => (
                 <button
                   key={order.id}
                   onClick={() => selectOrder(order.id)}
                   className={`
-                    shrink-0 h-9 px-3 rounded-md border text-xs font-medium transition-all select-none
-                    flex flex-col justify-center min-w-[100px]
+                    shrink-0 h-9 px-3 rounded-lg border text-xs transition-colors select-none
+                    flex items-center justify-center min-w-[108px]
                     ${
                       currentOrder?.id === order.id
-                        ? theme === 'dark'
-                          ? 'bg-blue-600 border-blue-500 text-white shadow-sm ring-1 ring-blue-500/50'
-                          : 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                        : 'bg-default-100 border-default-200 text-default-700 hover:bg-default-200 hover:text-foreground'
+                        ? 'bg-primary border-primary text-primary-foreground font-semibold'
+                        : 'bg-content1 border-default-200 text-default-700 hover:bg-default-100 hover:text-foreground'
                     }
                   `}
                 >
                   <div className='flex items-center justify-between gap-2 w-full'>
-                    <span className='opacity-90'>
+                    <span>
                       {labelForType(order.order_type)}
                     </span>
-                    <span className='opacity-70 text-[10px] flex items-center gap-1'>
+                    <span className='opacity-80 text-[10px] flex items-center gap-1'>
                       {shortOrderLabel(order as any)}
                       <PaymentBadge
                         status={(order as any).payment_link_status}
@@ -575,18 +573,18 @@ export default function OrderProcessPage() {
               ))}
             </div>
 
-            <div className='shrink-0 flex items-center gap-2 ps-2 border-s border-default-200 dark:border-white/10'>
+            <div className='shrink-0 flex items-center gap-2 ps-3 border-s border-default-200'>
 
               <button
                 onClick={() => createNewOrder(2)}
-                className='h-9 px-4 rounded-md text-xs font-bold transition flex items-center gap-2 shadow-sm bg-success text-success-foreground hover:opacity-90'
+                className='h-9 px-4 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90'
               >
                 <Plus size={16} strokeWidth={3} />
                 <span>{t('pos.new')}</span>
               </button>
 
               {currentOrder && (
-                <div className='w-px h-6 bg-default-200 mx-1' />
+                <div className='w-px h-7 bg-default-200' />
               )}
 
               {currentOrder && (

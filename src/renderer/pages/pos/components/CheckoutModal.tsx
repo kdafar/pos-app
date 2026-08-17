@@ -459,7 +459,7 @@ export function CheckoutModal({
   const [showPromo, setShowPromo] = useState(false);
 
   return (
-    <div className='fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4'>
+    <div className='fixed inset-0 bg-black/55 flex items-center justify-center z-50 p-4'>
       <div
         // max-w-2xl (42rem) forced three address selects into a cramped row
         // and left the form scrolling far more than it needed to. 64rem gives
@@ -471,17 +471,17 @@ export function CheckoutModal({
         // payment methods — so the one action the cashier always needs was the
         // one thing they had to go looking for. Only the fields scroll now;
         // the totals and the buttons are pinned.
-        className={`${bg} border ${border} rounded-xl w-full max-w-[76rem] max-h-[92vh] flex flex-col overflow-hidden`}
+        className={`${bg} border ${border} rounded-2xl shadow-xl w-full max-w-[76rem] max-h-[92vh] flex flex-col overflow-hidden`}
       >
         <div
-          className={`shrink-0 ${bg} border-b ${border} p-4 flex items-center justify-between`}
+          className={`shrink-0 ${bg} border-b ${border} px-5 py-4 flex items-center justify-between`}
         >
           <h2 className={`text-xl font-bold ${text}`}>{t('checkout.title')}</h2>
           <div className='flex items-center gap-2'>
             <button
               type='button'
               onClick={() => setShowPromo(true)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
+              className={`h-9 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
                 'bg-default-100 border border-default-200 text-default-700 hover:bg-default-200'
               }`}
             >
@@ -491,7 +491,7 @@ export function CheckoutModal({
               type='button'
               onClick={handleQuickMode}
               className={`
-                h-8 px-2.5 rounded-md text-[11px] font-semibold
+                h-9 px-3 rounded-lg text-xs font-semibold
                 flex items-center gap-1 border transition-colors
                 ${
                   useQuickMode
@@ -510,9 +510,8 @@ export function CheckoutModal({
 
             <button
               onClick={onClose}
-              className={
-                'text-default-700 hover:text-white'
-              }
+              className='grid h-9 w-9 place-items-center rounded-lg text-default-600 hover:bg-default-100 hover:text-foreground'
+              aria-label={t('common.close')}
             >
               <X size={22} />
             </button>
@@ -884,7 +883,7 @@ export function CheckoutModal({
             <button
               type='button'
               onClick={onClose}
-              className={`flex-1 px-4 py-2.5 rounded-lg border font-medium ${
+              className={`flex-1 h-11 px-4 rounded-xl border font-medium ${
                 'border-default-200 bg-default-100 text-foreground hover:bg-default-200'
               }`}
             >
@@ -892,7 +891,7 @@ export function CheckoutModal({
             </button>
             <button
               type='submit'
-              className={`flex-1 px-4 py-2.5 rounded-lg font-medium ${
+              className={`flex-1 h-11 px-4 rounded-xl font-medium ${
                 'bg-success text-success-foreground'
               }`}
             >

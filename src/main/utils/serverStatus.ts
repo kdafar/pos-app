@@ -105,6 +105,9 @@ export function pushStatusForLocal(localStatus: string): number {
       // 3 told the customer their food was on its way while it was on the pass.
       return SERVER_STATUS.PREPARING; // 2
 
+    case 'cancelled_client':
+      return SERVER_STATUS.CANCELLED_CLIENT;
+
     case 'cancelled':
       // Never reachable through the push channel — the backend's pushable list
       // excludes both cancelled codes and silently drops anything outside it,
@@ -173,11 +176,16 @@ export function safePushStatus(
 }
 
 const ALLOWED_POS_TRANSITIONS: Record<number, readonly number[]> = {
-  [SERVER_STATUS.RECEIVED]: [SERVER_STATUS.PREPARING],
-  [SERVER_STATUS.PREPARING]: [SERVER_STATUS.READY],
-  [SERVER_STATUS.READY]: [SERVER_STATUS.DONE, SERVER_STATUS.AWAITING_PICKUP],
-  [SERVER_STATUS.AWAITING_PICKUP]: [SERVER_STATUS.DONE],
+  [SERVER_STATUS.RECEIVED]: [SERVER_STATUS.PREPARING, SERVER_STATUS.CANCELLED_CLIENT],
+  [SERVER_STATUS.PREPARING]: [SERVER_STATUS.READY, SERVER_STATUS.CANCELLED_CLIENT],
+  [SERVER_STATUS.READY]: [
+    SERVER_STATUS.DONE,
+    SERVER_STATUS.AWAITING_PICKUP,
+    SERVER_STATUS.CANCELLED_CLIENT,
+  ],
+  [SERVER_STATUS.AWAITING_PICKUP]: [SERVER_STATUS.DONE, SERVER_STATUS.CANCELLED_CLIENT],
   [SERVER_STATUS.DONE]: [],
+  [SERVER_STATUS.CANCELLED_CLIENT]: [],
 };
 
 export function isAllowedPosTransition(current: unknown, next: unknown): boolean {

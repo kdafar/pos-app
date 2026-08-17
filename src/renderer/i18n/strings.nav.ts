@@ -124,6 +124,38 @@ export const navStrings = {
   'update.never': { en: 'Not yet', ar: 'لم يتم بعد' },
   'update.checkNow': { en: 'Check for updates', ar: 'التحقق من التحديثات' },
 
+  'update.tryAgain': { en: 'Try again', ar: 'المحاولة مرة أخرى' },
+  'update.safeBadge': { en: 'Safe automatic updates', ar: 'تحديثات تلقائية آمنة' },
+  'update.howItWorks': { en: 'How updating works', ar: 'كيف يعمل التحديث' },
+  'update.stepCheck': { en: '1. Check', ar: '١. التحقق' },
+  'update.stepCheckHelp': {
+    en: 'The POS looks securely for a newer version.',
+    ar: 'يتحقق نظام نقاط البيع بأمان من وجود إصدار أحدث.',
+  },
+  'update.stepDownload': { en: '2. Download', ar: '٢. التنزيل' },
+  'update.stepDownloadHelp': {
+    en: 'Keep taking orders while it downloads in the background.',
+    ar: 'يمكنك متابعة استقبال الطلبات أثناء التنزيل في الخلفية.',
+  },
+  'update.stepInstall': { en: '3. Restart', ar: '٣. إعادة التشغيل' },
+  'update.stepInstallHelp': {
+    en: 'Install when service is quiet and no order is open.',
+    ar: 'ثبّت التحديث عندما يكون العمل هادئاً ولا توجد طلبات مفتوحة.',
+  },
+  'update.beforeRestart': { en: 'Before restarting', ar: 'قبل إعادة التشغيل' },
+  'update.helpInternet': {
+    en: 'Keep the internet connected until downloading finishes.',
+    ar: 'أبقِ الاتصال بالإنترنت حتى يكتمل التنزيل.',
+  },
+  'update.helpOrders': {
+    en: 'Finish or save every open order before installing.',
+    ar: 'أكمل أو احفظ جميع الطلبات المفتوحة قبل التثبيت.',
+  },
+  'update.helpPower': {
+    en: 'Do not turn off the computer during installation.',
+    ar: 'لا تطفئ الكمبيوتر أثناء تثبيت التحديث.',
+  },
+
   /* status headlines */
   'update.idleTitle': { en: 'Not checked yet', ar: 'لم يتم التحقق بعد' },
   'update.idleHint': {

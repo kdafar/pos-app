@@ -31,7 +31,15 @@ export const ITEM_LIST_LIMIT = 500;
  * what "matching" means — a mismatch would show a bogus "showing X of Y".
  */
 function buildItemFilter(filter: CatalogListItemsFilter | null) {
-  const where: string[] = [];
+  const where: string[] = [
+    // Never expose a product the till could accidentally give away. Items
+    // with a zero base price remain valid only when they have a priced variant.
+    `(COALESCE(i.price, 0) > 0 OR EXISTS (
+      SELECT 1 FROM variations priced_v
+      WHERE priced_v.item_id = i.id
+        AND (COALESCE(priced_v.sale_price, 0) > 0 OR COALESCE(priced_v.price, 0) > 0)
+    ))`,
+  ];
   const params: any[] = [];
 
   const q = filter?.q?.trim();
@@ -105,7 +113,12 @@ export function registerCatalogHandlers(ipcMain: IpcMain) {
     i.image,
     i.image_local
   FROM items i
-  WHERE i.name LIKE ? OR i.name_ar LIKE ? OR i.barcode = ?
+  WHERE (i.name LIKE ? OR i.name_ar LIKE ? OR i.barcode = ?)
+    AND (COALESCE(i.price, 0) > 0 OR EXISTS (
+      SELECT 1 FROM variations priced_v
+      WHERE priced_v.item_id = i.id
+        AND (COALESCE(priced_v.sale_price, 0) > 0 OR COALESCE(priced_v.price, 0) > 0)
+    ))
   LIMIT 50
 `
     );
@@ -250,6 +263,11 @@ export function registerCatalogHandlers(ipcMain: IpcMain) {
               ) AS min_variation_price
             FROM items i
             WHERE i.barcode = ?
+              AND (COALESCE(i.price, 0) > 0 OR EXISTS (
+                SELECT 1 FROM variations priced_v
+                WHERE priced_v.item_id = i.id
+                  AND (COALESCE(priced_v.sale_price, 0) > 0 OR COALESCE(priced_v.price, 0) > 0)
+              ))
             LIMIT 1
           `
           )
