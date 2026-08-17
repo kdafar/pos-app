@@ -14,6 +14,20 @@ import {
   Timer,
   AlertTriangle,
   Rocket,
+  ShoppingCart,
+  ReceiptText,
+  BarChart3,
+  FolderTree,
+  Package,
+  PlusCircle,
+  Ticket,
+  CreditCard,
+  MapPin,
+  Armchair,
+  Settings,
+  ArrowUpCircle,
+  LogOut,
+  type LucideIcon,
 } from 'lucide-react';
 
 type SyncStatus = {
@@ -224,15 +238,16 @@ export function Layout() {
   return (
     <div
       className='h-screen w-screen overflow-hidden grid bg-background transition-all duration-300 min-h-0 min-w-0'
-      style={{ gridTemplateColumns: collapsed ? '76px 1fr' : '260px 1fr' }}
+      style={{ gridTemplateColumns: collapsed ? '64px 1fr' : '260px 1fr' }}
     >
       {/* Sidebar */}
       <aside
-        className='
-          h-full border-e flex flex-col gap-3 p-3 min-h-0 min-w-0
+        className={`
+          h-full border-e flex flex-col min-h-0 min-w-0
+          ${collapsed ? 'gap-2 p-2' : 'gap-3 p-3'}
           bg-gradient-to-b from-slate-50 to-slate-100
           dark:from-slate-950 dark:to-slate-900
-        '
+        `}
       >
         {/* User header + controls */}
         <div className='flex items-center gap-2 px-1'>
@@ -385,19 +400,19 @@ export function Layout() {
         )}
 
         {/* Nav (RBAC) */}
-        <nav className='mt-1 space-y-1 flex-grow overflow-y-auto nice-scroll min-h-0'>
+        <nav className='mt-1 space-y-1 flex-grow overflow-y-auto nice-scroll rail-scroll min-h-0'>
           <SectionLabel hidden={collapsed}>{t('nav.orders')}</SectionLabel>
           <NavLink
             to='/'
             text={t('nav.orderProcess')}
-            icon='🧾'
+            icon={ShoppingCart}
             collapsed={collapsed}
             active={location.pathname === '/'}
           />
           <NavLink
             to='/orders'
             text={t('nav.recentOrders')}
-            icon='📜'
+            icon={ReceiptText}
             collapsed={collapsed}
             active={location.pathname === '/orders'}
           />
@@ -405,7 +420,7 @@ export function Layout() {
           <NavLink
             to='/reports/closing'
             text={t('nav.closingReport')}
-            icon='📜'
+            icon={BarChart3}
             collapsed={collapsed}
             active={location.pathname === '/reports/closing'}
           />
@@ -417,28 +432,28 @@ export function Layout() {
               <NavLink
                 to='/categories'
                 text={t('nav.categories')}
-                icon='🗂️'
+                icon={FolderTree}
                 collapsed={collapsed}
                 active={location.pathname === '/categories'}
               />
               <NavLink
                 to='/items'
                 text={t('nav.items')}
-                icon='📦'
+                icon={Package}
                 collapsed={collapsed}
                 active={location.pathname === '/items'}
               />
               <NavLink
                 to='/addons'
                 text={t('nav.addons')}
-                icon='➕'
+                icon={PlusCircle}
                 collapsed={collapsed}
                 active={location.pathname === '/addons'}
               />
               <NavLink
                 to='/promos'
                 text={t('nav.promocodes')}
-                icon='🏷️'
+                icon={Ticket}
                 collapsed={collapsed}
                 active={location.pathname === '/promos'}
               />
@@ -449,35 +464,35 @@ export function Layout() {
               <NavLink
                 to='/payment-methods'
                 text={t('nav.paymentMethods')}
-                icon='💳'
+                icon={CreditCard}
                 collapsed={collapsed}
                 active={location.pathname === '/payment-methods'}
               />
               <NavLink
                 to='/locations'
                 text={t('nav.locations')}
-                icon='📍'
+                icon={MapPin}
                 collapsed={collapsed}
                 active={location.pathname === '/locations'}
               />
               <NavLink
                 to='/tables'
                 text={t('nav.tables')}
-                icon='🪑'
+                icon={Armchair}
                 collapsed={collapsed}
                 active={location.pathname === '/tables'}
               />
               <NavLink
                 to='/settings'
                 text={t('nav.settings')}
-                icon='⚙️'
+                icon={Settings}
                 collapsed={collapsed}
                 active={location.pathname === '/settings'}
               />
               <NavLink
                 to='/updates'
                 text={t('nav.updates')}
-                icon='⬆️'
+                icon={ArrowUpCircle}
                 collapsed={collapsed}
                 active={location.pathname === '/updates'}
                 dot={updateReady}
@@ -518,7 +533,7 @@ export function Layout() {
           <NavLink
             to='/logout'
             text={t('auth.logout')}
-            icon='🚪'
+            icon={LogOut}
             collapsed={collapsed}
             active={false}
           />
@@ -554,42 +569,57 @@ export function Layout() {
   );
 }
 
+/**
+ * A sidebar entry.
+ *
+ * The icon is a component, not an emoji. Emoji were the single biggest reason
+ * the collapsed rail looked broken: they are rendered by the OS font, so they
+ * ignore `currentColor` (staying full-colour on a dark active row), sit on a
+ * text baseline rather than centring in their box, and vary in width between
+ * glyphs — so a column of them is never actually aligned. A real icon takes the
+ * row's colour and occupies a predictable square.
+ */
 function NavLink({
   to,
   text,
-  icon,
+  icon: Icon,
   collapsed,
   active = false,
   dot = false,
 }: {
   to: string;
   text: string;
-  icon?: string;
+  icon?: LucideIcon;
   collapsed?: boolean;
   active?: boolean;
   /** Small marker for "something is waiting here" — e.g. a downloaded update. */
   dot?: boolean;
 }) {
   const baseClasses =
-    'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-200';
+    'group relative flex items-center rounded-xl text-sm font-medium transition-colors duration-200';
   const activeClasses =
     'bg-slate-900 text-slate-50 shadow-sm dark:bg-slate-100 dark:text-slate-900';
   const inactiveClasses =
     'text-muted-foreground hover:text-foreground hover:bg-slate-100/80 dark:hover:bg-slate-800/80';
-  const collapsedClasses = 'w-10 h-10 justify-center px-0';
-  const expandedClasses = 'w-full';
+  // Collapsed rows are square and centred so the icons form a straight column.
+  const collapsedClasses = 'h-10 w-10 mx-auto justify-center';
+  const expandedClasses = 'w-full gap-3 px-3 py-2.5 nav-row';
 
   return (
     <Link
       to={to}
+      // The label is the only thing identifying an icon once the rail is
+      // collapsed, so it has to survive as a tooltip and for screen readers.
+      title={collapsed ? text : undefined}
+      aria-label={collapsed ? text : undefined}
       className={`${baseClasses} ${active ? activeClasses : inactiveClasses} ${
         collapsed ? collapsedClasses : expandedClasses
       }`}
     >
-      <span className='relative text-lg flex-shrink-0'>
-        {icon || '•'}
+      <span className='relative flex-shrink-0 inline-flex items-center justify-center'>
+        {Icon ? <Icon size={18} strokeWidth={1.9} /> : null}
         {dot && (
-          <span className='absolute -top-0.5 -end-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950' />
+          <span className='absolute -top-1 -end-1 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950' />
         )}
       </span>
       {!collapsed && <span className='truncate'>{text}</span>}
@@ -604,9 +634,15 @@ function SectionLabel({
   children: React.ReactNode;
   hidden?: boolean;
 }) {
-  if (hidden) return <div className='h-2' />;
+  // Collapsed, the heading has no room — but the grouping it conveys still
+  // does. A rule keeps the sections readable instead of leaving a blank gap
+  // that just looks like inconsistent spacing.
+  if (hidden)
+    return (
+      <div className='mx-auto my-2 h-px w-6 bg-slate-200 dark:bg-slate-800' />
+    );
   return (
-    <div className='mt-3 mb-1 uppercase tracking-wide text-[10px] text-muted-foreground px-3'>
+    <div className='mt-3 mb-1 uppercase tracking-wide text-[10px] text-muted-foreground px-3 nav-section'>
       {children}
     </div>
   );
