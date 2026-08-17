@@ -14,6 +14,14 @@ export const adminStrings = {
   'admin.rowsPerPage': { en: 'Rows per page', ar: 'عدد الصفوف بالصفحة' },
   'admin.readOnly': { en: 'Read-only', ar: 'للعرض فقط' },
   'admin.noData': { en: 'No data', ar: 'لا توجد بيانات' },
+  'admin.loadFailed': {
+    en: 'Could not load this page',
+    ar: 'تعذّر تحميل هذه الصفحة',
+  },
+  'admin.clearFiltersHint': {
+    en: 'Clear the search or filters to see everything.',
+    ar: 'امسح البحث أو عوامل التصفية لعرض الكل.',
+  },
   'admin.pageOf': {
     en: 'Page {page} of {pages}',
     ar: 'صفحة {page} من {pages}',
