@@ -96,7 +96,7 @@ export function DeliveryFeeRow({
             }}
             className={`money w-24 h-8 px-2 rounded-md text-sm text-end outline-none
               focus:ring-2 focus:ring-blue-500/40 ${
-                'bg-default-200 border border-default-200 text-white'
+                'bg-default-200 border border-default-200 text-foreground'
               }`}
           />
           <button

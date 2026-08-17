@@ -861,7 +861,7 @@ export function CheckoutModal({
               type='button'
               onClick={onClose}
               className={`flex-1 px-4 py-2.5 rounded-lg border font-medium ${
-                'border-default-200 bg-default-100 text-white hover:bg-default-200'
+                'border-default-200 bg-default-100 text-foreground hover:bg-default-200'
               }`}
             >
               {t('common.cancel')}

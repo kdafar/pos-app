@@ -49,7 +49,7 @@ export function QtyStepper({
   const inputSize = size === 'md' ? 'w-12 h-8 text-base' : 'w-10 h-7 text-sm';
 
   const btn = `${btnSize} rounded-md flex items-center justify-center font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${
-    'bg-default-200 hover:bg-default-300 text-white'
+    'bg-default-200 hover:bg-default-300 text-foreground'
   }`;
 
   const commit = (raw: string) => {
@@ -113,7 +113,7 @@ export function QtyStepper({
         }}
         className={`${inputSize} text-center font-semibold tabular-nums rounded-md outline-none transition disabled:opacity-50
           ${
-            'bg-default-200 text-white border border-default-200 focus:border-blue-400/60'
+            'bg-default-200 text-foreground border border-default-200 focus:border-primary'
           }`}
       />
 

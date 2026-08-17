@@ -432,6 +432,33 @@ export const adminStrings = {
     ar: 'تمت مزامنته من الخادم للبحث فقط — الأصناف والسجل غير محفوظة على هذا الجهاز.',
   },
   'admin.act.create': { en: 'Order created', ar: 'تم إنشاء الطلب' },
+  // The action log records dotted names ('orders.setType'), but every label
+  // here was written in snake_case ('add_line'), so no lookup ever matched and
+  // the timeline printed raw keys at the operator.
+  'admin.act.orders.start': { en: 'Order started', ar: 'بدأ الطلب' },
+  'admin.act.orders.setType': {
+    en: 'Order type changed',
+    ar: 'تم تغيير نوع الطلب',
+  },
+  'admin.act.orders.addLineWithAddons': {
+    en: 'Item added',
+    ar: 'تمت إضافة صنف',
+  },
+  'admin.act.orders.clearLines': {
+    en: 'All items cleared',
+    ar: 'تم مسح كل الأصناف',
+  },
+  'admin.act.orders.setDeliveryFee': {
+    en: 'Delivery charge changed',
+    ar: 'تم تغيير رسوم التوصيل',
+  },
+  'admin.act.orders.complete': { en: 'Order placed', ar: 'تم تأكيد الطلب' },
+  'admin.act.orders.close': { en: 'Order closed', ar: 'تم إغلاق الطلب' },
+  'admin.act.orders.setPaymentMethod': {
+    en: 'Payment method changed',
+    ar: 'تم تغيير طريقة الدفع',
+  },
+  'admin.act.orders.print': { en: 'Receipt printed', ar: 'تمت طباعة الفاتورة' },
   'admin.act.add_line': { en: 'Item added', ar: 'تمت إضافة صنف' },
   'admin.act.set_qty': { en: 'Quantity changed', ar: 'تم تغيير الكمية' },
   'admin.act.remove_line': { en: 'Item removed', ar: 'تم حذف صنف' },

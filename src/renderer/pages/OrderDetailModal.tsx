@@ -30,6 +30,7 @@ import {
 import { useI18n, useOrderTypeLabel, useStatusLabel } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import { DataState } from '../components/PageShell';
+import { OrderTimeline } from './OrderTimeline';
 
 /**
  * Everything one order holds: customer, address, items, totals, payment state
@@ -377,37 +378,7 @@ export function OrderDetailModal({
 
                 {/* Timeline */}
                 <Section icon={Clock} title={t('admin.orders.timeline')}>
-                  {timeline.length === 0 ? (
-                    <div className='text-sm font-medium text-default-600'>
-                      {t('admin.orders.noHistory')}
-                    </div>
-                  ) : (
-                    <ol className='space-y-1.5'>
-                      {timeline.map((e: any, i: number) => (
-                        <li
-                          key={i}
-                          className='flex items-start gap-2 text-xs font-medium'
-                        >
-                          <span className='mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary' />
-                          <span className='text-foreground'>
-                            {t(`admin.act.${e.action}` as any) !==
-                            `admin.act.${e.action}`
-                              ? t(`admin.act.${e.action}` as any)
-                              : e.action}
-                          </span>
-                          <span
-                            className='ms-auto text-default-600'
-                            dir='ltr'
-                          >
-                            {when(e.at)}
-                          </span>
-                          {e.user && (
-                            <span className='text-default-600'>· {e.user}</span>
-                          )}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
+                  <OrderTimeline events={timeline} />
                 </Section>
               </>
             )}
