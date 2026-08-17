@@ -3,7 +3,7 @@
 import type { Database as BetterSqliteDB } from 'better-sqlite3';
 import { getMeta, setMeta } from '../db';
 import type { DatabaseService, KVStore, MainServices } from '../types/common';
-import { createSettingsService } from './settings';
+import { initSettingsService } from './settings';
 
 /**
  * Thin wrapper around better-sqlite3 so everything uses the same API.
@@ -72,7 +72,13 @@ export function createMainServices(rawDb: BetterSqliteDB): MainServices {
   const store = createKVStore();
   const meta = createMetaService();
 
-  const settings = createSettingsService({
+  // initSettingsService, not createSettingsService: the same instance has to
+  // be reachable both through `services.settings` and through the module
+  // singleton that readSettingRaw() uses. Only the first was ever created, so
+  // every `settings:get` threw "SettingsService not initialized" — silently,
+  // because until the brand theme started reading settings at boot, nothing in
+  // the renderer called it.
+  const settings = initSettingsService({
     db,
     store,
   });
