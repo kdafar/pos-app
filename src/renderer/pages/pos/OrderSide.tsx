@@ -647,6 +647,11 @@ export default function OrderSide({
           onLoadCities={onLoadCities}
           onLoadBlocks={onLoadBlocks}
           onPrintOrder={handlePrint}
+          // A reserved reference changes what the order displays and prints,
+          // so pull the row again once one lands.
+          onAfterReserve={() =>
+            currentOrder ? onSelectOrder(currentOrder.id) : undefined
+          }
         />
       )}
 

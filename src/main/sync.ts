@@ -2,8 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import db, { getMeta, setMeta } from './db';
 import { deleteSecret, loadSecret, saveSecret } from './secureStore';
 import { prefetchItemImages } from './imageCache';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { ipcMain } from 'electron';
+import { app } from 'electron';
 
 type Device = { id: string; branch_id: number };
 
@@ -25,6 +24,10 @@ export function configureApi(baseUrl: string, device: Device, token: string) {
     headers: {
       Authorization: `Bearer ${token}`,
       'X-Pos-Device': device.id,
+      // Rides on every request — push, pull and bootstrap — so the server can
+      // see which build a till is running without the till having to report it
+      // separately, and without a version-specific endpoint to keep in step.
+      'X-Pos-Version': app.getVersion(),
     },
   });
 
@@ -491,6 +494,9 @@ export async function pairDevice(
     branch_id: branchId,
     name: deviceName,
     machine_id: machineId,
+    // Known from the first contact, so a device that never syncs again still
+    // has a recorded version.
+    app_version: app.getVersion(),
   });
 
   if (!data.device?.id || !data.token) {

@@ -58,6 +58,7 @@ export function CheckoutModal({
   onLoadCities,
   onLoadBlocks,
   onPrintOrder,
+  onAfterReserve,
 }: {
   order: Order;
   states: State[];
@@ -71,6 +72,8 @@ export function CheckoutModal({
   onLoadCities: (stateId: string) => Promise<void>;
   onLoadBlocks: (cityId: string) => Promise<void>;
   onPrintOrder: (orderId: string) => Promise<void>;
+  /** Called once a server reference has been reserved, so the view can refresh. */
+  onAfterReserve?: () => Promise<void> | void;
 }) {
   const [formData, setFormData] = useState({
     full_name: '',
@@ -162,6 +165,39 @@ export function CheckoutModal({
     const fee = Number(selectedCity?.delivery_fee ?? order.delivery_fee ?? 0);
     setDisplayDeliveryFee(isFinite(fee) ? fee : 0);
   }, [order.order_type, order.delivery_fee, selectedCity, feeOverridden]);
+
+  /**
+   * Reserve the server's order reference when checkout opens.
+   *
+   * Deliberately here and not when the first item is rung up. The push creates
+   * a real Received order — the backend has no draft concept — so triggering it
+   * per line would turn every mis-rung item and every cleared cart into an
+   * order on the dashboard. The money is unaffected (revenue posts only at
+   * Done) but order counts and average-ticket figures are not, and "the till
+   * says 340 orders, the drawer says 300" is not a conversation worth having.
+   *
+   * Opening checkout is the first genuinely committed moment, and it still
+   * lands the number before anything prints — which was the point. A cart
+   * abandoned at the payment step does still create an order; that is a rarer
+   * event than clearing a mis-rung line.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!order?.id || (order as any).reference_no) return;
+      try {
+        const ref = await window.api.invoke('sync:reserveReference', order.id);
+        // Best-effort: offline, or a server that declines, simply leaves the
+        // local number in place. It must never block the sale.
+        if (!cancelled && ref) await onAfterReserve?.();
+      } catch {
+        /* keep the local number */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     (async () => {

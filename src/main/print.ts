@@ -1197,16 +1197,38 @@ export function registerLocalPrintHandlers() {
         order.branch_phone ||
         null;
 
-      // Everything scannable on the receipt must carry the same number the
-      // header prints, which is the server's reference once it exists. The
-      // barcode was encoding order.id — the local row — so a slip could show
-      // one number to the customer and a different one to a scanner.
+      // Everything scannable on the receipt carries the same number the header
+      // prints — the server's reference once it exists. The barcode was
+      // encoding order.id, the local row, so one slip could show the customer
+      // one number and hand a scanner a different one.
       const scanRef = order.reference_no
         ? String(order.reference_no)
         : order.order_number || order.number || String(order.id);
 
-      const qrDataUrl = await makeQrPngDataUrl(scanRef);
+      // The QR opens the order on the website; a phone camera resolves a URL,
+      // which is the whole point of putting one on a customer's receipt.
+      //
+      // The template is a setting so the path can change without a POS build.
+      // Falling back to the paired host is a guess at the path, so a shop that
+      // uses a different one sets `branding.order_url` to e.g.
+      //   https://shop.example.com/track/{reference}
+      const host = String(getSetting('server.base_url') || getMeta('server.base_url') || '')
+        .trim()
+        .replace(/\/+$/, '');
+      const template = String(getSetting('branding.order_url') || '').trim();
+      const orderUrl = template
+        ? template.replace(/\{reference\}|\{ref\}/gi, encodeURIComponent(scanRef))
+        : host
+        ? `${host}/orders/${encodeURIComponent(scanRef)}`
+        : '';
 
+      // No host and no template means no page to open — encode the number
+      // itself rather than printing a QR that resolves to nothing.
+      const qrDataUrl = await makeQrPngDataUrl(orderUrl || scanRef);
+
+      // Code128 stays the short lookup code. A URL here would be far too wide
+      // to scan on a 58mm roll, and in-store scanners want the number, not a
+      // link.
       const codeText = `${(getSetting('gps.username') || 'XXX')
         .toString()
         .slice(0, 3)}${scanRef}`;
