@@ -238,13 +238,13 @@ export function Layout() {
   return (
     <div
       className='h-screen w-screen overflow-hidden grid bg-background transition-all duration-300 min-h-0 min-w-0'
-      style={{ gridTemplateColumns: collapsed ? '64px 1fr' : '260px 1fr' }}
+      style={{ gridTemplateColumns: collapsed ? '64px 1fr' : '244px 1fr' }}
     >
       {/* Sidebar */}
       <aside
         className={`
           h-full border-e flex flex-col min-h-0 min-w-0
-          ${collapsed ? 'gap-2 p-2' : 'gap-3 p-3'}
+          ${collapsed ? 'gap-2 p-2' : 'gap-2 p-2.5'}
           bg-gradient-to-b from-slate-50 to-slate-100
           dark:from-slate-950 dark:to-slate-900
         `}
@@ -273,8 +273,8 @@ export function Layout() {
           {!collapsed && (
             <div
               className={`
-              flex items-center gap-3 overflow-hidden
-              rounded-2xl px-3 py-2
+              flex items-center gap-2.5 overflow-hidden
+              rounded-xl px-2.5 py-1.5
               bg-white/80 shadow-sm border border-slate-200
               dark:bg-slate-900/80 dark:border-slate-800
               flex-1
@@ -331,7 +331,7 @@ export function Layout() {
         {!collapsed && (
           <section
             className='
-              mx-1 rounded-2xl border bg-white/90 px-3 py-2.5 text-[11px] shadow-sm
+              rounded-xl border bg-white/90 px-2.5 py-2 text-[11px] shadow-sm
               dark:bg-slate-900/80 dark:border-slate-800
             '
             title={sync?.base_url || ''}
@@ -345,7 +345,7 @@ export function Layout() {
               which branch the till was posting to. That is the one fact on this
               card that must never be ambiguous.
             */}
-            <div className='flex items-center justify-between gap-2 mb-1.5'>
+            <div className='flex items-center justify-between gap-2 mb-1'>
               <div className='text-[10px] uppercase tracking-[0.22em] text-muted-foreground'>
                 {t('sync.title')}
               </div>
@@ -429,7 +429,7 @@ export function Layout() {
         )}
 
         {/* Nav (RBAC) */}
-        <nav className='mt-1 space-y-1 flex-grow overflow-y-auto nice-scroll rail-scroll min-h-0'>
+        <nav className='space-y-0.5 flex-grow overflow-y-auto nice-scroll rail-scroll min-h-0'>
           <SectionLabel hidden={collapsed}>{t('nav.orders')}</SectionLabel>
           <NavLink
             to='/'
@@ -531,16 +531,11 @@ export function Layout() {
         </nav>
 
         {/* Footer / Language + Logout */}
-        <div className='mt-2 pt-2 border-t border-slate-200 dark:border-slate-800'>
+        <div className='mt-1 pt-1.5 border-t border-slate-200 dark:border-slate-800'>
           {/* Language lives in the sidebar so it is reachable from every
               screen, not just the order screen. */}
-          <div className={collapsed ? 'pb-2' : 'px-3 pb-2'}>
-            {!collapsed && (
-              <div className='text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80 mb-1.5'>
-                {t('nav.language')}
-              </div>
-            )}
-            <LanguageToggle collapsed={collapsed} />
+          <div className={collapsed ? 'pb-1' : ''}>
+            <LanguageToggle collapsed={collapsed} row={!collapsed} />
           </div>
 
           {/* A downloaded update is announced to every operator, not just
@@ -568,12 +563,12 @@ export function Layout() {
           />
           {/* Tiny version badge */}
           {!collapsed && (
-            <div className='px-3 pb-1 text-[10px] text-muted-foreground/80 flex items-center justify-between'>
+            <div className='px-2.5 pt-0.5 text-[10px] text-muted-foreground/80 flex items-center justify-between'>
               {/* Version + vendor are identifiers, never localized. */}
               <span className='font-mono' dir='ltr'>
                 v{shownVersion}
               </span>
-              <span className='uppercase tracking-[0.18em] text-xs' dir='ltr'>
+              <span className='uppercase tracking-[0.14em] text-[10px]' dir='ltr'>
                 {APP_VENDOR}
               </span>
             </div>
@@ -632,7 +627,7 @@ function NavLink({
     'text-muted-foreground hover:text-foreground hover:bg-slate-100/80 dark:hover:bg-slate-800/80';
   // Collapsed rows are square and centred so the icons form a straight column.
   const collapsedClasses = 'h-10 w-10 mx-auto justify-center';
-  const expandedClasses = 'w-full gap-3 px-3 py-2.5 nav-row';
+  const expandedClasses = 'w-full gap-2.5 px-2.5 py-2 nav-row';
 
   return (
     <Link
@@ -671,7 +666,7 @@ function SectionLabel({
       <div className='mx-auto my-2 h-px w-6 bg-slate-200 dark:bg-slate-800' />
     );
   return (
-    <div className='mt-3 mb-1 uppercase tracking-wide text-[10px] text-muted-foreground px-3 nav-section'>
+    <div className='mt-2.5 mb-0.5 uppercase tracking-wide text-[10px] text-muted-foreground px-2.5 nav-section'>
       {children}
     </div>
   );

@@ -11,13 +11,44 @@ export function LanguageToggle({
   theme = 'light',
   compact = false,
   collapsed = false,
+  row = false,
 }: {
   theme?: 'light' | 'dark';
   compact?: boolean;
   /** Single square button — for a collapsed sidebar with no room for two. */
   collapsed?: boolean;
+  /** Full-width sidebar row that reads like the nav entries around it. */
+  row?: boolean;
 }) {
   const { lang, setLang } = useI18n();
+
+  /**
+   * In the sidebar the segmented control was a heading plus a bordered box
+   * holding a globe and both language names — three elements and two rows of
+   * chrome to express one binary choice, sitting directly above nav rows it
+   * matched in neither shape nor height.
+   *
+   * A single row naming the language you switch TO says the same thing: the
+   * button states its action rather than its current state, which is also why
+   * the current language never needs a highlight here.
+   */
+  if (row) {
+    const other = LANGS.find((l) => l.code !== lang) ?? LANGS[0];
+    return (
+      <button
+        type='button'
+        onClick={() => setLang(other.code)}
+        lang={other.code}
+        title={other.label}
+        className='flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm
+          font-medium text-muted-foreground transition-colors
+          hover:text-foreground hover:bg-slate-100/80 dark:hover:bg-slate-800/80'
+      >
+        <Languages size={18} strokeWidth={1.9} className='shrink-0' />
+        <span className='truncate'>{other.label}</span>
+      </button>
+    );
+  }
 
   if (collapsed) {
     const other = LANGS.find((l) => l.code !== lang) ?? LANGS[0];
