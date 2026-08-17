@@ -1006,13 +1006,36 @@ async function printHtmlSilently(html: string): Promise<void> {
       );
     }
 
-    win.show();
-    win.focus();
+    // A till prints a receipt on every sale, so a modal dialog per sale is a
+    // keystroke the cashier has to spend with a customer waiting. Print
+    // straight to the printer by default; `print.show_dialog = 1` restores the
+    // dialog for a shop that wants to choose per receipt.
+    const wantDialog = String(getSetting('print.show_dialog') ?? '').trim() === '1';
 
-    // The print dialog is modal. If it is dismissed by something other than a
-    // user action — or the callback simply never fires, which happens on
-    // Windows when the spooler is wedged — the old code awaited forever, the
-    // IPC never returned, and the button looked completely dead. Bound it.
+    // A named printer wins if one is configured and actually present. Falling
+    // back rather than failing matters: a printer renamed in Windows would
+    // otherwise stop the till printing entirely.
+    const configured = String(getSetting('print.printer_name') ?? '').trim();
+    const deviceName =
+      configured && printers.some((p) => p.name === configured)
+        ? configured
+        : undefined;
+    if (configured && !deviceName) {
+      console.warn(
+        `[print] configured printer "${configured}" not found; using the system default`
+      );
+    }
+
+    // Silent printing needs no window on screen, and showing one mid-service
+    // steals focus from the order the cashier is ringing up.
+    if (wantDialog) {
+      win.show();
+      win.focus();
+    }
+
+    // The print callback can simply never fire, which happens on Windows when
+    // the spooler is wedged — the old code awaited forever, the IPC never
+    // returned, and the button looked completely dead. Bound it.
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       const done = (fn: () => void) => {
@@ -1032,21 +1055,32 @@ async function printHtmlSilently(html: string): Promise<void> {
         );
       }, 120_000);
 
-      // Omit deviceName entirely — passing '' is not "use the default", and on
-      // Windows it can make the call fail silently.
-      win.webContents.print({ silent: false, printBackground: true }, (ok, reason) =>
-        done(() =>
-          ok
-            ? resolve()
-            : // "cancelled" is the user closing the dialog, not a failure.
-            /cancel/i.test(reason || '')
-            ? resolve()
-            : reject(new Error(reason || 'Print failed'))
-        )
+      // deviceName is omitted rather than passed as '' when there is no
+      // configured printer — '' is not "use the default", and on Windows it can
+      // make the call fail silently.
+      win.webContents.print(
+        {
+          silent: !wantDialog,
+          printBackground: true,
+          ...(deviceName ? { deviceName } : {}),
+        },
+        (ok, reason) =>
+          done(() =>
+            ok
+              ? resolve()
+              : // "cancelled" is the user closing the dialog, not a failure.
+              /cancel/i.test(reason || '')
+              ? resolve()
+              : reject(new Error(reason || 'Print failed'))
+          )
       );
     });
 
-    console.log('[print] print dialog completed');
+    console.log(
+      `[print] sent to ${deviceName || 'default printer'}${
+        wantDialog ? ' (via dialog)' : ' silently'
+      }`
+    );
     if (!win.isDestroyed()) win.close();
   } catch (err) {
     // Leave the receipt on screen when printing fails. The cashier can still
