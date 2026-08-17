@@ -1,7 +1,7 @@
 // src/renderer/components/PageShell.tsx
 import type { ReactNode } from 'react';
 import { Button, Chip, Input, Select, SelectItem, Spinner } from '@heroui/react';
-import { AlertCircle, Inbox, RotateCw, Search } from 'lucide-react';
+import { AlertCircle, Inbox, RotateCw, Search, type LucideIcon } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 /**
@@ -282,7 +282,7 @@ export function StatCard({
 }: {
   label: string;
   value: ReactNode;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  icon?: LucideIcon;
   tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
 }) {
   const accent = {
