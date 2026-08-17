@@ -14,6 +14,10 @@ export const adminStrings = {
   'admin.rowsPerPage': { en: 'Rows per page', ar: 'عدد الصفوف بالصفحة' },
   'admin.readOnly': { en: 'Read-only', ar: 'للعرض فقط' },
   'admin.noData': { en: 'No data', ar: 'لا توجد بيانات' },
+  // State labels, distinct from the *filter* labels ("Visible only") — a row
+  // reading "Visible only" describes the filter, not the row.
+  'admin.cats.isVisible': { en: 'Visible', ar: 'ظاهر' },
+  'admin.cats.isHidden': { en: 'Hidden', ar: 'مخفي' },
   'admin.loadFailed': {
     en: 'Could not load this page',
     ar: 'تعذّر تحميل هذه الصفحة',

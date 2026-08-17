@@ -48,7 +48,7 @@ function VisibleChip({ value }: { value: any }) {
       className='font-semibold'
       startContent={on ? <Check size={13} /> : <Minus size={13} />}
     >
-      {on ? t('admin.cats.visibleOnly') : t('admin.cats.hiddenOnly')}
+      {on ? t('admin.cats.isVisible') : t('admin.cats.isHidden')}
     </Chip>
   );
 }
@@ -242,9 +242,14 @@ export function CategoriesPage() {
               data={filteredCats}
               columns={nameColumns as ColumnDef<Category, any>[]}
               getRowId={(r, i) => String(r.id ?? i)}
+              selectedRowId={selectedCatId}
               // Selecting a category is what filters the list below, so the
               // whole row is the control rather than a hidden affordance.
-              onRowClick={(row) => setSelectedCatId(String(row.id))}
+              onRowClick={(row) =>
+                setSelectedCatId((prev) =>
+                  prev === String(row.id) ? null : String(row.id)
+                )
+              }
             />
           </DataState>
         </section>

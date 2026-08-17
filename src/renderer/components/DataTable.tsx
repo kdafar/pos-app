@@ -51,6 +51,12 @@ export type DataTableProps<T> = {
   getRowId?: (row: T, index: number) => string;
   /** Optional row click — ignored when the click originated on a control. */
   onRowClick?: (row: T) => void;
+  /**
+   * Marks the current row when clicking one filters something else on the page.
+   * Without it a master-detail table gives no feedback: the list below changes
+   * and nothing says which row caused it.
+   */
+  selectedRowId?: string | null;
 };
 
 export function DataTable<T>({
@@ -63,6 +69,7 @@ export function DataTable<T>({
   onPageSizeChange,
   getRowId,
   onRowClick,
+  selectedRowId = null,
 }: DataTableProps<T>) {
   const { t } = useI18n();
   const [sorting, setSorting] = useState<SortingState>(initialSorting);
@@ -180,9 +187,21 @@ export function DataTable<T>({
                     if (el.closest('button,select,input,a,label')) return;
                     onRowClick?.(row.original as T);
                   }}
+                  aria-selected={
+                    selectedRowId != null ? row.id === selectedRowId : undefined
+                  }
                   className={`border-b border-default-200 transition-colors
-                    ${i % 2 === 1 ? 'bg-default-50' : ''}
-                    hover:bg-primary-50
+                    ${
+                      row.id === selectedRowId
+                        ? // A border-inline-start marker rather than a fill: a
+                          // tinted row has to stay legible in both themes, and
+                          // a light tint on a dark table hides its own text.
+                          'bg-default-200 border-s-4 border-s-primary font-semibold'
+                        : i % 2 === 1
+                        ? 'bg-default-50'
+                        : ''
+                    }
+                    hover:bg-default-200
                     ${onRowClick ? 'cursor-pointer' : ''}`}
                 >
                   {row.getVisibleCells().map((cell) => {
