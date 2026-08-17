@@ -202,5 +202,6 @@ export const navStrings = {
   /* ---------- toast chrome ---------- */
   'toast.dismiss': { en: 'Dismiss', ar: 'إخفاء' },
   'table.rows': { en: 'Rows', ar: 'صفوف' },
+  'table.expandRow': { en: 'Show details', ar: 'عرض التفاصيل' },
   'table.pageOf': { en: 'Page {page} of {pages}', ar: 'صفحة {page} من {pages}' },
 } as const;

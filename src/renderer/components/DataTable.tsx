@@ -1,5 +1,5 @@
 // src/renderer/components/DataTable.tsx
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -10,7 +10,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import { Button, Select, SelectItem } from '@heroui/react';
-import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 /**
@@ -57,6 +57,16 @@ export type DataTableProps<T> = {
    * and nothing says which row caused it.
    */
   selectedRowId?: string | null;
+  /**
+   * Detail rendered beneath a row when it is expanded.
+   *
+   * Detail that belongs to a row belongs *under* that row: a separate page
+   * showing the same list again, so you can pick one and read its detail
+   * elsewhere, makes you hold the row in your head while you travel to it.
+   */
+  renderExpanded?: (row: T) => ReactNode;
+  /** Label for the expand control, since a caret alone says nothing. */
+  expandLabel?: string;
 };
 
 export function DataTable<T>({
@@ -70,10 +80,13 @@ export function DataTable<T>({
   getRowId,
   onRowClick,
   selectedRowId = null,
+  renderExpanded,
+  expandLabel,
 }: DataTableProps<T>) {
   const { t } = useI18n();
   const [sorting, setSorting] = useState<SortingState>(initialSorting);
   const [size, setSize] = useState(pageSize);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const table = useReactTable({
     data,
@@ -94,7 +107,7 @@ export function DataTable<T>({
   const total = data.length;
   const pageCount = table.getPageCount() || 1;
   const pageIndex = table.getState().pagination.pageIndex;
-  const colCount = table.getAllColumns().length;
+  const colCount = table.getAllColumns().length + (renderExpanded ? 1 : 0);
 
   const pageSizes = useMemo(() => [10, 25, 50, 100], []);
 
@@ -105,6 +118,9 @@ export function DataTable<T>({
         <table className='w-full table-auto border-collapse text-sm'>
           <thead className='sticky top-0 z-10 bg-default-100'>
             <tr>
+              {renderExpanded && (
+                <th className='w-10 border-b-2 border-default-300' />
+              )}
               {table.getHeaderGroups()[0]?.headers.map((header) => {
                 const canSort = header.column.getCanSort();
                 const dir = header.column.getIsSorted();
@@ -178,8 +194,8 @@ export function DataTable<T>({
 
             {!loading &&
               rows.map((row, i) => (
+                <Fragment key={row.id}>
                 <tr
-                  key={row.id}
                   onClick={(e) => {
                     // A click on a control inside a cell is that control's, not
                     // the row's — otherwise selects and buttons fight the row.
@@ -204,6 +220,29 @@ export function DataTable<T>({
                     hover:bg-default-200
                     ${onRowClick ? 'cursor-pointer' : ''}`}
                 >
+                  {renderExpanded && (
+                    <td className='ps-2 pe-0 py-3 align-middle w-10'>
+                      <button
+                        type='button'
+                        aria-expanded={expanded === row.id}
+                        aria-label={expandLabel ?? t('table.expandRow')}
+                        title={expandLabel ?? t('table.expandRow')}
+                        onClick={() =>
+                          setExpanded((prev) =>
+                            prev === row.id ? null : row.id
+                          )
+                        }
+                        className='p-1 rounded-md text-default-500 hover:text-primary hover:bg-default-200 transition-colors'
+                      >
+                        <ChevronRight
+                          size={16}
+                          className={`transition-transform rtl:-scale-x-100 ${
+                            expanded === row.id ? 'rotate-90' : ''
+                          }`}
+                        />
+                      </button>
+                    </td>
+                  )}
                   {row.getVisibleCells().map((cell) => {
                     const meta = (cell.column.columnDef.meta ?? {}) as any;
                     return (
@@ -220,7 +259,17 @@ export function DataTable<T>({
                       </td>
                     );
                   })}
-                </tr>
+                  </tr>
+                  {renderExpanded && expanded === row.id && (
+                    <tr key={row.id + ':detail'} className='border-b border-default-200'>
+                      <td colSpan={colCount} className='p-0'>
+                        <div className='bg-default-50 px-4 py-3 border-s-4 border-s-primary'>
+                          {renderExpanded(row.original as T)}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
               ))}
           </tbody>
         </table>

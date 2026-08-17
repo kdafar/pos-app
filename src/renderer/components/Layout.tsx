@@ -19,7 +19,6 @@ import {
   BarChart3,
   FolderTree,
   Package,
-  PlusCircle,
   Ticket,
   CreditCard,
   MapPin,
@@ -476,13 +475,6 @@ export function Layout() {
                 icon={Package}
                 collapsed={collapsed}
                 active={location.pathname === '/items'}
-              />
-              <NavLink
-                to='/addons'
-                text={t('nav.addons')}
-                icon={PlusCircle}
-                collapsed={collapsed}
-                active={location.pathname === '/addons'}
               />
               <NavLink
                 to='/promos'

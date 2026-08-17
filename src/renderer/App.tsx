@@ -17,7 +17,6 @@ import OrderProcessPage from './pages/pos/OrderProcessPage';
 import RecentOrdersPage from './pages/RecentOrdersPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { ItemsPage } from './pages/ItemsPage';
-import { AddonsPage } from './pages/AddonsPage';
 import PromosPage from './pages/PromosPage';
 import TablesPage from './pages/TablesPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -44,7 +43,6 @@ function App() {
           {/* Catalog */}
           <Route path="categories" element={<CategoriesPage />} />
           <Route path="items" element={<ItemsPage />} />
-          <Route path="addons" element={<AddonsPage />} />
           <Route path="promos" element={<PromosPage />} />
 
           {/* Dine-in */}

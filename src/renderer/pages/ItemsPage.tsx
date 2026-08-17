@@ -1,17 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../src/store';
-import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getPaginationRowModel,
-  flexRender,
-  ColumnDef,
-  SortingState,
-} from '@tanstack/react-table';
-import { Input, Button } from '@heroui/react';
-import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Chip } from '@heroui/react';
 import { useI18n } from '../i18n';
+import { DataTable } from '../components/DataTable';
+import {
+  DataState,
+  FilterSelect,
+  PageShell,
+  SearchField,
+} from '../components/PageShell';
+import { ItemDetailPanel } from './ItemDetailPanel';
 
 interface Item {
   id: string;
@@ -20,219 +19,214 @@ interface Item {
   barcode: string;
   price: number;
   is_outofstock: boolean;
+  has_addons?: number | boolean;
+  has_variations?: number | boolean;
+  min_variation_price?: number | null;
 }
 
 export function ItemsPage() {
-  const { items, q, actions } = useStore();
-  const { t, money, isRTL } = useI18n();
+  const { items, actions } = useStore();
+  const { t, money } = useI18n();
+
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+  const [stockFilter, setStockFilter] = useState('all');
+  const [pageSize, setPageSize] = useState(25);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      await actions.refreshItems();
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    actions.refreshItems();
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    return (items as unknown as Item[]).filter((it) => {
+      if (stockFilter !== 'all') {
+        const out = !!it.is_outofstock;
+        if (stockFilter === 'out' ? !out : out) return false;
+      }
+      if (!qq) return true;
+      return `${it.name}|${it.name_ar}|${it.barcode}`.toLowerCase().includes(qq);
+    });
+  }, [items, q, stockFilter]);
 
-  const columns = useMemo<ColumnDef<Item>[]>(() => [
-    {
-      accessorKey: 'name',
-      header: ({ column }) => (
-        <button
-          className="inline-flex items-center gap-1 font-medium"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-        >
-          {t('admin.nameEn')} <ArrowUpDown className="inline h-4 w-4 opacity-60" />
-        </button>
-      ),
-      cell: (info) => info.getValue() as string,
-    },
-    {
-      accessorKey: 'name_ar',
-      header: ({ column }) => (
-        <button
-          className="inline-flex items-center gap-1 font-medium"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-        >
-          {t('admin.nameAr')} <ArrowUpDown className="inline h-4 w-4 opacity-60" />
-        </button>
-      ),
-      cell: (info) => info.getValue() as string,
-    },
-    {
-      accessorKey: 'barcode',
-      header: () => t('admin.items.colBarcode'),
-      cell: (info) => info.getValue() as string,
-      enableSorting: false,
-    },
-    {
-      accessorKey: 'price',
-      header: ({ column }) => (
-        <button
-          className="inline-flex items-center gap-1 font-medium"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-        >
-          {t('admin.items.colPrice')} <ArrowUpDown className="inline h-4 w-4 opacity-60" />
-        </button>
-      ),
-      cell: (info) => {
-        const v = info.getValue() as number;
-        return <span className="money">{money(v)}</span>;
+  const columns = useMemo<ColumnDef<Item, any>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: () => t('admin.nameEn'),
+        size: 220,
+        cell: (info) => (
+          <span className='font-semibold'>{String(info.getValue() ?? '')}</span>
+        ),
       },
-      sortingFn: 'alphanumeric',
-    },
-    {
-      accessorKey: 'is_outofstock',
-      header: ({ column }) => (
-        <button
-          className="inline-flex items-center gap-1 font-medium"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-        >
-          {t('admin.items.colStock')} <ArrowUpDown className="inline h-4 w-4 opacity-60" />
-        </button>
-      ),
-      cell: (info) =>
-        (info.getValue() as boolean)
-          ? t('admin.items.outOfStock')
-          : t('admin.items.inStock'),
-      sortingFn: (rowA, rowB, id) => {
-        // In-stock first (false < true)
-        const a = rowA.getValue<boolean>(id) ? 1 : 0;
-        const b = rowB.getValue<boolean>(id) ? 1 : 0;
-        return a - b;
+      {
+        accessorKey: 'name_ar',
+        header: () => t('admin.nameAr'),
+        size: 200,
+        cell: (info) => String(info.getValue() ?? ''),
       },
-    },
-  ], [t, money]);
+      {
+        accessorKey: 'barcode',
+        header: () => t('admin.items.colBarcode'),
+        size: 150,
+        enableSorting: false,
+        meta: { nowrap: true },
+        cell: (info) => (
+          <span className='font-mono text-xs' dir='ltr'>
+            {String(info.getValue() ?? '') || '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'options',
+        header: () => t('pos.options'),
+        size: 150,
+        enableSorting: false,
+        meta: { nowrap: true },
+        // Which items carry sizes or add-ons is exactly what the separate
+        // Add-ons page existed to answer. As a column it answers it for every
+        // item at once, rather than one selection at a time.
+        cell: ({ row }) => {
+          const v = !!row.original.has_variations;
+          const a = !!row.original.has_addons;
+          if (!v && !a) return <span className='text-default-500'>—</span>;
+          return (
+            <div className='flex items-center gap-1'>
+              {v && (
+                <Chip
+                  size='sm'
+                  variant='flat'
+                  color='warning'
+                  className='font-semibold'
+                >
+                  {t('pos.sizes')}
+                </Chip>
+              )}
+              {a && (
+                <Chip
+                  size='sm'
+                  variant='flat'
+                  color='secondary'
+                  className='font-semibold'
+                >
+                  {t('pos.addons')}
+                </Chip>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'price',
+        header: () => t('admin.items.colPrice'),
+        size: 130,
+        meta: { align: 'end', nowrap: true },
+        cell: ({ row }) => {
+          // An item priced by its sizes has no single price of its own, so it
+          // shows the cheapest as a "from" rather than a bare 0.000 — which is
+          // what the POS grid already does, and what the customer is quoted.
+          const hasVar = !!row.original.has_variations;
+          const min = Number(row.original.min_variation_price ?? 0);
+          const base = Number(row.original.price ?? 0);
+          const show = hasVar && min > 0 ? min : base;
+          return (
+            <span className='font-semibold whitespace-nowrap'>
+              {hasVar && min > 0 && (
+                <span className='text-default-500 font-normal me-1 text-xs'>
+                  {t('pos.from')}
+                </span>
+              )}
+              <span className='money'>{money(show)}</span>
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: 'is_outofstock',
+        header: () => t('admin.items.colStock'),
+        size: 130,
+        meta: { nowrap: true },
+        cell: (info) => {
+          const out = !!info.getValue();
+          return (
+            <Chip
+              size='sm'
+              variant='flat'
+              color={out ? 'danger' : 'success'}
+              className='font-semibold'
+            >
+              {out ? t('admin.items.outOfStock') : t('admin.items.inStock')}
+            </Chip>
+          );
+        },
+        sortingFn: (a, b, id) =>
+          (a.getValue<boolean>(id) ? 1 : 0) - (b.getValue<boolean>(id) ? 1 : 0),
+      },
+    ],
+    [t, money]
+  );
 
-  const table = useReactTable({
-    data: items,
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: {
-      pagination: { pageIndex: 0, pageSize },
-    },
-  });
-
-  // keep pageSize state in sync with table
-  useEffect(() => {
-    table.setPageSize(pageSize);
-  }, [pageSize]);
+  const isFiltered = !!q || stockFilter !== 'all';
 
   return (
-    <div style={{ margin: '24px' }}>
-      {/* Toolbar */}
-      <div className="flex items-end justify-between mb-5">
-        <h3 className="text-xl font-semibold">{t('admin.items.title')}</h3>
-        <div className="flex items-center gap-3">
-          <Input
-            aria-label={t('common.search')}
-            placeholder={t('admin.items.searchPlaceholder')}
+    <PageShell
+      title={t('nav.items')}
+      count={loading ? undefined : filtered.length}
+      onRefresh={load}
+      refreshing={loading}
+      filters={
+        <>
+          <SearchField
             value={q}
-            onChange={(e) => actions.setQ(e.target.value)}
-            onKeyDown={(e) => (e.key === 'Enter') && actions.refreshItems()}
-            style={{ minWidth: 300 }}
+            onChange={setQ}
+            placeholder={t('pos.searchPlaceholder')}
           />
-          <Button onClick={() => actions.refreshItems()}>{t('common.search')}</Button>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="rounded-xl border border-default-200 overflow-hidden">
-        <table className="w-full text-start">
-          <thead className="bg-default-100">
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((h) => (
-                  <th key={h.id} className="p-3 border-b border-default-200 text-start">
-                    {h.isPlaceholder
-                      ? null
-                      : flexRender(h.column.columnDef.header, h.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length} className="p-6 text-center text-sm font-medium text-default-600">
-                  {t('admin.noData')}
-                </td>
-              </tr>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="hover:bg-default-100">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-3 border-b border-default-200 text-start">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-default-600">
-          {t('admin.pageOf', {
-            page: table.getState().pagination.pageIndex + 1,
-            pages: table.getPageCount(),
-          })}{' '}
-          • <span>{t('admin.items.count', { n: items.length })}</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-default-600">{t('admin.rowsPerPage')}</label>
-          <select
-            className="ui-field"
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-          >
-            {[10, 25, 50, 100].map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-
-          <Button
-            isIconOnly
-            onPress={() => table.setPageIndex(0)}
-            isDisabled={!table.getCanPreviousPage()}
-            aria-label={t('admin.firstPage')}
-          >
-            {isRTL ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-          </Button>
-          <Button
-            isIconOnly
-            onPress={() => table.previousPage()}
-            isDisabled={!table.getCanPreviousPage()}
-            aria-label={t('admin.prevPage')}
-          >
-            {isRTL ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </Button>
-          <Button
-            isIconOnly
-            onPress={() => table.nextPage()}
-            isDisabled={!table.getCanNextPage()}
-            aria-label={t('admin.nextPage')}
-          >
-            {isRTL ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-          </Button>
-          <Button
-            isIconOnly
-            onPress={() => table.setPageIndex(table.getPageCount() - 1)}
-            isDisabled={!table.getCanNextPage()}
-            aria-label={t('admin.lastPage')}
-          >
-            {isRTL ? <ChevronsLeft size={16} /> : <ChevronsRight size={16} />}
-          </Button>
-        </div>
-      </div>
-    </div>
+          <FilterSelect
+            label={t('admin.items.colStock')}
+            value={stockFilter}
+            onChange={setStockFilter}
+            options={[
+              { value: 'all', label: t('common.all') },
+              { value: 'in', label: t('admin.items.inStock') },
+              { value: 'out', label: t('admin.items.outOfStock') },
+            ]}
+          />
+        </>
+      }
+    >
+      <DataState
+        loading={loading}
+        empty={filtered.length === 0}
+        emptyTitle={t('pos.noItems')}
+        emptyHint={isFiltered ? t('admin.clearFiltersHint') : undefined}
+      >
+        <DataTable
+          data={filtered}
+          columns={columns}
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          initialSorting={[{ id: 'name', desc: false }]}
+          getRowId={(r, i) => String(r.id ?? i)}
+          expandLabel={t('admin.items.showOptions')}
+          renderExpanded={(row) => (
+            <ItemDetailPanel
+              itemId={String(row.id)}
+              hasVariations={!!row.has_variations}
+              hasAddons={!!row.has_addons}
+            />
+          )}
+        />
+      </DataState>
+    </PageShell>
   );
 }

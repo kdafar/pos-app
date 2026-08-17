@@ -14,6 +14,18 @@ export const adminStrings = {
   'admin.rowsPerPage': { en: 'Rows per page', ar: 'عدد الصفوف بالصفحة' },
   'admin.readOnly': { en: 'Read-only', ar: 'للعرض فقط' },
   'admin.noData': { en: 'No data', ar: 'لا توجد بيانات' },
+  'admin.items.showOptions': {
+    en: 'Show sizes and add-ons',
+    ar: 'عرض الأحجام والإضافات',
+  },
+  'admin.items.noOptions': {
+    en: 'This item has no sizes or add-ons.',
+    ar: 'لا توجد أحجام أو إضافات لهذا الصنف.',
+  },
+  'admin.items.optionsMissing': {
+    en: 'Marked as having options, but none could be loaded.',
+    ar: 'مُعلَّم بوجود خيارات، لكن لم يتم تحميل أي منها.',
+  },
   // State labels, distinct from the *filter* labels ("Visible only") — a row
   // reading "Visible only" describes the filter, not the row.
   'admin.cats.isVisible': { en: 'Visible', ar: 'ظاهر' },
