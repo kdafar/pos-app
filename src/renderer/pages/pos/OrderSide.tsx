@@ -232,8 +232,16 @@ export default function OrderSide({
 
     // ---------- NORMAL CLOSE FLOW ----------
     try {
-      // If there are items, print before closing
-      if (orderLines.length > 0) {
+      // Print only if this order has never been printed.
+      //
+      // Placing an order prints the customer's receipt. Placing no longer
+      // closes the order — staff move it through prepared/ready and close it
+      // when it is actually handed over — so closing is now a second event, and
+      // printing here unconditionally put a duplicate receipt through the
+      // printer every time a delivery came back. A receipt belongs to the sale,
+      // not to the moment the order is filed.
+      const alreadyPrinted = Number((currentOrder as any).printed_at ?? 0) > 0;
+      if (orderLines.length > 0 && !alreadyPrinted) {
         try {
           await handlePrint(currentOrder.id);
         } catch (e) {

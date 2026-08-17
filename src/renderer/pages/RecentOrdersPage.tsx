@@ -3,6 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Printer, QrCode, Eye } from 'lucide-react';
 import { Chip } from '@heroui/react';
 import { PaymentBadge } from '../components/PaymentBadge';
+import { OrderStatusCell } from './OrderStatusCell';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
 import { PaymentMethodCell } from './PaymentMethodCell';
 import { OrderDetailModal } from './OrderDetailModal';
@@ -345,6 +346,22 @@ export default function TodayOrdersReport() {
         cell: ({ row }) => <StatusBadge order={row.original} />,
         enableSorting: false,
         size: 120,
+      },
+      {
+        id: 'setStatus',
+        header: () => t('admin.orders.changeStatus'),
+        size: 170,
+        enableSorting: false,
+        meta: { nowrap: true },
+        // Read-only badge above shows where the order is; this moves it on.
+        cell: ({ row }) => (
+          <OrderStatusCell
+            orderId={String((row.original as any).id)}
+            status={row.original.status}
+            disabled={!isAdmin}
+            onChanged={refresh}
+          />
+        ),
       },
       {
         id: 'paid',

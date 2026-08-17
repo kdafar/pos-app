@@ -547,6 +547,69 @@ export function registerOrdersHandlers(
    * `none` is not "manual 0": the void flag survives a city change, whereas a
    * manual 0 would look like "no fee entered yet" to anyone reading the row.
    */
+  /**
+   * Move an order along its lifecycle.
+   *
+   * Placing an order used to jump straight to closed, which meant staff had no
+   * way to record where an order had actually reached — a delivery was "done"
+   * the moment it was rung up. These are the states between.
+   *
+   * Only forward moves are offered, and only to a state the server understands
+   * (pushStatusForLocal maps these onto RECEIVED / READY / DONE). Cancelling is
+   * deliberately not here: the push channel cannot express it — the backend's
+   * PUSHABLE_STATUSES excludes both cancelled codes and silently drops anything
+   * outside that list, so a cancel would land as RECEIVED again.
+   */
+  ipcMain.handle(
+    'orders:setStatus',
+    async (_e, orderId: string, next: string) => {
+      if (isPosLocked()) throw new Error('POS is locked');
+
+      const order = getOrderRow(orderId);
+      if (!order) throw new Error('Order not found');
+
+      const allowed = [
+        ORDER_STATUS.PLACED,
+        ORDER_STATUS.PREPARED,
+        ORDER_STATUS.READY,
+        ORDER_STATUS.CLOSED,
+      ] as string[];
+
+      const target = String(next || '').toLowerCase();
+      if (!allowed.includes(target)) {
+        throw new Error(`Cannot set order status to "${next}".`);
+      }
+
+      const current = String(order.status || '').toLowerCase();
+      if (current === target) return getOrderWithLines(orderId);
+
+      const cols = ['status = ?', 'updated_at = ?'];
+      const params: any[] = [target, nowMs()];
+
+      // Reaching a terminal state is what finishes the sale, and it is the
+      // point the server posts revenue against (DONE).
+      if (target === ORDER_STATUS.CLOSED && hasColumn('orders', 'closed_at')) {
+        cols.push('closed_at = ?');
+        params.push(nowMs());
+      }
+
+      rawDb
+        .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
+        .run(...params, orderId);
+
+      // The server has to see the new state, and the push filter skips anything
+      // already stamped as synced.
+      markForRepush(orderId);
+
+      log('orders.setStatus', orderId, { from: current, to: target });
+
+      // Deliberately no printing here. A receipt belongs to the sale, not to a
+      // status change — marking an order delivered must not put paper through
+      // the printer, least of all on a driver's return.
+      return getOrderWithLines(orderId);
+    }
+  );
+
   ipcMain.handle(
     'orders:setDeliveryFee',
     async (
@@ -1380,14 +1443,18 @@ export function registerOrdersHandlers(
       // 2) 🔹 Now recalc with the correct city_id → will set delivery_fee, discount_total, grand_total
       const totals = recalcOrderTotals(services, orderId);
 
-      // 3) 🔹 Placing finishes the sale for pickup and delivery — the customer
-      //    pays and leaves, so holding the order open just clutters the till
-      //    and risks a second cashier adding to a settled sale. Dine-in is the
-      //    exception: the table stays open until it is released.
-      //    Both states are pushed (PUSHABLE_STATUSES); close re-queues via
-      //    markForRepush so the server sees the final state.
-      const newStatus =
-        type === 3 ? ORDER_STATUS.PREPARED : ORDER_STATUS.CLOSED;
+      // 3) 🔹 Placing records the sale; it does not finish it.
+      //
+      //    This used to jump straight to CLOSED for pickup and delivery, which
+      //    pushStatusForLocal maps to the server's DONE — and DONE is what
+      //    gates revenue posting and ingredient consumption on the backend. So
+      //    a delivery was booked as completed the moment it was rung up, before
+      //    anyone had driven anywhere. It also left staff no way to say where an
+      //    order had actually got to.
+      //
+      //    PLACED maps to RECEIVED. Staff move it on from there — preparing,
+      //    ready, then delivered/collected, which is what finally closes it.
+      const newStatus = ORDER_STATUS.PLACED;
 
       const cols = [
         'status = ?',
