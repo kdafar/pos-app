@@ -4,6 +4,8 @@ import axios from 'axios';
 import QRCode from 'qrcode';
 import db, { getMeta } from '../db';
 import { loadSecret } from '../secureStore';
+import { isTerminalServerStatus } from '../utils/serverStatus';
+import { isTerminal } from '../utils/orderStatus';
 
 type PaymentLinkArgs = {
   external_order_id: string;
@@ -173,15 +175,18 @@ export function registerPaymentHandlers(ipcMain: IpcMain) {
 
       const method = db
         .prepare(
-          `SELECT id, slug, name_en, name_ar FROM payment_methods WHERE id = ?`
+        `SELECT id, slug, name_en, name_ar, is_online, supports_payment_link FROM payment_methods WHERE id = ?`
         )
         .get(String(methodId)) as any;
       if (!method) throw new Error('Unknown payment method');
 
       const order = db
-        .prepare(`SELECT id, status FROM orders WHERE id = ?`)
+        .prepare(`SELECT id, status, status_code FROM orders WHERE id = ?`)
         .get(id) as any;
       if (!order) throw new Error('Order not found');
+      if (isTerminal(order.status) || isTerminalServerStatus(order.status_code)) {
+        throw new Error('Completed orders cannot change their payment method');
+      }
 
       db.prepare(
         `UPDATE orders
@@ -197,7 +202,35 @@ export function registerPaymentHandlers(ipcMain: IpcMain) {
         to: method.slug,
       });
 
-      return { ok: true, slug: method.slug, name_en: method.name_en };
+      return {
+        ok: true,
+        slug: method.slug,
+        name_en: method.name_en,
+        is_online: Boolean(method.is_online),
+        supports_payment_link: Boolean(method.supports_payment_link),
+      };
+    }
+  );
+
+  ipcMain.handle(
+    'orders:setCustomerMobile',
+    async (_e, orderId: string, mobile: string) => {
+      const id = String(orderId ?? '').trim();
+      const normalized = String(mobile ?? '').replace(/\D/g, '');
+      if (normalized.length < 8 || normalized.length > 15) {
+        throw new Error('Enter a valid customer mobile number');
+      }
+      const order = db
+        .prepare('SELECT status, status_code FROM orders WHERE id = ?')
+        .get(id) as any;
+      if (!order) throw new Error('Order not found');
+      if (isTerminal(order.status) || isTerminalServerStatus(order.status_code)) {
+        throw new Error('Completed orders cannot be changed');
+      }
+      db.prepare(
+        'UPDATE orders SET mobile = ?, updated_at = ?, synced_at = NULL WHERE id = ?'
+      ).run(normalized, Date.now(), id);
+      return { ok: true, mobile: normalized };
     }
   );
 
@@ -224,7 +257,8 @@ export function registerPaymentHandlers(ipcMain: IpcMain) {
     return db
       .prepare(
         `
-        SELECT id, slug, name_en, name_ar, legacy_code, is_active
+        SELECT id, slug, name_en, name_ar, legacy_code, is_active,
+               is_online, supports_payment_link
         FROM payment_methods
         WHERE is_active = 1
         ORDER BY legacy_code ASC

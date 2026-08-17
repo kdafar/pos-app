@@ -421,6 +421,23 @@ export const adminStrings = {
   'admin.orders.changePayment': { en: 'Change payment method', ar: 'تغيير طريقة الدفع' },
   'admin.orders.showQr': { en: 'Show payment QR', ar: 'عرض رمز الدفع' },
   'admin.orders.noPayLink': { en: 'No payment link', ar: 'لا يوجد رابط دفع' },
+  'admin.orders.sendPayLink': { en: 'Send payment link', ar: 'إرسال رابط الدفع' },
+  'admin.orders.sendPayLinkHelp': {
+    en: 'Confirm the customer mobile. MyFatoorah will send SMS and WhatsApp will also send when connected.',
+    ar: 'أكد رقم العميل. سترسل ماي فاتورة رسالة نصية وسيتم الإرسال عبر واتساب أيضاً عند اتصاله.',
+  },
+  'admin.orders.mobileInvalid': {
+    en: 'Enter a valid customer mobile number.',
+    ar: 'أدخل رقم هاتف صحيحاً للعميل.',
+  },
+  'admin.orders.payLinkSent': {
+    en: 'Payment link created',
+    ar: 'تم إنشاء رابط الدفع',
+  },
+  'admin.orders.payLinkDelivery': {
+    en: 'SMS sent: {sms}. WhatsApp sent: {whatsapp}.',
+    ar: 'تم إرسال SMS: {sms}. تم إرسال واتساب: {whatsapp}.',
+  },
   'admin.orders.noPayLinkMsg': {
     en: 'This order was not paid by link, so there is no QR to show.',
     ar: 'لم يتم الدفع لهذا الطلب عبر رابط، لذلك لا يوجد رمز للعرض.',

@@ -269,6 +269,8 @@ function normPayMethod(pm: any) {
     name_ar: S(pm.name_ar) ?? '',
     legacy_code: S(pm.legacy_code) ?? null, // TEXT in schema; keep as string
     is_active: B(pm.is_active),
+    is_online: B(pm.is_online),
+    supports_payment_link: B(pm.supports_payment_link),
     sort_order: N(pm.sort_order),
     updated_at: S(pm.updated_at),
   };
@@ -781,14 +783,16 @@ export async function bootstrap(baseUrl: string) {
 
     // payment methods
     const upPM = db.prepare(`
-      INSERT INTO payment_methods (id,slug,name_en,name_ar,legacy_code,is_active,sort_order,updated_at)
-      VALUES (@id,@slug,@name_en,@name_ar,@legacy_code,@is_active,@sort_order,@updated_at)
+      INSERT INTO payment_methods (id,slug,name_en,name_ar,legacy_code,is_active,is_online,supports_payment_link,sort_order,updated_at)
+      VALUES (@id,@slug,@name_en,@name_ar,@legacy_code,@is_active,@is_online,@supports_payment_link,@sort_order,@updated_at)
       ON CONFLICT(id) DO UPDATE SET
         slug=excluded.slug,
         name_en=excluded.name_en,
         name_ar=excluded.name_ar,
         legacy_code=excluded.legacy_code,
         is_active=excluded.is_active,
+        is_online=excluded.is_online,
+        supports_payment_link=excluded.supports_payment_link,
         sort_order=excluded.sort_order,
         updated_at=excluded.updated_at
     `);

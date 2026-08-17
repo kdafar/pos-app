@@ -24,6 +24,8 @@ const coreStrings = {
   'common.all': { en: 'All', ar: 'الكل' },
   'common.add': { en: 'Add', ar: 'إضافة' },
   'common.cancel': { en: 'Cancel', ar: 'إلغاء' },
+  'common.yes': { en: 'Yes', ar: 'نعم' },
+  'common.no': { en: 'No', ar: 'لا' },
   'common.close': { en: 'Close', ar: 'إغلاق' },
   'common.save': { en: 'Save', ar: 'حفظ' },
   'common.remove': { en: 'Remove', ar: 'حذف' },

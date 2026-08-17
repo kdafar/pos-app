@@ -357,6 +357,12 @@ export function migrate() {
   ensureColumn('items', 'has_addons INTEGER DEFAULT 0', 'has_addons');
 
   ensureColumn('payment_methods', 'updated_at TEXT', 'updated_at');
+  ensureColumn('payment_methods', 'is_online INTEGER DEFAULT 0', 'is_online');
+  ensureColumn(
+    'payment_methods',
+    'supports_payment_link INTEGER DEFAULT 0',
+    'supports_payment_link'
+  );
 
   ensureColumn('tables', 'updated_at TEXT', 'updated_at');
 

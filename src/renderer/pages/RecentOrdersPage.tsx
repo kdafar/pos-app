@@ -467,11 +467,37 @@ export default function TodayOrdersReport() {
         enableSorting: false,
         size: 105,
         cell: ({ row }) =>
-          isAdmin && row.original.id ? (
+          row.original.id &&
+          !['closed', 'completed', 'cancelled'].includes(
+            String(row.original.status ?? '').toLowerCase()
+          ) &&
+          ![4, 5, 6, 8, 9].includes(Number(row.original.status_code)) ? (
             <PaymentMethodCell
               orderId={String(row.original.id)}
               slug={(row.original as any).payment_method_slug}
+              mobile={row.original.mobile}
+              amount={Number(row.original.grand_total ?? 0)}
+              orderNumber={row.original.reference_no || row.original.number}
               onChanged={refresh}
+              onPaymentLink={({ url, mobile, delivery }) => {
+                toast({
+                  tone: 'success',
+                  title: t('admin.orders.payLinkSent'),
+                  message: t('admin.orders.payLinkDelivery', {
+                    sms: delivery?.sms?.sent ? t('common.yes') : t('common.no'),
+                    whatsapp: delivery?.whatsapp?.sent
+                      ? t('common.yes')
+                      : t('common.no'),
+                  }),
+                });
+                setQrOrder({
+                  url,
+                  mobile,
+                  amount: Number(row.original.grand_total ?? 0),
+                  label: row.original.reference_no || row.original.number,
+                  orderId: String(row.original.id),
+                });
+              }}
             />
           ) : (
             <span className='text-default-700'>

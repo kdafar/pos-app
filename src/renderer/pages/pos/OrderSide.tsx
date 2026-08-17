@@ -160,10 +160,15 @@ export default function OrderSide({
   const handlePrint = async (orderId: string) => {
     try {
       await window.api.invoke('orders:print', orderId);
-    } catch {
-      try {
-        await window.api.invoke('orders:markPrinted', orderId);
-      } catch {}
+    } catch (e: any) {
+      // A failed print must remain retryable. Previously we stamped printed_at
+      // here, which hid the retry and made a printer failure look successful.
+      toast({
+        tone: 'danger',
+        title: t('admin.orders.printFailed'),
+        message: e?.message || t('common.checkLogs'),
+      });
+      throw e;
     }
   };
 
@@ -646,6 +651,11 @@ export default function OrderSide({
               try {
                 await onReloadActiveOrders();
               } catch {}
+
+              // `placed` remains an active lifecycle status, so the refresh
+              // above may keep it selected. Checkout is finished regardless
+              // of whether printing succeeded; explicitly clear the cart view.
+              await onSelectOrder('');
 
               try {
                 await onRefreshTables();
