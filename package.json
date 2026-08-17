@@ -1,7 +1,7 @@
 {
   "name": "pos-app",
   "productName": "POS App",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "POS App",
   "private": true,
   "main": "out/main/index.js",
