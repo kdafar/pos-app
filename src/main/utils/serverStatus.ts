@@ -91,11 +91,26 @@ export function pushStatusForLocal(localStatus: string): number {
   switch (String(localStatus || '').toLowerCase()) {
     case 'closed':
     case 'completed':
-      return SERVER_STATUS.DONE; // 4
-    case 'prepared':
+      return SERVER_STATUS.DONE; // 4 — the status revenue posts against
+
     case 'ready':
-      return SERVER_STATUS.READY; // 3
+      return SERVER_STATUS.READY; // 3 — "assigned to driver" / "waiting for pickup"
+
+    case 'prepared':
+      // Was reported as READY, which the dashboard shows as ready to collect or
+      // already with a driver. An order still being made is PREPARING; sending
+      // 3 told the customer their food was on its way while it was on the pass.
+      return SERVER_STATUS.PREPARING; // 2
+
+    case 'cancelled':
+      // Never reachable through the push channel — the backend's pushable list
+      // excludes both cancelled codes and silently drops anything outside it,
+      // so this would land as RECEIVED. Mapped for completeness only; the till
+      // does not offer cancelling for exactly this reason.
+      return SERVER_STATUS.CANCELLED_ADMIN; // 6
+
     default:
+      // open / pending / placed — the sale exists, nothing has happened to it.
       return SERVER_STATUS.RECEIVED; // 1
   }
 }
