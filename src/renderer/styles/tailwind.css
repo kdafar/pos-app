@@ -124,10 +124,32 @@
      here instead; the rail only scrolls on short screens anyway. */
   .rail-scroll {
     scrollbar-gutter: auto;
+    scrollbar-width: none; /* Firefox: no reserved track at all */
   }
 
   .rail-scroll::-webkit-scrollbar {
-    width: 4px;
+    width: 3px;
+  }
+
+  /* .nice-scroll's thumb carries a 2px transparent border with
+     background-clip: padding-box, which is sized for a 7px bar. At 3px that
+     border consumes the entire thumb and leaves a track with nothing in it —
+     so the border has to go, not just the width. */
+  .rail-scroll::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: transparent;
+  }
+
+  /* Idle, the rail shows no scrollbar at all; it appears under the pointer.
+     A permanent bar next to a 40px icon reads as clutter, and the rail only
+     overflows on short screens. */
+  .rail-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.5);
+  }
+
+  .dark .rail-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.35);
   }
 }
 
