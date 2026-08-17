@@ -88,21 +88,33 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
           {() => (
             <>
               <ModalHeader className='flex items-center gap-3'>
-                <span className='inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-500'>
-                  <Icon className='w-4 h-4' />
+                {/* Tone follows the action: a delete confirm should not wear
+                    the same colour as "are you sure you want to continue".
+                    bg-danger/15 was a light-theme tint that rendered as a white
+                    disc on the dark theme. */}
+                <span
+                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full
+                    ${
+                      confirmColor === 'danger'
+                        ? 'bg-danger/15 text-danger'
+                        : confirmColor === 'success'
+                        ? 'bg-success/15 text-success'
+                        : 'bg-primary/15 text-primary'
+                    }`}
+                >
+                  <Icon className='w-5 h-5' />
                 </span>
-                <span className='text-sm font-semibold'>
+                <span className='text-base font-bold text-foreground'>
                   {options.title ?? t('confirm.title')}
                 </span>
               </ModalHeader>
-              <ModalBody className='text-sm text-slate-700'>
+              <ModalBody className='text-sm font-medium text-foreground'>
                 {options.message ?? t('confirm.message')}
               </ModalBody>
               <ModalFooter className='flex justify-end gap-2'>
                 {!options.hideCancel && (
                   <Button
-                    variant='light'
-                    size='sm'
+                    variant='flat'
                     onPress={() => handleClose(false)}
                   >
                     {options.cancelLabel ?? t('common.cancel')}
@@ -110,7 +122,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                 )}
                 <Button
                   color={confirmColor}
-                  size='sm'
+                  className='font-semibold'
                   onPress={() => handleClose(true)}
                 >
                   {options.confirmLabel ?? t('confirm.ok')}

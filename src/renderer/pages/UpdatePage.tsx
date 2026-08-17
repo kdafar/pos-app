@@ -32,10 +32,10 @@ const TONE_RING: Record<Tone, string> = {
 
 const TONE_ICON: Record<Tone, string> = {
   neutral: 'bg-muted text-muted-foreground',
-  info: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
-  success: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-  warning: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-  danger: 'bg-red-500/15 text-red-600 dark:text-red-400',
+  info: 'bg-primary/15 text-primary',
+  success: 'bg-success/15 text-success',
+  warning: 'bg-warning/15 text-warning',
+  danger: 'bg-danger/15 text-danger',
 };
 
 function formatBytes(n: number): string {

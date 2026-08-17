@@ -72,24 +72,24 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     switch (tone) {
       case 'success':
         return {
-          icon: <CheckCircle2 className='w-4 h-4 text-emerald-500' />,
-          badge: 'bg-emerald-50 text-emerald-700',
+          icon: <CheckCircle2 className='w-4 h-4' />,
+          badge: 'bg-success/15 text-success',
         };
       case 'warning':
         return {
-          icon: <AlertTriangle className='w-4 h-4 text-amber-500' />,
-          badge: 'bg-amber-50 text-amber-700',
+          icon: <AlertTriangle className='w-4 h-4' />,
+          badge: 'bg-warning/15 text-warning',
         };
       case 'danger':
         return {
-          icon: <AlertCircle className='w-4 h-4 text-red-500' />,
-          badge: 'bg-red-50 text-red-700',
+          icon: <AlertCircle className='w-4 h-4' />,
+          badge: 'bg-danger/15 text-danger',
         };
       case 'info':
       default:
         return {
-          icon: <Info className='w-4 h-4 text-sky-500' />,
-          badge: 'bg-sky-50 text-sky-700',
+          icon: <Info className='w-4 h-4' />,
+          badge: 'bg-primary/15 text-primary',
         };
     }
   };
@@ -106,7 +106,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           return (
             <Card
               key={toast.id}
-              className='pointer-events-auto w-80 shadow-xl border border-slate-200 bg-white/95 backdrop-blur-sm'
+              className='pointer-events-auto w-80 shadow-xl border border-default-200 bg-content1'
             >
               <div className='flex items-start gap-3 px-3 py-2.5'>
                 <div
@@ -116,12 +116,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 </div>
                 <div className='flex-1 min-w-0'>
                   {toast.title && (
-                    <div className='text-xs font-semibold text-slate-900 truncate'>
+                    <div className='text-sm font-bold text-foreground truncate'>
                       {toast.title}
                     </div>
                   )}
                   {toast.message && (
-                    <div className='mt-0.5 text-[11px] text-slate-700 break-words'>
+                    <div className='mt-0.5 text-xs font-medium text-default-700 break-words'>
                       {toast.message}
                     </div>
                   )}
@@ -135,7 +135,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   aria-label={t('toast.dismiss')}
                   onPress={() => remove(toast.id)}
                 >
-                  <X className='w-3 h-3 text-slate-500' />
+                  <X className='w-4 h-4 text-default-700' />
                 </Button>
               </div>
             </Card>

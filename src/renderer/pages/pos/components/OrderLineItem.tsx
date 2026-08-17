@@ -27,7 +27,7 @@ type OrderLineWithExtras = OrderLine & {
  * the price all resolve themselves in either theme from a single definition.
  * The previous version branched on `theme === 'dark'` for the variation pill,
  * the addon pills, the name and the line total — four places where the light
- * branch (`bg-sky-50`, `text-blue-700`) rendered near-invisibly whenever the
+ * branch (`bg-primary/15`, `text-primary`) rendered near-invisibly whenever the
  * dark theme was actually on.
  *
  * Sizes come from the fluid POS scale rather than fixed 11px: this is read at

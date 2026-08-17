@@ -20,7 +20,7 @@ import { useI18n } from '../../../i18n';
  * scale so both themes get correct contrast from one definition. The previous
  * version carried six hand-mixed emerald/amber/rose tints behind a
  * `theme === 'dark'` branch, which meant every status had two chances to be
- * wrong and the light variants (`bg-emerald-50`, `bg-rose-100`) were unreadable
+ * wrong and the light variants (`bg-success/15`, `bg-rose-100`) were unreadable
  * whenever the dark theme actually rendered them.
  */
 const STATUS_COLOR: Record<TableStatus, 'success' | 'warning' | 'danger'> = {

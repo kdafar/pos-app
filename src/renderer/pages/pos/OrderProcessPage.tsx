@@ -522,7 +522,7 @@ export default function OrderProcessPage() {
   };
 
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-  const headerBg = theme === 'dark' ? 'bg-slate-900/95' : 'bg-white';
+  const headerBg = theme === 'dark' ? 'bg-slate-900/95' : 'bg-content1';
   const border = 'border-default-100';
 
   return (
@@ -575,22 +575,18 @@ export default function OrderProcessPage() {
               ))}
             </div>
 
-            <div className='shrink-0 flex items-center gap-2 ps-2 border-s border-gray-200 dark:border-white/10'>
+            <div className='shrink-0 flex items-center gap-2 ps-2 border-s border-default-200 dark:border-white/10'>
 
               <button
                 onClick={() => createNewOrder(2)}
-                className={`h-9 px-4 rounded-md text-xs font-bold transition flex items-center gap-2 shadow-sm ${
-                  theme === 'dark'
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                }`}
+                className='h-9 px-4 rounded-md text-xs font-bold transition flex items-center gap-2 shadow-sm bg-success text-success-foreground hover:opacity-90'
               >
                 <Plus size={16} strokeWidth={3} />
                 <span>{t('pos.new')}</span>
               </button>
 
               {currentOrder && (
-                <div className='w-[1px] h-6 bg-gray-300 dark:bg-white/20 mx-1' />
+                <div className='w-px h-6 bg-default-200 mx-1' />
               )}
 
               {currentOrder && (

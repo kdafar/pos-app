@@ -10,7 +10,7 @@ import * as Popover from '@radix-ui/react-popover';
  * The popover behaviour is cmdk + Radix and is deliberately left alone; only
  * the colours moved. Every one of them is now a HeroUI semantic token, so the
  * control reads correctly in both themes from one definition — the previous
- * `theme === 'dark' ? … : …` pairs meant a light-only `text-gray-900` was
+ * `theme === 'dark' ? … : …` pairs meant a light-only `text-foreground` was
  * rendered whenever the caller's theme prop drifted from the real one.
  */
 export function CommandSelect({

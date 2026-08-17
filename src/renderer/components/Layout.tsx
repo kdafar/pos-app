@@ -279,8 +279,7 @@ export function Layout() {
               className={`
               flex items-center gap-2.5 overflow-hidden
               rounded-xl px-2.5 py-1.5
-              bg-white/80 shadow-sm border border-slate-200
-              dark:bg-slate-900/80 dark:border-slate-800
+              bg-content1 shadow-sm border border-default-200
               flex-1
             `}
             >
@@ -335,8 +334,8 @@ export function Layout() {
         {!collapsed && (
           <section
             className='
-              rounded-xl border bg-white/90 px-2.5 py-2 text-[11px] shadow-sm
-              dark:bg-slate-900/80 dark:border-slate-800
+              rounded-xl border bg-content1 px-2.5 py-2 text-[11px] shadow-sm
+              dark:bg-slate-900/80 dark:border-default-200
             '
             title={sync?.base_url || ''}
           >
@@ -421,8 +420,8 @@ export function Layout() {
                 onClick={() => navigate('/settings')}
                 className='
                   mt-2 flex h-6 w-full items-center justify-center gap-1.5 rounded-md border
-                  border-amber-500/40 bg-amber-500/10 px-2 text-[10px] font-medium
-                  text-amber-900 hover:bg-amber-500/20 dark:text-amber-200
+                  border-warning/40 bg-warning/15 px-2 text-[10px] font-semibold
+                  text-warning hover:bg-warning/25
                 '
               >
                 <AlertTriangle size={11} />
@@ -528,7 +527,7 @@ export function Layout() {
         </nav>
 
         {/* Footer / Language + Logout */}
-        <div className='mt-1 pt-1.5 border-t border-slate-200 dark:border-slate-800'>
+        <div className='mt-1 pt-1.5 border-t border-default-200 dark:border-default-200'>
           {/* Language lives in the sidebar so it is reachable from every
               screen, not just the order screen. */}
           <div className={collapsed ? 'pb-1' : ''}>
@@ -542,8 +541,8 @@ export function Layout() {
               onClick={() => navigate('/updates')}
               className='
                 mb-1 flex h-7 w-full items-center justify-center gap-1.5 rounded-md border
-                border-emerald-500/40 bg-emerald-500/10 px-2 text-[10px] font-medium
-                text-emerald-900 hover:bg-emerald-500/20 dark:text-emerald-200
+                border-success/40 bg-success/15 px-2 text-[10px] font-semibold
+                text-success hover:bg-success/25
               '
             >
               <Rocket size={11} />
@@ -619,7 +618,7 @@ function NavLink({
   const baseClasses =
     'group relative flex items-center rounded-xl text-sm font-medium transition-colors duration-200';
   const activeClasses =
-    'bg-slate-900 text-slate-50 shadow-sm dark:bg-slate-100 dark:text-slate-900';
+    'bg-slate-900 text-slate-50 shadow-sm dark:bg-slate-100 dark:text-foreground';
   const inactiveClasses =
     'text-muted-foreground hover:text-foreground hover:bg-slate-100/80 dark:hover:bg-slate-800/80';
   // Collapsed rows are square and centred so the icons form a straight column.

@@ -28,23 +28,23 @@ export function BrandHeader({
         <img
           src={logoUrl}
           alt={title}
-          className='h-10 w-10 rounded-xl border border-slate-200 bg-white shadow-sm object-contain'
+          className='h-10 w-10 rounded-xl border border-default-200 bg-content1 shadow-sm object-contain'
           draggable={false}
         />
         <div className={`${align === 'center' ? 'hidden' : 'block'}`}>
-          <h1 className='text-xl font-semibold tracking-tight text-slate-900'>
+          <h1 className='text-xl font-semibold tracking-tight text-foreground'>
             {title}
           </h1>
-          <p className='text-xs text-slate-500'>{sub}</p>
+          <p className='text-xs text-default-700'>{sub}</p>
         </div>
       </div>
 
       {align === 'center' && (
         <>
-          <h1 className='text-2xl font-semibold tracking-tight text-slate-900'>
+          <h1 className='text-2xl font-semibold tracking-tight text-foreground'>
             {title}
           </h1>
-          <p className='text-xs text-slate-500 max-w-sm'>{sub}</p>
+          <p className='text-xs text-default-700 max-w-sm'>{sub}</p>
         </>
       )}
     </div>

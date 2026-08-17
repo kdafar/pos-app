@@ -192,7 +192,7 @@ export function PaymentLinkModal({
               <img
                 src={qr}
                 alt={t('pay.qrAlt')}
-                className='h-56 w-56 rounded-lg bg-white p-2'
+                className='h-56 w-56 rounded-lg bg-content1 p-2'
               />
             ) : qrError ? (
               <div className='flex h-56 w-56 flex-col items-center justify-center gap-2 rounded-lg border border-default-200 bg-default-100 px-3 text-center'>

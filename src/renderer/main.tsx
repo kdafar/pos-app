@@ -39,7 +39,7 @@ async function initTheme() {
         ? 'dark'
         : 'light';
     document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.body.classList.toggle('bg-white', theme === 'light');
+    document.body.classList.toggle('bg-content1', theme === 'light');
   } catch (e) {
     console.error('Failed to init theme:', e);
   }

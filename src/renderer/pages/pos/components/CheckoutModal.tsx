@@ -432,10 +432,15 @@ export function CheckoutModal({
         // the fields room on a normal till without running the width on 4K.
         // nice-scroll replaces the default chunky bar, matching every other
         // scroller in the app.
-        className={`${bg} border ${border} rounded-xl w-full max-w-[64rem] max-h-[92vh] overflow-y-auto nice-scroll`}
+        // A column, not a scrolling block. Previously the whole modal scrolled,
+        // which pushed Place Order below the fold on any order with a few
+        // payment methods — so the one action the cashier always needs was the
+        // one thing they had to go looking for. Only the fields scroll now;
+        // the totals and the buttons are pinned.
+        className={`${bg} border ${border} rounded-xl w-full max-w-[64rem] max-h-[92vh] flex flex-col overflow-hidden`}
       >
         <div
-          className={`sticky top-0 ${bg} border-b ${border} p-4 flex items-center justify-between`}
+          className={`shrink-0 ${bg} border-b ${border} p-4 flex items-center justify-between`}
         >
           <h2 className={`text-xl font-bold ${text}`}>{t('checkout.title')}</h2>
           <div className='flex items-center gap-2'>
@@ -481,6 +486,7 @@ export function CheckoutModal({
         </div>
 
         <form
+          className='flex flex-col min-h-0 flex-1'
           onSubmit={submit}
           // Enter inside any field used to implicitly submit the form, which
           // placed the order while the cashier was still filling in customer
@@ -494,8 +500,9 @@ export function CheckoutModal({
             if (tag === 'TEXTAREA' || tag === 'BUTTON') return;
             e.preventDefault();
           }}
-          className='p-4 pt-4 pb-6 space-y-3'
         >
+          {/* Only this region scrolls. */}
+          <div className='flex-1 min-h-0 overflow-y-auto nice-scroll p-4 space-y-3'>
           {/* Customer lookup */}
           <div
             className='p-3 rounded-lg border border-primary/40 bg-primary/10'
@@ -761,6 +768,13 @@ export function CheckoutModal({
             </div>
           </div>
 
+          </div>
+
+          {/*
+            Pinned footer. Totals and the two actions stay on screen whatever
+            the form's height, so Place Order is never something to scroll for.
+          */}
+          <div className={`shrink-0 border-t ${border} p-4 space-y-3 ${bg}`}>
           {/* Summary (uses live displayDeliveryFee) */}
           <div
             className={`p-3 rounded-lg border ${
@@ -835,6 +849,7 @@ export function CheckoutModal({
             >
               {t('cart.placeOrder')}
             </button>
+          </div>
           </div>
         </form>
       </div>

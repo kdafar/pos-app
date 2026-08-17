@@ -44,7 +44,7 @@ type GroupWithAddons = AddonGroup & { addons: Addon[] };
 /**
  * A tile in this modal is either chosen or not, and a cashier has to tell which
  * at a glance mid-order. So the chosen state is the primary token — a real
- * border plus a tint of the same hue — and never a hand-mixed `bg-blue-50`,
+ * border plus a tint of the same hue — and never a hand-mixed `bg-primary/15`,
  * which is invisible on the dark theme.
  */
 const TILE_BASE =

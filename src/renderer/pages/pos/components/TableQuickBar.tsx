@@ -30,14 +30,14 @@ export function TableQuickBar({
     if (t.status === 'available') {
       return theme === 'dark'
         ? 'bg-emerald-600/20 text-emerald-200 border-emerald-500/60'
-        : 'bg-emerald-100 text-emerald-700 border-emerald-300';
+        : 'bg-emerald-100 text-success border-emerald-300';
     }
     if (t.status === 'reserved') {
       return 'bg-amber-600/20 text-warning border-amber-500/60';
     }
     return theme === 'dark'
       ? 'bg-rose-600/20 text-rose-200 border-rose-500/60'
-      : 'bg-rose-100 text-rose-700 border-rose-300';
+      : 'bg-rose-100 text-danger border-rose-300';
   };
 
   return (

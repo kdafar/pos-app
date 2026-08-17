@@ -109,7 +109,7 @@ export function DeliveryFeeRow({
             onClick={save}
             disabled={busy}
             title={t('common.save')}
-            className={`${btn} text-emerald-600 dark:text-emerald-300`}
+            className={`${btn} text-success dark:text-emerald-300`}
           >
             <Check size={15} />
           </button>

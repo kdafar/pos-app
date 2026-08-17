@@ -214,7 +214,7 @@ export default function TodayOrdersReport() {
 
   // ---- tiny UI helpers so all fields/buttons look identical (dark & light) ----
   const fieldCls =
-    'h-10 px-3 rounded-lg bg-default-100 dark:bg-white/5 border border-default-200 ' +
+    'h-10 px-3 rounded-lg bg-default-100 border border-default-200 ' +
     'text-sm outline-none focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
   const btnCls =
     'h-10 px-3 rounded-lg border border-default-200 text-sm hover:bg-default-200 transition ' +
