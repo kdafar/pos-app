@@ -1304,6 +1304,47 @@ export async function pullChanges() {
              number=excluded.number, capacity=excluded.capacity,
              is_available=excluded.is_available, updated_at=excluded.updated_at`
         ).run(normTable(c.data));
+      } else if (
+        tbl === 'setting' ||
+        tbl === 'settings' ||
+        tbl === 'app_setting' ||
+        tbl === 'app_settings' ||
+        tbl === 'about_us' ||
+        tbl === 'branding'
+      ) {
+        // Settings were written by bootstrap() and by nothing else, so a change
+        // to one never reached a till that had already bootstrapped — it fell
+        // through this chain into "unhandled" and was dropped. That is why an
+        // operator logo uploaded after a till was set up never appeared on its
+        // receipts: the URL lived in app_settings and only a full re-bootstrap
+        // would fetch it.
+        if (op === 'delete') {
+          if (c.pk != null) {
+            db.prepare('DELETE FROM app_settings WHERE key = ?').run(S(c.pk));
+          }
+        } else if (c.data) {
+          // The feed has sent these as a single {key,value} and as a bag of
+          // key/value pairs, depending on the source table.
+          const rows =
+            c.data.key != null
+              ? [c.data]
+              : Object.entries(c.data).map(([key, value]) => ({ key, value }));
+          const upSet = db.prepare(`
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+              value = excluded.value,
+              updated_at = excluded.updated_at
+          `);
+          for (const r of rows) {
+            if (r?.key == null) continue;
+            upSet.run(
+              String(r.key),
+              r.value == null ? '' : String(r.value),
+              r.updated_at ? String(r.updated_at) : String(Date.now())
+            );
+          }
+        }
       } else if (tbl === 'payment_method' || tbl === 'payment_methods') {
         if (op === 'delete') delBy('payment_methods', c.pk);
       } else if (tbl === 'state' || tbl === 'states') {
