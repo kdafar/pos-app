@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Printer, QrCode, Eye } from 'lucide-react';
 import { Chip } from '@heroui/react';
+import { PaymentBadge } from '../components/PaymentBadge';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
 import { PaymentMethodCell } from './PaymentMethodCell';
 import { OrderDetailModal } from './OrderDetailModal';
@@ -351,6 +352,17 @@ export default function TodayOrdersReport() {
         cell: ({ row }) => <StatusBadge order={row.original} />,
         enableSorting: false,
         size: 120,
+      },
+      {
+        id: 'paid',
+        header: () => t('admin.orders.paid'),
+        size: 150,
+        enableSorting: false,
+        meta: { nowrap: true },
+        // The till creates payment links and then never surfaced the outcome,
+        // so a cashier handing over food had no way to tell whether the
+        // customer had actually paid.
+        cell: ({ row }) => <PaymentBadge order={row.original as any} />,
       },
       {
         accessorKey: 'order_type',

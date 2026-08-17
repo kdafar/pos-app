@@ -14,6 +14,7 @@ export const adminStrings = {
   'admin.rowsPerPage': { en: 'Rows per page', ar: 'عدد الصفوف بالصفحة' },
   'admin.readOnly': { en: 'Read-only', ar: 'للعرض فقط' },
   'admin.noData': { en: 'No data', ar: 'لا توجد بيانات' },
+  'admin.orders.paid': { en: 'Payment', ar: 'الدفع' },
   'admin.items.showOptions': {
     en: 'Show sizes and add-ons',
     ar: 'عرض الأحجام والإضافات',
@@ -440,4 +441,16 @@ export const adminStrings = {
   'admin.act.print': { en: 'Receipt printed', ar: 'تمت طباعة الفاتورة' },
   'admin.act.paylink_create': { en: 'Payment link created', ar: 'تم إنشاء رابط الدفع' },
   'admin.act.paylink_status': { en: 'Payment status checked', ar: 'تم التحقق من حالة الدفع' },
+
+  /* ---------- Settings (read-only diagnostics) ---------- */
+  'admin.settings.copyValue': { en: 'Copy value', ar: 'نسخ القيمة' },
+  'admin.settings.copied': { en: 'Copied', ar: 'تم النسخ' },
+  'admin.settings.secretHidden': {
+    en: 'Sensitive value — masked and cannot be copied.',
+    ar: 'قيمة حساسة — مخفية ولا يمكن نسخها.',
+  },
+  'admin.settings.partialLoad': {
+    en: 'Some settings could not be loaded',
+    ar: 'تعذّر تحميل بعض الإعدادات',
+  },
 } as const;

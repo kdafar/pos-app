@@ -1,6 +1,16 @@
 // components/PaymentLinkModal.tsx
-import { useEffect, useState } from 'react';
-import { X, Copy, Check, MessageCircle, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Button,
+  Chip,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  Spinner,
+} from '@heroui/react';
+import { AlertCircle, Check, Copy, MessageCircle, RefreshCw } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 
 /**
@@ -15,9 +25,12 @@ import { useI18n } from '../../../i18n';
  *   1. QR on screen — the customer scans it. No typing, no data needed from them.
  *   2. WhatsApp — the dominant channel in Kuwait; needs their mobile.
  *   3. Copy — for anything else.
+ *
+ * The QR keeps its white plate on purpose: a scanner needs the light quiet zone
+ * regardless of which theme the till is running. Everything around it is a
+ * semantic token, so the panel is legible in both.
  */
 export function PaymentLinkModal({
-  theme,
   url,
   amount,
   mobile,
@@ -25,7 +38,12 @@ export function PaymentLinkModal({
   onClose,
   onCheckStatus,
 }: {
-  theme: 'light' | 'dark';
+  /**
+   * Accepted but ignored: colours here are semantic tokens, correct in both
+   * themes. Kept optional only because the call sites live in files this change
+   * does not touch.
+   */
+  theme?: 'light' | 'dark';
   url: string;
   amount: number;
   mobile?: string | null;
@@ -35,31 +53,46 @@ export function PaymentLinkModal({
 }) {
   const { t, money } = useI18n();
   const [qr, setQr] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState<'pending' | 'paid' | 'failed' | null>(
     'pending'
   );
   const [checking, setChecking] = useState(false);
 
-  const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const muted = 'text-default-500';
-  const border = 'border-default-200';
+  const reqRef = useRef(0);
+
+  const loadQr = useCallback(async () => {
+    const seq = ++reqRef.current;
+    setQrLoading(true);
+    setQrError(null);
+    try {
+      const dataUrl = await window.api.invoke('payments:linkQr', url);
+      if (seq !== reqRef.current) return;
+      // A missing data URL is a failure, not an empty QR: without this the box
+      // sat on "Loading…" forever and the cashier had no idea why.
+      if (!dataUrl) {
+        setQr(null);
+        setQrError(t('admin.loadFailed'));
+      } else {
+        setQr(dataUrl);
+      }
+    } catch (e) {
+      if (seq !== reqRef.current) return;
+      setQr(null);
+      setQrError(e instanceof Error ? e.message : String(e ?? ''));
+    } finally {
+      if (seq === reqRef.current) setQrLoading(false);
+    }
+  }, [url, t]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const dataUrl = await window.api.invoke('payments:linkQr', url);
-        if (!cancelled) setQr(dataUrl);
-      } catch {
-        if (!cancelled) setQr(null);
-      }
-    })();
+    loadQr();
     return () => {
-      cancelled = true;
+      reqRef.current++;
     };
-  }, [url]);
+  }, [loadQr]);
 
   const copy = async () => {
     try {
@@ -71,8 +104,9 @@ export function PaymentLinkModal({
     }
   };
 
+  const digits = String(mobile ?? '').replace(/\D/g, '');
+
   const sendWhatsApp = async () => {
-    const digits = String(mobile ?? '').replace(/\D/g, '');
     if (!digits) return;
     // Kuwait numbers are 8 digits; prefix the country code when it is absent.
     const intl = digits.length <= 8 ? `965${digits}` : digits;
@@ -98,129 +132,160 @@ export function PaymentLinkModal({
   };
 
   return (
-    <div className='fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-3'>
-      <div
-        className={`${bg} ${border} border rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden`}
-      >
-        <div
-          className={`flex items-start justify-between px-5 py-4 border-b ${border}`}
-        >
-          <div className='space-y-0.5'>
-            <div className={`text-[11px] uppercase tracking-[0.14em] ${muted}`}>
-              {t('pay.title')}
-            </div>
-            <div className={`text-base font-semibold ${text}`}>
-              <span className='money'>{money(amount)}</span>{' '}
-              <span className={`text-xs font-normal ${muted}`}>
-                {t('common.currency')}
-              </span>
-            </div>
-            {orderLabel && (
-              <div className={`text-[11px] ${muted}`}>{orderLabel}</div>
+    <Modal
+      isOpen
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      size='md'
+      placement='center'
+      backdrop='blur'
+      scrollBehavior='inside'
+      className='rounded-2xl'
+    >
+      <ModalContent>
+        <ModalHeader className='flex flex-col gap-1'>
+          <span className='text-xs font-semibold uppercase tracking-wide text-default-600'>
+            {t('pay.title')}
+          </span>
+          <span className='flex items-baseline gap-2 text-foreground'>
+            <span className='money text-xl font-bold'>{money(amount)}</span>
+            <span className='text-sm font-semibold text-default-600'>
+              {t('common.currency')}
+            </span>
+            {status === 'paid' && (
+              <Chip
+                size='sm'
+                variant='flat'
+                color='success'
+                className='font-semibold'
+              >
+                {t('pay.paid')}
+              </Chip>
             )}
-          </div>
-          <button
-            onClick={onClose}
-            aria-label={t('common.close')}
-            className={`rounded-full p-1.5 ${
-              'hover:bg-default-200 text-default-600'
-            }`}
-          >
-            <X size={18} />
-          </button>
-        </div>
+            {status === 'failed' && (
+              <Chip
+                size='sm'
+                variant='flat'
+                color='danger'
+                className='font-semibold'
+              >
+                {t('pay.failed')}
+              </Chip>
+            )}
+          </span>
+          {orderLabel && (
+            <span className='text-xs font-medium text-default-600'>
+              {orderLabel}
+            </span>
+          )}
+        </ModalHeader>
 
-        <div className='p-5 space-y-4'>
-          <p className={`text-sm text-center ${muted}`}>{t('pay.scanHint')}</p>
+        <ModalBody className='space-y-4'>
+          <p className='text-center text-sm font-medium text-default-700'>
+            {t('pay.scanHint')}
+          </p>
 
           <div className='flex justify-center'>
             {qr ? (
+              // The white plate stays: it is the QR's quiet zone, not decoration.
               <img
                 src={qr}
                 alt={t('pay.qrAlt')}
-                className='w-56 h-56 rounded-lg bg-white p-2'
+                className='h-56 w-56 rounded-lg bg-white p-2'
               />
+            ) : qrError ? (
+              <div className='flex h-56 w-56 flex-col items-center justify-center gap-2 rounded-lg border border-default-200 bg-default-100 px-3 text-center'>
+                <AlertCircle size={26} className='text-danger' />
+                <div className='text-sm font-bold text-danger'>
+                  {t('admin.loadFailed')}
+                </div>
+                <div className='text-xs font-medium text-default-700 break-words'>
+                  {qrError}
+                </div>
+                <Button
+                  size='sm'
+                  color='danger'
+                  variant='flat'
+                  onPress={loadQr}
+                  isLoading={qrLoading}
+                >
+                  {t('common.retry')}
+                </Button>
+              </div>
             ) : (
-              <div
-                className={`w-56 h-56 rounded-lg flex items-center justify-center text-xs ${muted} ${
-                  'bg-default-100'
-                }`}
-              >
-                {t('common.loading')}
+              <div className='flex h-56 w-56 flex-col items-center justify-center gap-2 rounded-lg border border-default-200 bg-default-100'>
+                <Spinner size='lg' />
+                <span className='text-sm font-medium text-default-600'>
+                  {t('common.loading')}
+                </span>
               </div>
             )}
           </div>
 
           <div
-            className={`text-[11px] break-all rounded-lg px-3 py-2 ${muted} ${
-              'bg-default-100'
-            }`}
+            className='break-all rounded-lg bg-default-100 px-3 py-2 text-xs font-medium text-default-700'
             dir='ltr'
           >
             {url}
           </div>
 
           <div className='grid grid-cols-2 gap-2'>
-            <button
-              onClick={copy}
-              className={`h-10 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${
-                'bg-default-200 hover:bg-default-300 text-white'
-              }`}
+            <Button
+              variant='flat'
+              onPress={copy}
+              startContent={copied ? <Check size={16} /> : <Copy size={16} />}
+              color={copied ? 'success' : 'default'}
+              className='h-11 font-semibold'
             >
-              {copied ? <Check size={16} /> : <Copy size={16} />}
               {copied ? t('pay.copied') : t('pay.copy')}
-            </button>
+            </Button>
 
-            <button
-              onClick={sendWhatsApp}
-              disabled={!String(mobile ?? '').replace(/\D/g, '')}
-              title={
-                String(mobile ?? '').replace(/\D/g, '')
-                  ? undefined
-                  : t('pay.needMobile')
-              }
-              className='h-10 rounded-lg text-sm font-medium flex items-center justify-center gap-2
-                bg-emerald-600 hover:bg-emerald-500 text-white
-                disabled:opacity-40 disabled:cursor-not-allowed'
+            <Button
+              color='success'
+              onPress={sendWhatsApp}
+              isDisabled={!digits}
+              title={digits ? undefined : t('pay.needMobile')}
+              startContent={<MessageCircle size={16} />}
+              className='h-11 font-semibold'
             >
-              <MessageCircle size={16} />
               {t('pay.whatsapp')}
-            </button>
+            </Button>
           </div>
 
           {onCheckStatus && (
-            <button
-              onClick={check}
-              disabled={checking}
-              className={`w-full h-10 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${
+            <Button
+              fullWidth
+              onPress={check}
+              isDisabled={checking}
+              color={
                 status === 'paid'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-default-100 hover:bg-default-200 text-foreground'
-              } disabled:opacity-50`}
+                  ? 'success'
+                  : status === 'failed'
+                    ? 'danger'
+                    : 'primary'
+              }
+              variant={status === 'paid' ? 'solid' : 'flat'}
+              startContent={
+                <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
+              }
+              className='h-11 font-semibold'
             >
-              <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
               {status === 'paid'
                 ? t('pay.paid')
                 : status === 'failed'
-                ? t('pay.failed')
-                : t('pay.checkStatus')}
-            </button>
+                  ? t('pay.failed')
+                  : t('pay.checkStatus')}
+            </Button>
           )}
-        </div>
+        </ModalBody>
 
-        <div className={`px-5 py-3 border-t ${border} flex justify-end`}>
-          <button
-            onClick={onClose}
-            className={`px-4 h-9 rounded-lg text-sm font-semibold ${
-              theme === 'dark'
-                ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            }`}
-          >
+        <ModalFooter>
+          <Button color='primary' onPress={onClose}>
             {t('common.close')}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 }

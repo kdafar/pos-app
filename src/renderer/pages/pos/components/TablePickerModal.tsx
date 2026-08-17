@@ -1,25 +1,69 @@
 // components/TablePickerModal.tsx
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import {
+  Button,
+  Chip,
+  Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from '@heroui/react';
+import { RotateCw } from 'lucide-react';
 import { TableInfo, TableStatus, Order } from '../types';
+import { DataState } from '../../../components/PageShell';
 import { useI18n } from '../../../i18n';
+
+/**
+ * Table status has exactly one meaning per colour, taken from the semantic
+ * scale so both themes get correct contrast from one definition. The previous
+ * version carried six hand-mixed emerald/amber/rose tints behind a
+ * `theme === 'dark'` branch, which meant every status had two chances to be
+ * wrong and the light variants (`bg-emerald-50`, `bg-rose-100`) were unreadable
+ * whenever the dark theme actually rendered them.
+ */
+const STATUS_COLOR: Record<TableStatus, 'success' | 'warning' | 'danger'> = {
+  available: 'success',
+  reserved: 'warning',
+  occupied: 'danger',
+};
+
+const STATUS_BORDER: Record<TableStatus, string> = {
+  available: 'border-success',
+  reserved: 'border-warning',
+  occupied: 'border-danger',
+};
+
+const STATUS_DOT: Record<TableStatus, string> = {
+  available: 'bg-success',
+  reserved: 'bg-warning',
+  occupied: 'bg-danger',
+};
 
 export function TablePickerModal({
   tables,
   current,
-  theme,
   onClose,
   onAssign,
   onRefresh,
 }: {
   tables: TableInfo[];
   current: Order;
-  theme: 'light' | 'dark';
+  /**
+   * Unused — every colour here is a semantic token that resolves itself in both
+   * themes. Kept declared and optional only because OrderSide.tsx still passes
+   * it; it can go when that call site is migrated.
+   */
+  theme?: 'light' | 'dark';
   onClose: () => void;
   onAssign: (t: TableInfo, covers: number) => void;
-  onRefresh: () => void;
+  /** Widened to allow awaiting: the caller's refresh is async and can fail. */
+  onRefresh: () => void | Promise<void>;
 }) {
   const [covers, setCovers] = useState<number>(current.covers || 2);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { t } = useI18n();
 
   const statusLabel = (s: TableStatus) =>
@@ -29,201 +73,178 @@ export function TablePickerModal({
       ? t('tables.reserved')
       : t('tables.occupied');
 
-  const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
-  const border = 'border-default-200';
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-500';
-  const inputBg =
-    'bg-default-100 border-default-200';
+  /**
+   * Refresh used to be fire-and-forget: if the tables query failed, the button
+   * stopped spinning and the grid silently kept stale seating — which is the
+   * one thing this modal must never do mid-service. Now the failure is shown
+   * with the real message and a retry.
+   */
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e ?? ''));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
 
-  const colorFor = (s: TableStatus) => {
-    if (s === 'available')
-      return theme === 'dark'
-        ? 'bg-emerald-500/10 text-emerald-200 border-emerald-500/40'
-        : 'bg-emerald-50 text-emerald-700 border-emerald-300';
-    if (s === 'reserved')
-      return 'bg-amber-500/10 text-warning border-amber-500/40';
-    return theme === 'dark'
-      ? 'bg-rose-500/10 text-rose-200 border-rose-500/40'
-      : 'bg-rose-50 text-rose-700 border-rose-300';
-  };
-
-  const pillFor = (s: TableStatus) => {
-    if (s === 'available')
-      return theme === 'dark'
-        ? 'bg-emerald-500/20 text-emerald-200'
-        : 'bg-emerald-100 text-emerald-700';
-    if (s === 'reserved')
-      return 'bg-amber-500/20 text-warning';
-    return theme === 'dark'
-      ? 'bg-rose-500/20 text-rose-200'
-      : 'bg-rose-100 text-rose-700';
-  };
-
-  const legendDot = (cls: string) =>
-    `inline-block w-2.5 h-2.5 rounded-full ${cls}`;
+  const legend: TableStatus[] = ['available', 'reserved', 'occupied'];
 
   return (
-    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4'>
-      <div
-        className={`${bg} border ${border} rounded-2xl w-full max-w-lg shadow-xl`}
-      >
-        {/* Header */}
-        <div className='flex items-center justify-between px-4 pt-4 pb-3 border-b border-default-100'>
-          <div className='flex flex-col gap-1'>
-            <h2 className={`text-lg font-semibold ${text}`}>
-              {t('tables.assign')}
-            </h2>
-            <div className={`text-[11px] flex items-center gap-3 ${textMuted}`}>
-              <span className='flex items-center gap-1'>
-                <span
-                  className={legendDot(
-                    theme === 'dark' ? 'bg-emerald-400' : 'bg-emerald-500'
-                  )}
-                />
-                {t('tables.available')}
+    <Modal
+      isOpen
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      size='2xl'
+      placement='center'
+      backdrop='blur'
+      scrollBehavior='inside'
+      className='rounded-2xl'
+    >
+      <ModalContent>
+        {() => (
+          <>
+            <ModalHeader className='flex flex-col gap-2'>
+              <span className='text-lg font-bold text-foreground'>
+                {t('tables.assign')}
               </span>
-              <span className='flex items-center gap-1'>
-                <span
-                  className={legendDot(
-                    theme === 'dark' ? 'bg-amber-400' : 'bg-amber-500'
-                  )}
+              {/* The legend is the key to the whole grid, so it is a solid
+                  default-600 at readable size rather than an 11px whisper. */}
+              <div className='flex flex-wrap items-center gap-4 text-xs font-medium text-default-600'>
+                {legend.map((s) => (
+                  <span key={s} className='flex items-center gap-1.5'>
+                    <span
+                      className={`inline-block h-2.5 w-2.5 rounded-full ${STATUS_DOT[s]}`}
+                    />
+                    {statusLabel(s)}
+                  </span>
+                ))}
+              </div>
+            </ModalHeader>
+
+            <ModalBody className='gap-4'>
+              <div className='flex flex-wrap items-end justify-between gap-3'>
+                <Input
+                  type='number'
+                  min={1}
+                  label={t('tables.covers')}
+                  labelPlacement='outside'
+                  value={String(covers)}
+                  onValueChange={(v) => setCovers(Math.max(1, Number(v || 1)))}
+                  classNames={{
+                    input: 'money text-base font-semibold',
+                    label: 'text-sm font-semibold text-default-700',
+                  }}
+                  className='w-32'
+                  aria-label={t('tables.covers')}
                 />
-                {t('tables.reserved')}
-              </span>
-              <span className='flex items-center gap-1'>
-                <span
-                  className={legendDot(
-                    theme === 'dark' ? 'bg-rose-400' : 'bg-rose-500'
-                  )}
-                />
-                {t('tables.occupied')}
-              </span>
-            </div>
-          </div>
+                <Button
+                  variant='flat'
+                  size='lg'
+                  onPress={handleRefresh}
+                  isLoading={refreshing}
+                  startContent={!refreshing && <RotateCw size={18} />}
+                >
+                  {t('tables.refresh')}
+                </Button>
+              </div>
 
-          <div className='flex items-center gap-2'>
-            <label className={`text-xs ${textMuted}`}>{t('tables.covers')}</label>
-            <input
-              type='number'
-              min={1}
-              className={`w-16 px-2 py-1.5 rounded-md text-xs money ${inputBg} ${text} focus:outline-none focus:ring-2 ${
-                theme === 'dark'
-                  ? 'focus:ring-blue-500/60'
-                  : 'focus:ring-blue-500'
-              }`}
-              value={covers}
-              onChange={(e) =>
-                setCovers(Math.max(1, Number(e.target.value || 1)))
-              }
-            />
-            <button
-              onClick={onRefresh}
-              className={`px-3 py-1.5 rounded-md border text-xs font-medium transition ${
-                'bg-default-100 border-default-200 text-foreground hover:bg-default-200'
-              }`}
-            >
-              {t('tables.refresh')}
-            </button>
-            <button
-              onClick={onClose}
-              className={
-                'text-default-500 hover:text-white'
-              }
-            >
-              <X size={20} />
-            </button>
-          </div>
-        </div>
-
-        {/* Body */}
-        <div className='p-4 max-h-[70vh] overflow-y-auto nice-scroll'>
-          {tables.length === 0 && (
-            <div className={`${textMuted} text-sm py-8 text-center`}>
-              {t('tables.none')}
-            </div>
-          )}
-
-          {tables.length > 0 && (
-            <>
               {current.table_id && (
-                <p className={`${textMuted} text-[11px] mb-2`}>
+                <p className='text-sm font-medium text-default-600'>
                   {t('tables.tip')}
                 </p>
               )}
 
-              <div className='grid grid-cols-2 gap-3'>
-                {/* `tbl`, not `t` — `t` is the translator in this scope. */}
-                {tables.map((tbl) => {
-                  const isCurrent = current.table_id === tbl.id;
-                  // 🔑 Only disable when not current AND not available
-                  const disabled = !isCurrent && tbl.status !== 'available';
+              <DataState
+                // Only blank the grid when there is nothing to blank: ripping
+                // the seating away on every refresh is worse than a stale tile
+                // for a second.
+                loading={refreshing && tables.length === 0}
+                error={error}
+                onRetry={handleRefresh}
+                empty={tables.length === 0}
+                emptyTitle={t('tables.none')}
+              >
+                <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
+                  {/* `tbl`, not `t` — `t` is the translator in this scope. */}
+                  {tables.map((tbl) => {
+                    const isCurrent = current.table_id === tbl.id;
+                    // 🔑 Only disable when not current AND not available
+                    const disabled = !isCurrent && tbl.status !== 'available';
 
-                  return (
-                    <button
-                      key={tbl.id}
-                      onClick={() => {
-                        if (!disabled) onAssign(tbl, covers);
-                      }}
-                      disabled={disabled}
-                      title={t('tables.seatsTitle', {
-                        name: tbl.name,
-                        seats: tbl.seats || 0,
-                      })}
-                      className={`
-                        relative p-3 rounded-xl border text-start text-xs
-                        flex flex-col justify-between h-[110px]
-                        transition
-                        ${colorFor(tbl.status)}
-                        ${
-                          disabled
-                            ? 'opacity-70 cursor-not-allowed'
-                            : 'hover:-translate-y-0.5 hover:shadow-sm'
-                        }
-                        ${
-                          isCurrent
-                            ? 'ring-2 ring-blue-500/70 ring-offset-2 ring-offset-transparent'
-                            : ''
-                        }
-                      `}
-                    >
-                      <div className='flex items-start justify-between gap-2'>
-                        <div className='flex-1 min-w-0'>
-                          <div className='text-[13px] font-semibold truncate'>
-                            {tbl.name}
-                          </div>
-                          <div className={`${textMuted} mt-1`}>
-                            {t('tables.seats')}:{' '}
-                            <span className='money'>{tbl.seats || 0}</span>
-                          </div>
-                        </div>
-                        <span
-                          className={`
-                            px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap
-                            ${pillFor(tbl.status)}
-                          `}
-                        >
-                          {statusLabel(tbl.status)}
-                        </span>
-                      </div>
-
-                      {isCurrent && (
-                        <div
-                          className={`mt-2 text-[10px] font-medium ${
-                            'text-primary'
+                    return (
+                      <button
+                        key={tbl.id}
+                        type='button'
+                        onClick={() => {
+                          if (!disabled) onAssign(tbl, covers);
+                        }}
+                        disabled={disabled}
+                        title={t('tables.seatsTitle', {
+                          name: tbl.name,
+                          seats: tbl.seats || 0,
+                        })}
+                        // An unavailable tile is not faded — a cashier scanning
+                        // the floor still has to read "Occupied" from arm's
+                        // length. It is the surface and the cursor that say
+                        // "not this one", never the contrast.
+                        className={`flex min-h-28 flex-col justify-between rounded-xl border-2 p-3 text-start transition
+                          ${STATUS_BORDER[tbl.status]}
+                          ${
+                            disabled
+                              ? 'cursor-not-allowed bg-default-100'
+                              : 'bg-content1 hover:-translate-y-0.5 hover:bg-default-100 hover:shadow-sm'
+                          }
+                          ${
+                            isCurrent
+                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-content1'
+                              : ''
                           }`}
-                        >
-                          {t('tables.currentlyAssigned')}
+                      >
+                        <div className='flex items-start justify-between gap-2'>
+                          <div className='min-w-0 flex-1'>
+                            <div className='truncate text-base font-semibold text-foreground'>
+                              {tbl.name}
+                            </div>
+                            <div className='mt-1 text-sm font-medium text-default-600'>
+                              {t('tables.seats')}:{' '}
+                              <span className='money'>{tbl.seats || 0}</span>
+                            </div>
+                          </div>
+                          <Chip
+                            size='sm'
+                            variant='flat'
+                            color={STATUS_COLOR[tbl.status]}
+                            className='shrink-0 font-semibold'
+                          >
+                            {statusLabel(tbl.status)}
+                          </Chip>
                         </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+
+                        {isCurrent && (
+                          <div className='mt-2 text-xs font-semibold text-primary'>
+                            {t('tables.currentlyAssigned')}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </DataState>
+            </ModalBody>
+
+            <ModalFooter>
+              <Button variant='flat' size='lg' onPress={onClose}>
+                {t('common.close')}
+              </Button>
+            </ModalFooter>
+          </>
+        )}
+      </ModalContent>
+    </Modal>
   );
 }

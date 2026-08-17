@@ -1,70 +1,142 @@
 // src/renderer/components/PaymentBadge.tsx
-import { CreditCard, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { Chip } from '@heroui/react';
+import { CheckCircle2, Clock, CreditCard, XCircle } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 /**
- * Paid / unpaid state for an online-link order.
+ * Whether an order has been paid.
  *
- * Nothing surfaced this before: the till created a payment link and then never
- * showed the outcome, so a cashier handing over food had no way to tell whether
- * the customer had actually paid. Absence of a badge means the order was not
- * paid by link at all (cash, KNET terminal, …) — only link orders get one.
+ * Two different kinds of fact end up in this badge, and it deliberately does
+ * not present them as the same thing:
+ *
+ *  - a payment LINK has a real, server-verified state, so "Paid" there means
+ *    money has actually been confirmed received
+ *  - a counter sale has no paid flag at all. Payment is taken when the order is
+ *    closed, so a closed order was collected — but that is the till's own
+ *    inference, not a verified receipt
+ *
+ * The verified case is rendered solid and the inferred case flat, so a cashier
+ * handing over food can tell "the customer's payment cleared" from "we closed
+ * this, so someone took the money". Collapsing them would make the stronger
+ * claim for both.
  */
+
+export type PaymentState =
+  | 'paid' // link, verified
+  | 'pending' // link, awaiting the customer
+  | 'failed'
+  | 'expired'
+  | 'collected' // counter sale on a closed order — inferred
+  | 'unpaid'; // still open, nothing taken
+
+/** Statuses that mean the sale is finished and the money was taken. */
+const SETTLED = ['closed', 'completed', 'prepared', 'ready'];
+
+export function paymentStateOf(order: {
+  payment_link_status?: string | null;
+  status?: string | null;
+}): PaymentState {
+  const link = String(order?.payment_link_status ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (link === 'paid') return 'paid';
+  if (link === 'pending') return 'pending';
+  if (link === 'failed') return 'failed';
+  if (link === 'expired') return 'expired';
+
+  const status = String(order?.status ?? '')
+    .trim()
+    .toLowerCase();
+  if (status === 'cancelled') return 'unpaid';
+  return SETTLED.includes(status) ? 'collected' : 'unpaid';
+}
+
 export function PaymentBadge({
   status,
-  theme = 'light',
+  order,
   size = 'sm',
 }: {
+  /** Link status on its own — kept for callers that only have that. */
   status?: string | null;
-  theme?: 'light' | 'dark';
+  /** Preferred: the whole row, so a counter sale can be judged too. */
+  order?: { payment_link_status?: string | null; status?: string | null };
   size?: 'sm' | 'md';
+  /**
+   * Accepted and ignored. Colour comes from semantic tokens now, so both
+   * themes are correct without the caller knowing which one is active.
+   * @deprecated remove from call sites.
+   */
+  theme?: 'light' | 'dark';
 }) {
   const { t } = useI18n();
-  const s = String(status ?? '').toLowerCase();
-  if (!s) return null;
 
-  const dark = theme === 'dark';
-  const pad = size === 'md' ? 'px-2.5 py-1 text-xs' : 'px-1.5 py-0.5 text-[11px]';
-  const icon = size === 'md' ? 14 : 12;
+  const state = order
+    ? paymentStateOf(order)
+    : paymentStateOf({ payment_link_status: status, status: null });
+
+  // Callers passing only a link status want nothing when there is no link.
+  if (!order && !String(status ?? '').trim()) return null;
 
   const variants: Record<
-    string,
-    { label: string; cls: string; Icon: typeof Clock }
+    PaymentState,
+    {
+      label: string;
+      color: 'success' | 'warning' | 'danger' | 'default';
+      variant: 'solid' | 'flat';
+      Icon: typeof Clock;
+    }
   > = {
     paid: {
       label: t('pay.paid'),
-      cls: dark
-        ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40'
-        : 'bg-emerald-50 text-emerald-800 border-emerald-300',
+      color: 'success',
+      variant: 'solid', // verified by the payment provider
       Icon: CheckCircle2,
+    },
+    collected: {
+      label: t('pay.collected'),
+      color: 'success',
+      variant: 'flat', // inferred from the order being closed
+      Icon: CreditCard,
     },
     pending: {
       label: t('pay.awaiting'),
-      cls: 'bg-amber-500/15 text-warning border-amber-500/40',
+      color: 'warning',
+      variant: 'flat',
       Icon: Clock,
+    },
+    expired: {
+      label: t('pay.expired'),
+      color: 'danger',
+      variant: 'flat',
+      Icon: XCircle,
     },
     failed: {
       label: t('pay.failed'),
-      cls: dark
-        ? 'bg-rose-500/15 text-rose-200 border-rose-500/40'
-        : 'bg-rose-50 text-rose-800 border-rose-300',
+      color: 'danger',
+      variant: 'flat',
       Icon: XCircle,
+    },
+    unpaid: {
+      label: t('pay.unpaid'),
+      color: 'default',
+      variant: 'flat',
+      Icon: Clock,
     },
   };
 
-  const v = variants[s] ?? {
-    label: status as string,
-    cls: 'bg-default-100 text-default-600 border-default-200',
-    Icon: CreditCard,
-  };
+  const v = variants[state];
 
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border font-medium whitespace-nowrap ${pad} ${v.cls}`}
+    <Chip
+      size={size}
+      color={v.color}
+      variant={v.variant}
+      className='font-semibold'
+      startContent={<v.Icon size={size === 'md' ? 15 : 13} />}
       title={v.label}
     >
-      <v.Icon size={icon} />
       {v.label}
-    </span>
+    </Chip>
   );
 }

@@ -1,16 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+// src/renderer/pages/SettingsPage.tsx
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Button, Card, CardBody, Chip } from '@heroui/react';
+import { AlertTriangle, Check, Copy, Languages, Lock } from 'lucide-react';
+import { LANGS, useI18n } from '../i18n';
+import { DataTable } from '../components/DataTable';
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getPaginationRowModel,
-  flexRender,
-  ColumnDef,
-  SortingState,
-} from '@tanstack/react-table';
-import { Button, Input } from '@heroui/react';
-import { useI18n } from '../i18n';
-import { LanguageToggle } from '../components/LanguageToggle';
+  DataState,
+  FilterSelect,
+  PageShell,
+  SearchField,
+} from '../components/PageShell';
 
 type Row = { key: string; value: string; source: 'meta' | 'server' };
 
@@ -20,86 +20,160 @@ declare global {
   }
 }
 
-/* ---------- UI helpers ---------- */
-const fieldCls =
-  'h-10 px-3 rounded-lg bg-default-100 border border-default-200 text-sm outline-none ' +
-  'focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
-const btnFlat = 'border border-default-200 rounded-lg px-3 h-10 hover:bg-default-200 disabled:opacity-50';
-
 /* ---------- Security rules ---------- */
-// Don’t render these keys at all (e.g., pairing codes)
-const HIDE_KEYS = [/^pair(\.|_|-)?code$/i];
+// Never rendered at all. The trailing anchor alone missed namespaced variants
+// like `device.pair_code`, which is exactly how a pairing code reaches a screen
+// anyone can photograph — so a separator prefix is allowed too.
+const HIDE_KEYS = [/(^|[._-])pair(ing)?[._-]?code$/i];
 
-// Consider these sensitive; always masked + copy disabled
-const SECRET_PAT = /(token|secret|password|passwd|api[_-]?key|private|signature|hash|salt)/i;
+// Rendered, but always masked and never copyable.
+const SECRET_PAT =
+  /(token|secret|password|passwd|api[_-]?key|private|signature|hash|salt)/i;
 
 const shouldHideKey = (k: string) => HIDE_KEYS.some((r) => r.test(k));
 const isSecretKey = (k: string) => SECRET_PAT.test(k);
 const masked = (v: string) => (v ? '•'.repeat(Math.min(v.length, 16)) : '');
 
-/* ---------- IPC helpers (tolerant to missing handlers) ---------- */
-async function tryInvoke<T = any>(ch: string, ...args: any[]): Promise<T | null> {
-  try { return await window.api.invoke(ch, ...args); } catch { return null; }
+/* ---------- IPC ---------- */
+/**
+ * A channel that was never registered is a capability this build does not have;
+ * a channel that threw is a fault. The old code could not tell them apart — it
+ * caught everything and returned null — so a broken preload bridge, a locked
+ * SQLite file and a feature that simply isn't wired all produced the same empty
+ * table, and the page cheerfully reported "No rows found." on a till whose
+ * settings were unreadable.
+ */
+const NOT_WIRED = /no handler registered|not implemented|unknown channel/i;
+
+type Probe = { rows: { key: string; value: string }[] | null; error: string | null };
+
+async function probe(channel: string): Promise<Probe> {
+  try {
+    const res = await window.api.invoke(channel);
+    if (res == null) return { rows: null, error: null };
+    if (!Array.isArray(res)) {
+      // The previous version called .filter() straight on this, so a handler
+      // answering with an object threw inside a promise nobody awaited.
+      return { rows: null, error: `${channel}: unexpected response` };
+    }
+    return { rows: res, error: null };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e ?? '');
+    if (NOT_WIRED.test(msg)) return { rows: null, error: null };
+    return { rows: null, error: `${channel}: ${msg}` };
+  }
 }
 
-/* Preferred: expose an IPC that returns rows from local SQLite:
-   'meta:list' => [{ key, value }]
-   We’ll also fall back to a few common names if it isn’t wired yet. */
-async function fetchMetaRows(): Promise<Row[]> {
-  const candidates = ['meta:list', 'store:metaList', 'dev:dumpMeta'];
-  for (const ch of candidates) {
-    const res = await tryInvoke<{ key: string; value: string }[]>(ch);
-    if (Array.isArray(res)) {
-      return res
-        .filter((r) => r && r.key && !shouldHideKey(r.key))
-        .map((r) => ({ key: r.key, value: String(r.value ?? ''), source: 'meta' }));
+/** First channel that answers wins; anything that faults is reported. */
+async function loadSource(
+  channels: string[],
+  source: Row['source']
+): Promise<{ rows: Row[]; error: string | null }> {
+  const faults: string[] = [];
+  for (const channel of channels) {
+    const { rows, error } = await probe(channel);
+    if (error) {
+      faults.push(error);
+      continue;
+    }
+    if (rows) {
+      return {
+        rows: rows
+          .filter((r) => r && r.key && !shouldHideKey(r.key))
+          .map((r) => ({
+            key: r.key,
+            value: String(r.value ?? ''),
+            source,
+          })),
+        error: null,
+      };
     }
   }
-  return []; // graceful empty if not available
+  return { rows: [], error: faults.length ? faults.join(' · ') : null };
 }
 
-/* Server settings (what you already had) */
-async function fetchServerSettings(): Promise<Row[]> {
-  const res =
-    (await tryInvoke<{ key: string; value: string }[]>('settings:getAll')) ??
-    (await tryInvoke<{ key: string; value: string }[]>('settings:listAll')) ??
-    [];
-  return res
-    .filter((r) => r && r.key && !shouldHideKey(r.key))
-    .map((r) => ({ key: r.key, value: String(r.value ?? ''), source: 'server' }));
-}
+const META_CHANNELS = ['meta:list', 'store:metaList', 'dev:dumpMeta'];
+const SERVER_CHANNELS = ['settings:getAll', 'settings:listAll'];
 
 export function SettingsPage() {
-  const { t } = useI18n();
+  const { t, lang, setLang } = useI18n();
+
   const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  /** One source failed while the other answered — data is real but incomplete. */
+  const [partial, setPartial] = useState<string | null>(null);
 
-  // filters
   const [q, setQ] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'meta' | 'server'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'meta' | 'server'>(
+    'all'
+  );
 
-  // table
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'key', desc: false }]);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [copied, setCopied] = useState<string | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    },
+    []
+  );
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
+    setError(null);
+    setPartial(null);
     try {
-      const [meta, server] = await Promise.all([fetchMetaRows(), fetchServerSettings()]);
-      // Merge: keep both; if same key exists twice with same value, prefer meta row first
+      const [meta, server] = await Promise.all([
+        loadSource(META_CHANNELS, 'meta'),
+        loadSource(SERVER_CHANNELS, 'server'),
+      ]);
+
+      const faults = [meta.error, server.error].filter(Boolean) as string[];
       const merged: Row[] = [];
       const seen = new Set<string>();
-      for (const r of [...meta, ...server]) {
+      for (const r of [...meta.rows, ...server.rows]) {
         const sig = `${r.source}:${r.key}:${r.value}`;
-        if (!seen.has(sig)) { merged.push(r); seen.add(sig); }
+        if (!seen.has(sig)) {
+          merged.push(r);
+          seen.add(sig);
+        }
       }
+
+      // Nothing loaded and something faulted: that is a failure, and it must not
+      // be dressed up as an empty settings store.
+      if (faults.length && merged.length === 0) {
+        setRows([]);
+        setError(faults.join(' · '));
+        return;
+      }
+
       setRows(merged);
+      setPartial(faults.length ? faults.join(' · ') : null);
+    } catch (e) {
+      setRows([]);
+      setError(e instanceof Error ? e.message : String(e ?? ''));
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const copyValue = useCallback((row: Row) => {
+    const id = `${row.source}:${row.key}`;
+    // Rejects when the document is not focused or the clipboard is blocked —
+    // in that case the button simply never claims success.
+    navigator.clipboard
+      .writeText(row.value)
+      .then(() => {
+        setCopied(id);
+        if (copyTimer.current) clearTimeout(copyTimer.current);
+        copyTimer.current = setTimeout(() => setCopied(null), 1500);
+      })
+      .catch(() => {});
+  }, []);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -110,211 +184,206 @@ export function SettingsPage() {
     });
   }, [rows, q, sourceFilter]);
 
-  const columns = useMemo<ColumnDef<Row>[]>(() => [
-    {
-      accessorKey: 'source',
-      header: ({ column }) => (
-        <button
-          className="inline-flex items-center gap-1 font-medium"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          title={t('settings.sort')}
-        >
-          {t('settings.colSource')} <span className="opacity-60">↕</span>
-        </button>
-      ),
-      cell: (info) => {
-        const s = info.getValue() as Row['source'];
-        const cls =
-          'inline-flex items-center px-2 py-0.5 rounded text-xs border ' +
-          (s === 'meta'
-            ? 'border-sky-400/40 text-primary'
-            : 'border-amber-400/40 text-warning');
-        return (
-          <span className={cls}>
-            {s === 'meta' ? t('settings.sourceMeta') : t('settings.sourceServer')}
-          </span>
-        );
-      },
-    },
-    {
-      accessorKey: 'key',
-      header: ({ column }) => (
-        <button
-          className="inline-flex items-center gap-1 font-medium"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          title={t('settings.sort')}
-        >
-          {t('settings.colKey')} <span className="opacity-60">↕</span>
-        </button>
-      ),
-      // Setting keys are identifiers — always Latin, always LTR.
-      cell: (info) => (
-        <span className="font-medium break-all" dir="ltr">
-          {info.getValue() as string}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'value',
-      header: ({ column }) => (
-        <button
-          className="inline-flex items-center gap-1 font-medium"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          title={t('settings.sort')}
-        >
-          {t('settings.colValue')} <span className="opacity-60">↕</span>
-        </button>
-      ),
-      cell: ({ row }) => {
-        const k = row.original.key;
-        const v = row.original.value ?? '';
-        const secret = isSecretKey(k);
-        return (
-          <div className="flex items-center gap-2">
-            {/* Stored values are URLs, ids and tokens — keep them LTR. */}
-            <span className="truncate max-w-[520px]" dir="ltr">
-              {secret ? masked(v) : v}
-            </span>
-            <Button
-              size="sm"
-              variant="flat"
-              className="min-w-[64px]"
-              onClick={() => navigator.clipboard.writeText(secret ? '' : v)}
-              isDisabled={secret}
+  const columns = useMemo<ColumnDef<Row, any>[]>(
+    () => [
+      {
+        accessorKey: 'source',
+        header: () => t('settings.colSource'),
+        size: 130,
+        meta: { nowrap: true },
+        cell: (info) => {
+          const s = info.getValue() as Row['source'];
+          return (
+            <Chip
+              size='sm'
+              variant='flat'
+              color={s === 'meta' ? 'primary' : 'warning'}
+              className='font-semibold'
             >
-              {t('settings.copy')}
-            </Button>
-          </div>
-        );
+              {s === 'meta' ? t('settings.sourceMeta') : t('settings.sourceServer')}
+            </Chip>
+          );
+        },
       },
-    },
-  ], [t]);
+      {
+        accessorKey: 'key',
+        header: () => t('settings.colKey'),
+        size: 240,
+        // Setting keys are identifiers — always Latin, always LTR.
+        cell: (info) => (
+          <span className='font-mono font-semibold break-all' dir='ltr'>
+            {info.getValue() as string}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'value',
+        header: () => t('settings.colValue'),
+        size: 340,
+        cell: ({ row }) => {
+          const secret = isSecretKey(row.original.key);
+          const v = row.original.value ?? '';
+          return (
+            <div className='flex items-start gap-2'>
+              {secret && (
+                <Lock size={15} className='mt-1 shrink-0 text-warning' />
+              )}
+              {/* Stored values are URLs, ids and tokens — keep them LTR. */}
+              <span
+                className='block max-w-[34rem] break-all font-mono text-foreground'
+                dir='ltr'
+                title={secret ? t('admin.settings.secretHidden') : v}
+              >
+                {secret ? masked(v) : v || '—'}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'copy',
+        header: () => t('admin.actions'),
+        size: 130,
+        enableSorting: false,
+        meta: { nowrap: true },
+        cell: ({ row }) => {
+          const secret = isSecretKey(row.original.key);
+          const id = `${row.original.source}:${row.original.key}`;
+          const done = copied === id;
+          return (
+            <Button
+              variant='flat'
+              color={done ? 'success' : 'default'}
+              onPress={() => copyValue(row.original)}
+              isDisabled={secret || !row.original.value}
+              startContent={
+                done ? <Check size={16} /> : <Copy size={16} />
+              }
+              title={
+                secret
+                  ? t('admin.settings.secretHidden')
+                  : t('admin.settings.copyValue')
+              }
+              aria-label={t('admin.settings.copyValue')}
+            >
+              {done ? t('admin.settings.copied') : t('settings.copy')}
+            </Button>
+          );
+        },
+      },
+    ],
+    [t, copied, copyValue]
+  );
 
-  const table = useReactTable({
-    data: filtered,
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageIndex: 0, pageSize } },
-  });
-
-  useEffect(() => { table.setPageSize(pageSize); }, [pageSize]);
-  useEffect(() => { table.setPageIndex(0); }, [q, sourceFilter]);
+  const isFiltered = !!q.trim() || sourceFilter !== 'all';
 
   return (
-    <div className="max-w-7xl mx-auto p-4">
-      {/* Header / Toolbar */}
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h3 className="text-xl font-semibold">{t('settings.title')}</h3>
-          <div className="text-sm font-medium text-default-600">{t('settings.subtitle')}</div>
-        </div>
-
-        <div className="w-full md:w-auto grid grid-cols-1 sm:grid-cols-[minmax(260px,420px)_160px_120px] gap-2">
-          <Input
-            aria-label={t('common.search')}
-            placeholder={t('settings.searchPlaceholder')}
+    <PageShell
+      title={t('settings.title')}
+      subtitle={t('settings.subtitle')}
+      count={loading || error ? undefined : filtered.length}
+      onRefresh={refresh}
+      refreshing={loading}
+      primaryAction={
+        <Chip color='warning' variant='flat' className='font-semibold'>
+          {t('admin.readOnly')}
+        </Chip>
+      }
+      filters={
+        <>
+          <SearchField
             value={q}
-            onChange={(e) => setQ((e.target as HTMLInputElement).value)}
-            size="sm"
+            onChange={setQ}
+            placeholder={t('settings.searchPlaceholder')}
           />
-          <select
-            className={fieldCls}
+          <FilterSelect
+            label={t('settings.filterBySource')}
             value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value as any)}
-            title={t('settings.filterBySource')}
-          >
-            <option value="all">{t('settings.allSources')}</option>
-            <option value="meta">{t('settings.sourceMeta')}</option>
-            <option value="server">{t('settings.sourceServer')}</option>
-          </select>
-          <Button variant="flat" onClick={refresh} isLoading={loading}>
-            {t('settings.refresh')}
+            onChange={(v) => setSourceFilter(v as typeof sourceFilter)}
+            options={[
+              { value: 'all', label: t('settings.allSources') },
+              { value: 'meta', label: t('settings.sourceMeta') },
+              { value: 'server', label: t('settings.sourceServer') },
+            ]}
+          />
+        </>
+      }
+    >
+      {/* Language lives here rather than behind a menu: shifts hand the till
+          over mid-service and the switch has to be findable in one look. */}
+      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
+        <CardBody className='gap-3'>
+          <div>
+            <h2 className='text-base font-bold text-foreground'>
+              {t('nav.language')}
+            </h2>
+            <p className='mt-0.5 text-sm font-medium text-default-600'>
+              {t('settings.languageHint')}
+            </p>
+          </div>
+          <div className='flex flex-wrap gap-2'>
+            {LANGS.map((l) => {
+              const current = l.code === lang;
+              return (
+                <Button
+                  key={l.code}
+                  color={current ? 'primary' : 'default'}
+                  variant={current ? 'solid' : 'flat'}
+                  onPress={() => setLang(l.code)}
+                  startContent={
+                    current ? <Check size={18} /> : <Languages size={18} />
+                  }
+                  className='font-semibold'
+                >
+                  <span lang={l.code}>{l.label}</span>
+                </Button>
+              );
+            })}
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* One source answered and the other faulted. The rows below are real but
+          incomplete, so this says so instead of letting a half-loaded page pass
+          for the whole picture. */}
+      {partial && !error && (
+        <div className='mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning bg-content1 p-3'>
+          <AlertTriangle size={20} className='shrink-0 text-warning' />
+          <div className='min-w-0 flex-1'>
+            <div className='text-sm font-bold text-warning'>
+              {t('admin.settings.partialLoad')}
+            </div>
+            <div className='mt-0.5 break-words text-sm font-medium text-default-700'>
+              {partial}
+            </div>
+          </div>
+          <Button color='warning' variant='flat' onPress={refresh}>
+            {t('common.retry')}
           </Button>
         </div>
+      )}
+
+      <DataState
+        loading={loading}
+        error={error}
+        onRetry={refresh}
+        empty={filtered.length === 0}
+        emptyTitle={
+          isFiltered ? t('settings.noRowsFiltered') : t('settings.noRowsFound')
+        }
+        emptyHint={isFiltered ? t('admin.clearFiltersHint') : undefined}
+      >
+        <DataTable
+          data={filtered}
+          columns={columns}
+          initialSorting={[{ id: 'key', desc: false }]}
+          getRowId={(r, i) => `${r.source}:${r.key}:${i}`}
+        />
+      </DataState>
+
+      <div className='mt-6 text-sm font-medium text-default-600'>
+        {t('settings.readOnlyNotice')}
       </div>
-
-      {/* Language */}
-      <section className="mb-4 rounded-xl border border-default-200 p-4">
-        <h4 className="text-sm font-semibold">{t('nav.language')}</h4>
-        <div className="mt-1 mb-3 text-xs font-medium text-default-600">
-          {t('settings.languageHint')}
-        </div>
-        <LanguageToggle />
-      </section>
-
-      {/* Table */}
-      <div className="overflow-auto rounded-xl border border-default-200">
-        <table className="w-full text-start text-sm table-fixed">
-          <thead className="bg-default-100 sticky top-0 z-10">
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((h) => (
-                  <th key={h.id} className="p-2 border-b border-default-200 text-start select-none">
-                    {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td className="p-6 opacity-70 text-center" colSpan={columns.length}>
-                  {q || sourceFilter !== 'all'
-                    ? t('settings.noRowsFiltered')
-                    : t('settings.noRowsFound')}
-                </td>
-              </tr>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="hover:bg-default-100">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-2 border-b border-default-200">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
-        <div className="text-default-600">
-          {t('settings.page')}{' '}
-          <strong>{table.getState().pagination.pageIndex + 1}</strong>{' '}
-          {t('settings.pageOf')} <strong>{table.getPageCount()}</strong> •{' '}
-          <span>{t('settings.rowCount', { n: filtered.length })}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-default-600">{t('settings.rowsPerPage')}</label>
-          <select className={fieldCls} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
-            {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          {/* Arrows point along the reading direction, so they mirror in RTL. */}
-          <button className={btnFlat} onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
-            <span className="inline-block flip-rtl">«</span> {t('settings.first')}
-          </button>
-          <button className={btnFlat} onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
-            <span className="inline-block flip-rtl">‹</span> {t('settings.prev')}
-          </button>
-          <button className={btnFlat} onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-            {t('settings.next')} <span className="inline-block flip-rtl">›</span>
-          </button>
-          <button className={btnFlat} onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>
-            {t('settings.last')} <span className="inline-block flip-rtl">»</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Read-only notice */}
-      <div className="mt-6 text-xs font-medium text-default-600">{t('settings.readOnlyNotice')}</div>
-    </div>
+    </PageShell>
   );
 }

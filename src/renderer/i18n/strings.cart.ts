@@ -224,4 +224,9 @@ export const cartStrings = {
   'pay.paid': { en: 'Paid', ar: 'تم الدفع' },
   'pay.failed': { en: 'Payment failed', ar: 'فشل الدفع' },
   'pay.awaiting': { en: 'Awaiting payment', ar: 'بانتظار الدفع' },
+  'pay.expired': { en: 'Link expired', ar: 'انتهت صلاحية الرابط' },
+  // "Collected", not "Paid": a closed counter sale means the till took the
+  // money, which is not the same claim as a payment provider confirming it.
+  'pay.collected': { en: 'Collected', ar: 'تم التحصيل' },
+  'pay.unpaid': { en: 'Unpaid', ar: 'غير مدفوع' },
 } as const;
