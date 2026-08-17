@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       # electron-builder's postinstall (install-app-deps) needs a full Electron
@@ -26,9 +26,9 @@ jobs:
       - name: Build
         run: npm run build
 
-  # Non-blocking on purpose: the repo carries a backlog of ~69 pre-existing
-  # type errors. This job makes the number visible so it can be driven down;
-  # flip `continue-on-error` off once it reaches zero.
+  # Non-blocking on purpose: the repo carries a backlog of pre-existing type
+  # errors (82 at 8688c0e, 64 now). This job makes the number visible so it can
+  # be driven down; flip `continue-on-error` off once it reaches zero.
   typecheck:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
