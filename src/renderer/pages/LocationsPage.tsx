@@ -128,9 +128,12 @@ export default function LocationsPage() {
     setError(null);
     try {
       const [statesData, citiesData, blocksData] = await Promise.all([
-        window.api.invoke('geo:listStates'),
-        window.api.invoke('geo:listCities'),
-        window.api.invoke('geo:listBlocks'),
+        // Admin is the one caller that wants disabled areas: a disabled area
+        // is exactly what someone is looking for when they ask why an address
+        // cannot be selected on the till.
+        window.api.invoke('geo:listStates', { includeInactive: true }),
+        window.api.invoke('geo:listCities', { includeInactive: true }),
+        window.api.invoke('geo:listBlocks', { includeInactive: true }),
       ]);
       setStates(statesData || []);
       setCities(citiesData || []);
