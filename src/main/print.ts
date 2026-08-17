@@ -1197,12 +1197,19 @@ export function registerLocalPrintHandlers() {
         order.branch_phone ||
         null;
 
-      const qrText = order.order_number || order.number || String(order.id);
-      const qrDataUrl = await makeQrPngDataUrl(qrText);
+      // Everything scannable on the receipt must carry the same number the
+      // header prints, which is the server's reference once it exists. The
+      // barcode was encoding order.id — the local row — so a slip could show
+      // one number to the customer and a different one to a scanner.
+      const scanRef = order.reference_no
+        ? String(order.reference_no)
+        : order.order_number || order.number || String(order.id);
+
+      const qrDataUrl = await makeQrPngDataUrl(scanRef);
 
       const codeText = `${(getSetting('gps.username') || 'XXX')
         .toString()
-        .slice(0, 3)}${order.id}`;
+        .slice(0, 3)}${scanRef}`;
       const barcodeDataUrl = await makeCode128PngDataUrl(codeText);
 
       const html = renderReceiptHTML({
