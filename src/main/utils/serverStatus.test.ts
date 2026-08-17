@@ -3,6 +3,7 @@ import {
   SERVER_STATUS,
   pushStatusForLocal,
   isTerminalServerStatus,
+  safePushStatus,
 } from './serverStatus';
 
 describe('pushStatusForLocal', () => {
@@ -46,5 +47,50 @@ describe('isTerminalServerStatus', () => {
 
   it('leaves the working statuses editable', () => {
     for (const c of [0, 1, 2, 3, 7]) expect(isTerminalServerStatus(c)).toBe(false);
+  });
+});
+
+describe('safePushStatus — the server owns status', () => {
+  const S = SERVER_STATUS;
+
+  it('never drags a delivered order back to received', () => {
+    // The scenario: an order is marked done on the dashboard, then the cashier
+    // changes its payment method on the till. That re-queues a push, which
+    // would otherwise resend the local `placed` and un-deliver it.
+    expect(safePushStatus('placed', S.DONE)).toBe(S.DONE);
+    expect(safePushStatus('open', S.DONE)).toBe(S.DONE);
+    expect(safePushStatus('prepared', S.DONE)).toBe(S.DONE);
+  });
+
+  it('never revives a cancelled or rejected order', () => {
+    for (const terminal of [
+      S.CANCELLED_CLIENT,
+      S.CANCELLED_ADMIN,
+      S.REJECTED_AUTO,
+      S.REJECTED,
+    ]) {
+      for (const local of ['open', 'placed', 'prepared', 'ready', 'closed']) {
+        expect(safePushStatus(local, terminal)).toBe(terminal);
+      }
+    }
+  });
+
+  it('still lets the till move an order forward', () => {
+    expect(safePushStatus('prepared', S.RECEIVED)).toBe(S.PREPARING);
+    expect(safePushStatus('ready', S.PREPARING)).toBe(S.READY);
+    expect(safePushStatus('closed', S.READY)).toBe(S.DONE);
+    expect(safePushStatus('closed', S.AWAITING_PICKUP)).toBe(S.DONE);
+  });
+
+  it('treats awaiting-pickup as level with ready, not beyond done', () => {
+    // 7 is numerically above 4 but is not further along; closing must still win.
+    expect(safePushStatus('closed', S.AWAITING_PICKUP)).toBe(S.DONE);
+    expect(safePushStatus('prepared', S.AWAITING_PICKUP)).toBe(S.AWAITING_PICKUP);
+  });
+
+  it('uses the local status when the order has never synced', () => {
+    for (const unknown of [null, undefined, '', NaN]) {
+      expect(safePushStatus('prepared', unknown)).toBe(S.PREPARING);
+    }
   });
 });

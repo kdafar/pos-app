@@ -114,3 +114,57 @@ export function pushStatusForLocal(localStatus: string): number {
       return SERVER_STATUS.RECEIVED; // 1
   }
 }
+
+/**
+ * How far through its life a status is.
+ *
+ * Not the raw integer: 7 (awaiting pickup) sits alongside 3 (ready) rather than
+ * after 4 (done), and the cancelled/rejected codes are not "further along" than
+ * anything — they are simply final.
+ */
+function progressRank(code: number): number {
+  if (TERMINAL_SERVER_STATUSES.includes(code) && code !== SERVER_STATUS.DONE) {
+    return 99; // cancelled or rejected — nothing may move it
+  }
+  switch (code) {
+    case SERVER_STATUS.PENDING:
+      return 0;
+    case SERVER_STATUS.RECEIVED:
+      return 1;
+    case SERVER_STATUS.PREPARING:
+      return 2;
+    case SERVER_STATUS.READY:
+    case SERVER_STATUS.AWAITING_PICKUP:
+      return 3;
+    case SERVER_STATUS.DONE:
+      return 4;
+    default:
+      return 1;
+  }
+}
+
+/**
+ * The status this till may safely push, given what the server last told us.
+ *
+ * The server is the truth for status. An order can be advanced from the
+ * dashboard — marked preparing, delivered, or cancelled — while the till still
+ * holds whatever it last set locally. Several ordinary till actions re-queue an
+ * order for push (closing it, changing its payment method, editing the delivery
+ * fee), and each of those would otherwise resend the local status and drag the
+ * order backwards: a delivered order returned to "received", or a cancelled one
+ * quietly revived.
+ *
+ * So a push may move an order forward, never back. When the server is already
+ * at or beyond where the till thinks it is, the till echoes the server's own
+ * code — a no-op — rather than asserting its own.
+ */
+export function safePushStatus(
+  localStatus: string,
+  serverCode: unknown
+): number {
+  const local = pushStatusForLocal(localStatus);
+  const server = Number(serverCode);
+  if (!Number.isFinite(server)) return local; // never synced; nothing to protect
+
+  return progressRank(server) >= progressRank(local) ? server : local;
+}

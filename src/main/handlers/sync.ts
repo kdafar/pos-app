@@ -10,7 +10,7 @@ import db, {
   clearPosLock,
 } from '../db';
 import { PUSHABLE_STATUSES, sqlList } from '../utils/orderStatus';
-import { pushStatusForLocal } from '../utils/serverStatus';
+import { safePushStatus } from '../utils/serverStatus';
 import { loadSecret } from '../secureStore';
 import { readOrCreateMachineId } from '../machineId';
 import {
@@ -75,9 +75,12 @@ function safeBuildOrderPayload(orderId: string) {
     number: o.number,
     device_id: o.device_id,
     branch_id: o.branch_id,
-    // Sent as a whitelisted code (1,2,3,4,7). Ignored by the server until its
-    // wave-two change lands, then honoured with no client release needed.
-    status: pushStatusForLocal(o.status),
+    // Sent as a whitelisted code (1,2,3,4,7). The server is the truth for
+    // status, so this may only ever move an order forward: several ordinary
+    // till actions re-queue a push (close, payment-method change, delivery-fee
+    // edit), and each would otherwise resend a stale local status over one the
+    // dashboard had already advanced.
+    status: safePushStatus(o.status, o.status_code),
     local_status: o.status,
     order_type: o.order_type,
     payments,
