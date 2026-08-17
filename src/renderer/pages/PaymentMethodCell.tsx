@@ -26,13 +26,11 @@ type Method = {
 export function PaymentMethodCell({
   orderId,
   slug,
-  theme,
   disabled = false,
   onChanged,
 }: {
   orderId: string;
   slug?: string | null;
-  theme: 'light' | 'dark';
   disabled?: boolean;
   onChanged?: () => void;
 }) {
@@ -78,8 +76,6 @@ export function PaymentMethodCell({
     }
   };
 
-  const dark = theme === 'dark';
-
   return (
     <select
       value={methods.find((m) => m.slug === current)?.id ?? ''}
@@ -89,9 +85,7 @@ export function PaymentMethodCell({
       className={`w-full max-w-[8.5rem] h-8 px-2 rounded-md text-xs outline-none transition
         disabled:opacity-50 disabled:cursor-not-allowed
         focus:ring-2 focus:ring-sky-500/40 ${
-          dark
-            ? 'bg-white/10 text-slate-100 border border-white/15'
-            : 'bg-white text-gray-800 border border-gray-300'
+          'bg-default-200 text-foreground border border-default-200'
         }`}
     >
       {/* Shown when the order has no method, or one the catalogue lost. */}

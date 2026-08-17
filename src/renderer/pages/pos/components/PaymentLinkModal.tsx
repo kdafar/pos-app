@@ -43,8 +43,8 @@ export function PaymentLinkModal({
 
   const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const muted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
-  const border = theme === 'dark' ? 'border-white/10' : 'border-gray-200';
+  const muted = 'text-default-500';
+  const border = 'border-default-200';
 
   useEffect(() => {
     let cancelled = false;
@@ -123,9 +123,7 @@ export function PaymentLinkModal({
             onClick={onClose}
             aria-label={t('common.close')}
             className={`rounded-full p-1.5 ${
-              theme === 'dark'
-                ? 'hover:bg-white/10 text-slate-300'
-                : 'hover:bg-gray-100 text-gray-600'
+              'hover:bg-default-200 text-default-600'
             }`}
           >
             <X size={18} />
@@ -145,7 +143,7 @@ export function PaymentLinkModal({
             ) : (
               <div
                 className={`w-56 h-56 rounded-lg flex items-center justify-center text-xs ${muted} ${
-                  theme === 'dark' ? 'bg-white/5' : 'bg-gray-100'
+                  'bg-default-100'
                 }`}
               >
                 {t('common.loading')}
@@ -155,7 +153,7 @@ export function PaymentLinkModal({
 
           <div
             className={`text-[11px] break-all rounded-lg px-3 py-2 ${muted} ${
-              theme === 'dark' ? 'bg-white/5' : 'bg-gray-50'
+              'bg-default-100'
             }`}
             dir='ltr'
           >
@@ -166,9 +164,7 @@ export function PaymentLinkModal({
             <button
               onClick={copy}
               className={`h-10 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${
-                theme === 'dark'
-                  ? 'bg-white/10 hover:bg-white/20 text-white'
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
+                'bg-default-200 hover:bg-default-300 text-white'
               }`}
             >
               {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -199,9 +195,7 @@ export function PaymentLinkModal({
               className={`w-full h-10 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${
                 status === 'paid'
                   ? 'bg-emerald-600 text-white'
-                  : theme === 'dark'
-                  ? 'bg-white/5 hover:bg-white/10 text-slate-200'
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
+                  : 'bg-default-100 hover:bg-default-200 text-foreground'
               } disabled:opacity-50`}
             >
               <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />

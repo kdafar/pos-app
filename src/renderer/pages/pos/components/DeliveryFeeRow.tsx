@@ -21,7 +21,6 @@ export function DeliveryFeeRow({
   value,
   isManual,
   isWaived,
-  theme,
   editable = true,
   onChanged,
 }: {
@@ -29,7 +28,6 @@ export function DeliveryFeeRow({
   value: number;
   isManual?: boolean;
   isWaived?: boolean;
-  theme: 'light' | 'dark';
   editable?: boolean;
   onChanged?: () => void | Promise<void>;
 }) {
@@ -42,9 +40,7 @@ export function DeliveryFeeRow({
   useEffect(() => {
     if (!editing) setDraft(String(value ?? 0));
   }, [value, editing]);
-
-  const dark = theme === 'dark';
-  const muted = dark ? 'text-slate-400' : 'text-gray-500';
+  const muted = 'text-default-500';
 
   const apply = async (mode: 'auto' | 'manual' | 'none', amount?: number) => {
     setBusy(true);
@@ -74,9 +70,7 @@ export function DeliveryFeeRow({
   };
 
   const btn = `h-8 px-2 rounded-md text-xs font-medium transition disabled:opacity-40 ${
-    dark
-      ? 'bg-white/10 hover:bg-white/20 text-slate-100'
-      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+    'bg-default-200 hover:bg-default-300 text-foreground'
   }`;
 
   if (editing) {
@@ -102,9 +96,7 @@ export function DeliveryFeeRow({
             }}
             className={`money w-24 h-8 px-2 rounded-md text-sm text-end outline-none
               focus:ring-2 focus:ring-blue-500/40 ${
-                dark
-                  ? 'bg-white/10 border border-white/15 text-white'
-                  : 'bg-white border border-gray-300 text-gray-900'
+                'bg-default-200 border border-default-200 text-white'
               }`}
           />
           <button
@@ -171,7 +163,7 @@ export function DeliveryFeeRow({
           </span>
         )}
       </span>
-      <span className={`money text-[13px] ${dark ? 'text-slate-200' : 'text-gray-800'}`}>
+      <span className={`money text-[13px] ${'text-foreground'}`}>
         {money(value)}
       </span>
       {editable && (
@@ -180,7 +172,7 @@ export function DeliveryFeeRow({
           onClick={() => setEditing(true)}
           title={t('cart.editDeliveryFee')}
           className={`shrink-0 rounded-md p-1 ${
-            dark ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-gray-100 text-gray-500'
+            'hover:bg-default-200 text-default-500'
           }`}
         >
           <Pencil size={13} />

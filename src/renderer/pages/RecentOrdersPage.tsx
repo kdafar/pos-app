@@ -65,7 +65,7 @@ function useServerStatusLabel() {
 /**
  * Status tone per server status code.
  *
- * These were hardcoded dark-theme classes — text-blue-300 and friends on a
+ * These were hardcoded dark-theme classes — text-primary and friends on a
  * /15 tint. Pale-300 ink is built to sit on a dark surface; on the light theme
  * it renders near-white on near-white, which is how "Open" and "Picked up"
  * became unreadable the moment light became the default.
@@ -213,16 +213,16 @@ export default function TodayOrdersReport() {
 
   // ---- tiny UI helpers so all fields/buttons look identical (dark & light) ----
   const fieldCls =
-    'h-10 px-3 rounded-lg bg-white/5 dark:bg-white/5 border border-white/10 ' +
+    'h-10 px-3 rounded-lg bg-default-100 dark:bg-white/5 border border-default-200 ' +
     'text-sm outline-none focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
   const btnCls =
-    'h-10 px-3 rounded-lg border border-white/10 text-sm hover:bg-white/10 transition ' +
+    'h-10 px-3 rounded-lg border border-default-200 text-sm hover:bg-default-200 transition ' +
     'disabled:opacity-50 disabled:cursor-not-allowed';
 
   // small button style for row actions
   const rowBtnCls =
-    'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-white/15 ' +
-    'text-xs hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed';
+    'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-default-200 ' +
+    'text-xs hover:bg-default-200 disabled:opacity-50 disabled:cursor-not-allowed';
 
   /* ---------------- Auth: who am I? (mirror Layout logic) ---------------- */
   const [user, setUser] = useState<PosUser | null>(null);
@@ -475,7 +475,6 @@ export default function TodayOrdersReport() {
             <PaymentMethodCell
               orderId={String(row.original.id)}
               slug={(row.original as any).payment_method_slug}
-              theme={theme}
               onChanged={refresh}
             />
           ) : (

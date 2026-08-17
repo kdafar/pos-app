@@ -122,13 +122,11 @@ export default function CatalogPanel({
   }, [safeSubs, selCat]);
 
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-  const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
+  const border = 'border-default-100';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
+  const textMuted = 'text-default-500';
   const inputBg =
-    theme === 'dark'
-      ? 'bg-white/5 border-white/10'
-      : 'bg-white border-gray-300';
+    'bg-default-100 border-default-200';
 
   const imgSrcFor = (it: Pick<Item, 'image' | 'image_local' | 'name'>) => {
     const local = it.image_local ? fileUrl(it.image_local) : null;
@@ -169,7 +167,7 @@ export default function CatalogPanel({
           {isSearching && (
             <div
               className={`mb-1.5 text-[11px] ${
-                theme === 'dark' ? 'text-slate-400' : 'text-gray-500'
+                'text-default-500'
               }`}
             >
               {t('pos.searchAllCategories')}
@@ -188,12 +186,8 @@ export default function CatalogPanel({
               }}
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                 !selCat && !isSearching
-                  ? theme === 'dark'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-primary text-primary-foreground'
-                  : theme === 'dark'
-                  ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-default-100 text-default-600 hover:bg-default-200 border border-default-200'
               }`}
             >
               {t('pos.categories')}
@@ -215,12 +209,8 @@ export default function CatalogPanel({
                 }}
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                   selCat === String(cat.id) && !isSearching
-                    ? theme === 'dark'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-primary text-primary-foreground'
-                    : theme === 'dark'
-                    ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-default-100 text-default-600 hover:bg-default-200 border border-default-200'
                 }`}
               >
                 {localName(cat)}
@@ -244,12 +234,8 @@ export default function CatalogPanel({
               }}
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                 !selectedSubcategoryId && !isSearching
-                  ? theme === 'dark'
-                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                    : 'bg-blue-100 text-blue-700 border-blue-300'
-                  : theme === 'dark'
-                  ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                  ? 'bg-blue-500/20 text-primary border border-blue-500/30'
+                  : 'bg-default-100 text-default-600 hover:bg-default-200 border border-default-200'
               }`}
             >
               {t('common.all')}
@@ -268,12 +254,8 @@ export default function CatalogPanel({
                 }}
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                   selectedSubcategoryId === String(sub.id) && !isSearching
-                    ? theme === 'dark'
-                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                      : 'bg-blue-100 text-blue-700 border-blue-300'
-                    : theme === 'dark'
-                    ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                    ? 'bg-blue-500/20 text-primary border border-blue-500/30'
+                    : 'bg-default-100 text-default-600 hover:bg-default-200 border border-default-200'
                 }`}
               >
                 {localName(sub)}
@@ -309,9 +291,7 @@ export default function CatalogPanel({
         {typeof totalItems === 'number' && totalItems > items.length && (
           <div
             className={`mx-3 mb-3 rounded-lg px-3 py-2 text-[11px] ${
-              theme === 'dark'
-                ? 'bg-amber-500/10 text-amber-200 border border-amber-500/30'
-                : 'bg-amber-50 text-amber-800 border border-amber-200'
+              'bg-amber-500/10 text-warning border border-amber-500/30'
             }`}
           >
             {t('pos.showingOf', { shown: items.length, total: totalItems })}

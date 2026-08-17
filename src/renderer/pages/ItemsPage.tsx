@@ -140,13 +140,13 @@ export function ItemsPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-white/10 overflow-hidden">
+      <div className="rounded-xl border border-default-200 overflow-hidden">
         <table className="w-full text-start">
-          <thead className="bg-white/5">
+          <thead className="bg-default-100">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
-                  <th key={h.id} className="p-3 border-b border-white/10 text-start">
+                  <th key={h.id} className="p-3 border-b border-default-200 text-start">
                     {h.isPlaceholder
                       ? null
                       : flexRender(h.column.columnDef.header, h.getContext())}
@@ -164,9 +164,9 @@ export function ItemsPage() {
               </tr>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="hover:bg-white/5">
+                <tr key={row.id} className="hover:bg-default-100">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-3 border-b border-white/10 text-start">
+                    <td key={cell.id} className="p-3 border-b border-default-200 text-start">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}

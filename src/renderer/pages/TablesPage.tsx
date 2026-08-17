@@ -272,7 +272,7 @@ function TablesPage() {
               className={`px-3 py-1.5 text-sm rounded-md ${
                 statusFilter === k
                   ? 'bg-blue-600 text-white'
-                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-default-200'
               }`}
             >
               {k === 'all' ? t('common.all') : t(STATUS_KEY[k])}

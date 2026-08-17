@@ -27,10 +27,10 @@ export function CommandSelect({
   const selected = options.find(o => o.id === value);
 
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const labelCls = theme === 'dark' ? 'text-slate-300' : 'text-gray-700';
-  const border = theme === 'dark' ? 'border-white/10' : 'border-gray-300';
-  const surface = theme === 'dark' ? 'bg-white/5' : 'bg-white';
-  const hover = theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-gray-100';
+  const labelCls = 'text-default-600';
+  const border = 'border-default-200';
+  const surface = 'bg-default-100';
+  const hover = 'hover:bg-default-200';
 
   return (
     <div>

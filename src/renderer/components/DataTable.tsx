@@ -60,15 +60,13 @@ export function DataTable<T>({
   const [size, setSize] = useState(pageSize);
 
   const dark = theme === 'dark';
-  const border = dark ? 'border-white/10' : 'border-gray-200';
+  const border = 'border-default-200';
   const headBg = dark ? 'bg-slate-800/90' : 'bg-gray-50';
-  const rowHover = dark ? 'hover:bg-white/5' : 'hover:bg-gray-50';
-  const muted = dark ? 'text-slate-400' : 'text-gray-500';
+  const rowHover = 'hover:bg-default-100';
+  const muted = 'text-default-500';
   const ctl = `h-9 px-3 rounded-lg border text-sm transition disabled:opacity-40
     disabled:cursor-not-allowed ${
-      dark
-        ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-100'
-        : 'bg-white border-gray-300 hover:bg-gray-50 text-gray-800'
+      'bg-default-100 border-default-200 hover:bg-default-200 text-foreground'
     }`;
 
   const table = useReactTable({

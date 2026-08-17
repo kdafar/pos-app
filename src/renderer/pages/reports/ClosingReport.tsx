@@ -157,8 +157,8 @@ export default function ClosingReport() {
   const cardBase = isDark
     ? 'bg-slate-800 border-slate-700'
     : 'bg-white border-gray-200';
-  const textMain = isDark ? 'text-slate-100' : 'text-slate-900';
-  const textMuted = isDark ? 'text-slate-400' : 'text-slate-500';
+  const textMain = isDark ? 'text-foreground' : 'text-slate-900';
+  const textMuted = isDark ? 'text-default-500' : 'text-slate-500';
   const pageBg = isDark ? 'bg-slate-950' : 'bg-slate-50';
 
   const loadReport = async (opts?: { from?: number; to?: number }) => {
@@ -218,7 +218,7 @@ export default function ClosingReport() {
       <table className='w-full text-sm text-start'>
         <thead
           className={`text-xs uppercase ${
-            isDark ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-600'
+            isDark ? 'bg-slate-700 text-default-600' : 'bg-gray-100 text-gray-600'
           }`}
         >
           <tr>
@@ -297,7 +297,7 @@ export default function ClosingReport() {
       <table className='w-full text-sm text-start'>
         <thead
           className={`text-xs uppercase ${
-            isDark ? 'bg-slate-700 text-slate-300' : 'bg-gray-100 text-gray-600'
+            isDark ? 'bg-slate-700 text-default-600' : 'bg-gray-100 text-gray-600'
           }`}
         >
           <tr>

@@ -40,9 +40,7 @@ export function PaymentBadge({
     },
     pending: {
       label: t('pay.awaiting'),
-      cls: dark
-        ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
-        : 'bg-amber-50 text-amber-800 border-amber-300',
+      cls: 'bg-amber-500/15 text-warning border-amber-500/40',
       Icon: Clock,
     },
     failed: {
@@ -56,9 +54,7 @@ export function PaymentBadge({
 
   const v = variants[s] ?? {
     label: status as string,
-    cls: dark
-      ? 'bg-white/5 text-slate-300 border-white/15'
-      : 'bg-gray-50 text-gray-700 border-gray-300',
+    cls: 'bg-default-100 text-default-600 border-default-200',
     Icon: CreditCard,
   };
 

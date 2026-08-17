@@ -32,10 +32,10 @@ type Promo = {
 
 /* ================= Utils ================= */
 const fieldCls =
-  'h-10 px-3 rounded-lg bg-white/5 border border-white/10 text-sm outline-none ' +
+  'h-10 px-3 rounded-lg bg-default-100 border border-default-200 text-sm outline-none ' +
   'focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
 const btnCls =
-  'h-10 px-3 rounded-lg border border-white/10 text-sm hover:bg-white/10 transition ' +
+  'h-10 px-3 rounded-lg border border-default-200 text-sm hover:bg-default-200 transition ' +
   'disabled:opacity-50 disabled:cursor-not-allowed';
 
 function parseBool(v: any): boolean {
@@ -89,16 +89,16 @@ function StatusBadge({ promo }: { promo: Promo }) {
   let cls = 'px-2 py-0.5 rounded text-xs border';
   if (!enabled) {
     label = t('admin.disabled');
-    cls += ' border-white/10 text-slate-400';
+    cls += ' border-default-200 text-default-500';
   } else if (windowState === 'active-now') {
     label = t('admin.promos.statusActive');
-    cls += ' border-emerald-400/40 text-emerald-300';
+    cls += ' border-emerald-400/40 text-success';
   } else if (windowState === 'upcoming') {
     label = t('admin.promos.upcoming');
-    cls += ' border-amber-400/40 text-amber-300';
+    cls += ' border-amber-400/40 text-warning';
   } else {
     label = t('admin.promos.expired');
-    cls += ' border-rose-400/40 text-rose-300';
+    cls += ' border-rose-400/40 text-danger';
   }
   return <span className={cls}>{label}</span>;
 }
@@ -296,16 +296,16 @@ export default function PromosPage() {
       </div>
 
       {/* Table */}
-      <div className="overflow-auto rounded-xl border border-white/10">
+      <div className="overflow-auto rounded-xl border border-default-200">
         <table className="w-full text-start">
-          <thead className="bg-white/5">
+          <thead className="bg-default-100">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
                   <th
                     key={h.id}
                     onClick={h.column.getToggleSortingHandler()}
-                    className="p-2 border-b border-white/10 text-start cursor-pointer select-none"
+                    className="p-2 border-b border-default-200 text-start cursor-pointer select-none"
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
                     {({ asc: ' 🔼', desc: ' 🔽' } as any)[h.column.getIsSorted() as string] ?? null}
@@ -325,7 +325,7 @@ export default function PromosPage() {
               table.getRowModel().rows.map((row) => {
                 const faded = !isEnabled(row.original) || timeWindowState(row.original) === 'expired';
                 return (
-                  <tr key={row.id} className={`border-b border-white/10 ${faded ? 'opacity-70' : ''} hover:bg-white/5`}>
+                  <tr key={row.id} className={`border-b border-default-200 ${faded ? 'opacity-70' : ''} hover:bg-default-100`}>
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}

@@ -218,13 +218,13 @@ export function AddonsPage() {
         </div>
 
         <input
-          className='px-3 py-2 rounded-lg border border-white/10 bg-transparent text-sm mb-2'
+          className='px-3 py-2 rounded-lg border border-default-200 bg-transparent text-sm mb-2'
           placeholder={t('admin.addons.searchItems')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
 
-        <div className='flex-1 min-h-0 overflow-auto rounded-xl border border-white/10'>
+        <div className='flex-1 min-h-0 overflow-auto rounded-xl border border-default-200'>
           {itemsLoading ? (
             <div className='p-3 text-sm font-medium text-default-600'>
               {t('admin.addons.loadingItems')}
@@ -245,7 +245,7 @@ export function AddonsPage() {
                       'w-full text-start flex gap-3 p-2.5 items-center transition ' +
                       (isActive
                         ? 'bg-blue-500/20 border-s-2 border-blue-400'
-                        : 'hover:bg-white/5')
+                        : 'hover:bg-default-100')
                     }
                   >
                     <div className='rounded-lg overflow-hidden bg-black/30 shrink-0'>
@@ -265,7 +265,7 @@ export function AddonsPage() {
                         {altName(it)}
                       </div>
                       <div className='mt-1 flex items-center gap-1 text-[11px]'>
-                        <span className='inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/40'>
+                        <span className='inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-success border border-emerald-500/40'>
                           {t('admin.addons.hasAddons')}
                         </span>
                       </div>
@@ -281,7 +281,7 @@ export function AddonsPage() {
       {/* RIGHT: Selected item + addon groups & addons */}
       <div className='flex flex-col gap-4'>
         {/* Selected item header */}
-        <div className='rounded-xl border border-white/10 p-4'>
+        <div className='rounded-xl border border-default-200 p-4'>
           {selectedItem ? (
             <div className='flex gap-4 items-center'>
               <div className='rounded-lg overflow-hidden bg-black/30 shrink-0 w-20 h-20 flex items-center justify-center'>
@@ -301,10 +301,10 @@ export function AddonsPage() {
                   {altName(selectedItem)}
                 </div>
                 <div className='mt-2 flex items-center gap-2 text-xs opacity-80'>
-                  <span className='inline-flex items-center px-2 py-0.5 rounded-full bg-white/5'>
+                  <span className='inline-flex items-center px-2 py-0.5 rounded-full bg-default-100'>
                     ID: <span className='money'>{selectedItem.id}</span>
                   </span>
-                  <span className='inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/40'>
+                  <span className='inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-500/15 text-success border border-emerald-500/40'>
                     {t('admin.addons.hasGroups')}
                   </span>
                 </div>
@@ -318,7 +318,7 @@ export function AddonsPage() {
         </div>
 
         {/* Addon groups + addons */}
-        <div className='rounded-xl border border-white/10 p-4 min-h-[260px]'>
+        <div className='rounded-xl border border-default-200 p-4 min-h-[260px]'>
           <div className='flex items-center justify-between mb-3'>
             <h4 className='font-semibold text-base'>
               {t('admin.addons.groupsTitle')}
@@ -343,7 +343,7 @@ export function AddonsPage() {
                 return (
                   <div
                     key={g.id}
-                    className='rounded-lg border border-white/10 p-3 bg-white/2'
+                    className='rounded-lg border border-default-200 p-3 bg-default-50'
                   >
                     <div className='flex items-center justify-between gap-2 mb-1.5'>
                       <div>
@@ -376,7 +376,7 @@ export function AddonsPage() {
                         {t('admin.addons.noneInGroup')}
                       </div>
                     ) : (
-                      <div className='mt-2 border-t border-white/5 pt-2 space-y-1.5'>
+                      <div className='mt-2 border-t border-default-100 pt-2 space-y-1.5'>
                         {list.map((a) => (
                           <div
                             key={a.id}

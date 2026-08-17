@@ -34,7 +34,7 @@ function Row({
   value: string;
   theme: 'light' | 'dark';
 }) {
-  const textMuted = theme === 'dark' ? 'text-slate-300' : 'text-gray-600';
+  const textMuted = 'text-default-600';
 
   return (
     <div className={`flex justify-between ${textMuted}`}>
@@ -414,14 +414,12 @@ export function CheckoutModal({
   };
 
   const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
-  const border = theme === 'dark' ? 'border-white/10' : 'border-gray-200';
+  const border = 'border-default-200';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = theme === 'dark' ? 'text-slate-300' : 'text-gray-600';
+  const textMuted = 'text-default-600';
   const inputBg =
-    theme === 'dark'
-      ? 'bg-white/5 border-white/10'
-      : 'bg-white border-gray-300';
-  const label = theme === 'dark' ? 'text-slate-300' : 'text-gray-700';
+    'bg-default-100 border-default-200';
+  const label = 'text-default-600';
 
   // Promo quick apply
   const [showPromo, setShowPromo] = useState(false);
@@ -440,9 +438,7 @@ export function CheckoutModal({
               type='button'
               onClick={() => setShowPromo(true)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
-                theme === 'dark'
-                  ? 'bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10'
-                  : 'bg-gray-100 border border-gray-300 text-gray-700 hover:bg-gray-200'
+                'bg-default-100 border border-default-200 text-default-600 hover:bg-default-200'
               }`}
             >
               <Percent size={14} /> {t('promo.short')}
@@ -455,12 +451,8 @@ export function CheckoutModal({
                 flex items-center gap-1 border transition-colors
                 ${
                   useQuickMode
-                    ? theme === 'dark'
-                      ? 'bg-amber-500/20 text-amber-200 border-amber-400/60'
-                      : 'bg-amber-50 text-amber-700 border-amber-300'
-                    : theme === 'dark'
-                    ? 'bg-transparent text-slate-300 border-white/15 hover:bg-white/5'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                    ? 'bg-amber-500/20 text-warning border-amber-400/60'
+                    : 'bg-transparent text-default-600 border-default-200 hover:bg-default-100'
                 }
               `}
             >
@@ -475,9 +467,7 @@ export function CheckoutModal({
             <button
               onClick={onClose}
               className={
-                theme === 'dark'
-                  ? 'text-slate-400 hover:text-white'
-                  : 'text-gray-400 hover:text-gray-900'
+                'text-default-500 hover:text-white'
               }
             >
               <X size={22} />
@@ -537,7 +527,7 @@ export function CheckoutModal({
             {customerLookup && (
               <div
                 className={`mt-2 flex items-center gap-2 text-xs ${
-                  theme === 'dark' ? 'text-green-300' : 'text-green-700'
+                  'text-success'
                 }`}
               >
                 <UserCheck size={14} />
@@ -774,9 +764,7 @@ export function CheckoutModal({
                         ? theme === 'dark'
                           ? 'border-blue-400 bg-blue-500/10'
                           : 'border-blue-500 bg-blue-50'
-                        : theme === 'dark'
-                        ? 'border-white/10 bg-white/5 hover:bg-white/10'
-                        : 'border-gray-300 bg-white hover:bg-gray-50'
+                        : 'border-default-200 bg-default-100 hover:bg-default-200'
                     }`}
                   >
                     <input
@@ -811,9 +799,7 @@ export function CheckoutModal({
           {/* Summary (uses live displayDeliveryFee) */}
           <div
             className={`p-3 rounded-lg border ${
-              theme === 'dark'
-                ? 'bg-white/5 border-white/10'
-                : 'bg-gray-50 border-gray-200'
+              'bg-default-100 border-default-200'
             } space-y-1.5`}
           >
             <Row
@@ -834,7 +820,6 @@ export function CheckoutModal({
                 value={computeDisplayTotals().delivery}
                 isManual={Number((order as any).delivery_fee_manual) === 1}
                 isWaived={Number((order as any).void_delivery_fee) === 1}
-                theme={theme}
                 onChanged={async () => {
                   const fresh = await window.api.invoke('orders:get', order.id);
                   const fee = Number(fresh?.order?.delivery_fee ?? 0);
@@ -846,13 +831,13 @@ export function CheckoutModal({
               className={`flex justify-between text-[15px] font-bold ${
                 theme === 'dark' ? 'text-white' : 'text-gray-900'
               } pt-2 border-t ${
-                theme === 'dark' ? 'border-white/10' : 'border-gray-200'
+                'border-default-200'
               }`}
             >
               <span>{t('common.total')}</span>
               <span
                 className={`money ${
-                  theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
+                  'text-primary'
                 }`}
               >
                 {money(computeDisplayTotals().grand_total)}
@@ -861,7 +846,7 @@ export function CheckoutModal({
             {order.order_type === 1 && selectedCity?.min_order > 0 && (
               <div
                 className={`text-xs ${
-                  theme === 'dark' ? 'text-amber-300' : 'text-amber-700'
+                  'text-warning'
                 }`}
               >
                 {t('checkout.minOrder', { city: localName(selectedCity) })}{' '}
@@ -876,9 +861,7 @@ export function CheckoutModal({
               type='button'
               onClick={onClose}
               className={`flex-1 px-4 py-2.5 rounded-lg border font-medium ${
-                theme === 'dark'
-                  ? 'border-white/10 bg-white/5 text-white hover:bg-white/10'
-                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                'border-default-200 bg-default-100 text-white hover:bg-default-200'
               }`}
             >
               {t('common.cancel')}
@@ -886,9 +869,7 @@ export function CheckoutModal({
             <button
               type='submit'
               className={`flex-1 px-4 py-2.5 rounded-lg font-medium ${
-                theme === 'dark'
-                  ? 'bg-success text-success-foreground'
-                  : 'bg-success text-success-foreground'
+                'bg-success text-success-foreground'
               }`}
             >
               {t('cart.placeOrder')}

@@ -6,11 +6,9 @@ import { useI18n, useOrderTypeLabel } from '../../../i18n';
 export function OrderTypePicker({
   value,
   onChange,
-  theme,
 }: {
   value: OrderType;
   onChange: (t: OrderType) => void;
-  theme: 'light' | 'dark';
 }) {
   const { t: _t } = useI18n();
   const label = useOrderTypeLabel();
@@ -20,13 +18,9 @@ export function OrderTypePicker({
     { k: 2 as const, label: label(2), icon: '🛍️' },
     { k: 3 as const, label: label(3), icon: '🍽️' },
   ];
-  const bg = theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-gray-100 border-gray-300';
-  const activeBtn = theme === 'dark'
-    ? 'bg-primary text-primary-foreground'
-    : 'bg-primary text-primary-foreground';
-  const inactiveBtn = theme === 'dark'
-    ? 'text-slate-300 hover:text-white'
-    : 'text-gray-700 hover:text-gray-900';
+  const bg = 'bg-default-100 border-default-200';
+  const activeBtn = 'bg-primary text-primary-foreground';
+  const inactiveBtn = 'text-default-600 hover:text-white';
 
   return (
     <div className={`inline-flex rounded-lg border p-1 ${bg}`}>

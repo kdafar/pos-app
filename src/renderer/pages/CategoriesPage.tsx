@@ -202,7 +202,7 @@ export function CategoriesPage() {
         {/* Categories search & filter */}
         <div className="flex items-center gap-3 mb-3">
           <input
-            className="px-3 py-2 rounded-lg border border-white/10 bg-transparent"
+            className="px-3 py-2 rounded-lg border border-default-200 bg-transparent"
             placeholder={t('admin.cats.searchPlaceholder')}
             value={catSearch}
             onChange={(e) => setCatSearch(e.target.value)}
@@ -241,7 +241,7 @@ export function CategoriesPage() {
                   <tr
                     key={row.id}
                     className={`border-b border-slate-800/60 cursor-pointer ${
-                      isSelected ? 'bg-blue-500/10' : 'hover:bg-white/5'
+                      isSelected ? 'bg-blue-500/10' : 'hover:bg-default-100'
                     }`}
                     onClick={() => setSelectedCatId(String(row.original.id))}
                     title={t('admin.cats.clickHint')}
@@ -275,7 +275,7 @@ export function CategoriesPage() {
           <button
             type="button"
             onClick={() => setSelectedCatId(null)}
-            className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-sm"
+            className="px-3 py-1.5 rounded-lg border border-default-200 hover:bg-default-100 text-sm"
           >
             {t('admin.cats.showAllSubs')}
           </button>
@@ -292,7 +292,7 @@ export function CategoriesPage() {
           <div className="flex items-center gap-3 text-sm">
             {/* Subcategories search & filter */}
             <input
-              className="px-3 py-2 rounded-lg border border-white/10 bg-transparent"
+              className="px-3 py-2 rounded-lg border border-default-200 bg-transparent"
               placeholder={t('admin.subs.searchPlaceholder')}
               value={subsSearch}
               onChange={(e) => setSubsSearch(e.target.value)}
@@ -345,7 +345,7 @@ export function CategoriesPage() {
                 </tr>
               ) : (
                 subsTable.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="border-b border-slate-800/60 hover:bg-white/5">
+                  <tr key={row.id} className="border-b border-slate-800/60 hover:bg-default-100">
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -369,28 +369,28 @@ export function CategoriesPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+              className="px-2 py-1 rounded border border-default-200 disabled:opacity-50"
               onClick={() => subsTable.setPageIndex(0)}
               disabled={!subsTable.getCanPreviousPage()}
             >
               {t('admin.first')}
             </button>
             <button
-              className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+              className="px-2 py-1 rounded border border-default-200 disabled:opacity-50"
               onClick={() => subsTable.previousPage()}
               disabled={!subsTable.getCanPreviousPage()}
             >
               {t('admin.prev')}
             </button>
             <button
-              className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+              className="px-2 py-1 rounded border border-default-200 disabled:opacity-50"
               onClick={() => subsTable.nextPage()}
               disabled={!subsTable.getCanNextPage()}
             >
               {t('admin.next')}
             </button>
             <button
-              className="px-2 py-1 rounded border border-white/10 disabled:opacity-50"
+              className="px-2 py-1 rounded border border-default-200 disabled:opacity-50"
               onClick={() => subsTable.setPageIndex(subsTable.getPageCount() - 1)}
               disabled={!subsTable.getCanNextPage()}
             >

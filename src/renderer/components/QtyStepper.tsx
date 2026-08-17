@@ -24,7 +24,6 @@ export function clampQty(n: number, min: number, max?: number | null): number {
  * digits typed here.
  */
 export function QtyStepper({
-  theme,
   value,
   onChange,
   min = 0,
@@ -34,7 +33,6 @@ export function QtyStepper({
   disabled = false,
   decHint,
 }: {
-  theme: 'light' | 'dark';
   value: number;
   onChange: (next: number) => void;
   min?: number;
@@ -51,9 +49,7 @@ export function QtyStepper({
   const inputSize = size === 'md' ? 'w-12 h-8 text-base' : 'w-10 h-7 text-sm';
 
   const btn = `${btnSize} rounded-md flex items-center justify-center font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${
-    theme === 'dark'
-      ? 'bg-white/10 hover:bg-white/20 text-white'
-      : 'bg-white hover:bg-gray-100 text-gray-800 border border-gray-300'
+    'bg-default-200 hover:bg-default-300 text-white'
   }`;
 
   const commit = (raw: string) => {
@@ -117,9 +113,7 @@ export function QtyStepper({
         }}
         className={`${inputSize} text-center font-semibold tabular-nums rounded-md outline-none transition disabled:opacity-50
           ${
-            theme === 'dark'
-              ? 'bg-white/10 text-white border border-white/15 focus:border-blue-400/60'
-              : 'bg-white text-gray-900 border border-gray-300 focus:border-blue-500'
+            'bg-default-200 text-white border border-default-200 focus:border-blue-400/60'
           }`}
       />
 

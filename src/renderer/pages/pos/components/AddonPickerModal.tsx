@@ -38,8 +38,8 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
 
   const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
-  const border = theme === 'dark' ? 'border-white/10' : 'border-gray-200';
+  const textMuted = 'text-default-500';
+  const border = 'border-default-200';
 
   useEffect(() => {
     let cancelled = false;
@@ -235,9 +235,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
             onClick={onClose}
             className={`rounded-full p-1.5 mt-1
               ${
-                theme === 'dark'
-                  ? 'hover:bg-white/10 text-slate-300'
-                  : 'hover:bg-gray-100 text-gray-600'
+                'hover:bg-default-200 text-default-600'
               }`}
           >
             <X size={18} />
@@ -294,9 +292,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
                             ? theme === 'dark'
                               ? 'bg-blue-500/20 border border-blue-500/40 text-blue-50'
                               : 'bg-blue-50 border border-blue-300 text-blue-900'
-                            : theme === 'dark'
-                            ? 'bg-white/5 border border-white/10 text-slate-100 hover:bg-white/10'
-                            : 'bg-white border border-gray-200 text-gray-800 hover:bg-gray-50'
+                            : 'bg-default-100 border border-default-200 text-foreground hover:bg-default-200'
                         }`}
                     >
                       <div className='space-y-0.5 min-w-0'>
@@ -388,9 +384,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
                                 ? theme === 'dark'
                                   ? 'bg-blue-500/20 border border-blue-500/40 text-blue-50'
                                   : 'bg-blue-50 border border-blue-300 text-blue-900'
-                                : theme === 'dark'
-                                ? 'bg-white/5 border border-white/10 text-slate-100 hover:bg-white/10 cursor-pointer'
-                                : 'bg-white border border-gray-200 text-gray-800 hover:bg-gray-50 cursor-pointer'
+                                : 'bg-default-100 border border-default-200 text-foreground hover:bg-default-200 cursor-pointer'
                             }`}
                         >
                           <div className='space-y-0.5 min-w-0'>
@@ -407,7 +401,6 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
 
                           {isSelected ? (
                             <QtyStepper
-                              theme={theme}
                               value={qty}
                               min={0}
                               max={maxForAddon(g, a)}
@@ -451,7 +444,6 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
                 {t('common.qty')}
               </span>
               <QtyStepper
-                theme={theme}
                 value={lineQty}
                 min={1}
                 max={999}
@@ -486,9 +478,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
               onClick={onClose}
               className={`px-3.5 py-1.5 rounded-lg text-sm
                 ${
-                  theme === 'dark'
-                    ? 'bg-white/5 text-slate-200 hover:bg-white/10'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  'bg-default-100 text-foreground hover:bg-default-200'
                 }`}
             >
               {t('common.cancel')}

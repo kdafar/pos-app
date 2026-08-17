@@ -22,9 +22,9 @@ declare global {
 
 /* ---------- UI helpers ---------- */
 const fieldCls =
-  'h-10 px-3 rounded-lg bg-white/5 border border-white/10 text-sm outline-none ' +
+  'h-10 px-3 rounded-lg bg-default-100 border border-default-200 text-sm outline-none ' +
   'focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
-const btnFlat = 'border border-white/10 rounded-lg px-3 h-10 hover:bg-white/10 disabled:opacity-50';
+const btnFlat = 'border border-default-200 rounded-lg px-3 h-10 hover:bg-default-200 disabled:opacity-50';
 
 /* ---------- Security rules ---------- */
 // Don’t render these keys at all (e.g., pairing codes)
@@ -127,8 +127,8 @@ export function SettingsPage() {
         const cls =
           'inline-flex items-center px-2 py-0.5 rounded text-xs border ' +
           (s === 'meta'
-            ? 'border-sky-400/40 text-sky-300'
-            : 'border-amber-400/40 text-amber-300');
+            ? 'border-sky-400/40 text-primary'
+            : 'border-amber-400/40 text-warning');
         return (
           <span className={cls}>
             {s === 'meta' ? t('settings.sourceMeta') : t('settings.sourceServer')}
@@ -238,7 +238,7 @@ export function SettingsPage() {
       </div>
 
       {/* Language */}
-      <section className="mb-4 rounded-xl border border-white/10 p-4">
+      <section className="mb-4 rounded-xl border border-default-200 p-4">
         <h4 className="text-sm font-semibold">{t('nav.language')}</h4>
         <div className="mt-1 mb-3 text-xs font-medium text-default-600">
           {t('settings.languageHint')}
@@ -247,13 +247,13 @@ export function SettingsPage() {
       </section>
 
       {/* Table */}
-      <div className="overflow-auto rounded-xl border border-white/10">
+      <div className="overflow-auto rounded-xl border border-default-200">
         <table className="w-full text-start text-sm table-fixed">
-          <thead className="bg-white/5 sticky top-0 z-10">
+          <thead className="bg-default-100 sticky top-0 z-10">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
-                  <th key={h.id} className="p-2 border-b border-white/10 text-start select-none">
+                  <th key={h.id} className="p-2 border-b border-default-200 text-start select-none">
                     {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
                   </th>
                 ))}
@@ -271,9 +271,9 @@ export function SettingsPage() {
               </tr>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="hover:bg-white/5">
+                <tr key={row.id} className="hover:bg-default-100">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-2 border-b border-white/10">
+                    <td key={cell.id} className="p-2 border-b border-default-200">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}

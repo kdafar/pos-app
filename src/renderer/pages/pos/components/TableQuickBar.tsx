@@ -21,9 +21,9 @@ export function TableQuickBar({
 
   if (!tables.length) return null;
 
-  const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
+  const border = 'border-default-100';
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-  const label = theme === 'dark' ? 'text-slate-300' : 'text-gray-600';
+  const label = 'text-default-600';
 
   const colorFor = (t: TableInfo, isActive: boolean) => {
     if (isActive) return 'bg-blue-600 text-white border-blue-500';
@@ -33,9 +33,7 @@ export function TableQuickBar({
         : 'bg-emerald-100 text-emerald-700 border-emerald-300';
     }
     if (t.status === 'reserved') {
-      return theme === 'dark'
-        ? 'bg-amber-600/20 text-amber-200 border-amber-500/60'
-        : 'bg-amber-100 text-amber-700 border-amber-300';
+      return 'bg-amber-600/20 text-warning border-amber-500/60';
     }
     return theme === 'dark'
       ? 'bg-rose-600/20 text-rose-200 border-rose-500/60'

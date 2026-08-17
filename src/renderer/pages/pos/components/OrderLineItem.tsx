@@ -67,12 +67,10 @@ export function OrderLineItem({
   const remove = async () => setQty(0);
 
   const bg =
-    theme === 'dark'
-      ? 'bg-white/5 hover:bg-white/10'
-      : 'bg-white hover:bg-gray-50';
-  const border = theme === 'dark' ? 'border-white/10' : 'border-gray-200';
+    'bg-default-100 hover:bg-default-200';
+  const border = 'border-default-200';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-500';
+  const textMuted = 'text-default-500';
 
   const unitPrice = Number(line.unit_price || 0);
   const qty = Number(line.qty || 0);
@@ -147,9 +145,7 @@ export function OrderLineItem({
         <button
           onClick={remove}
           className={
-            theme === 'dark'
-              ? 'text-slate-400 hover:text-red-400'
-              : 'text-gray-400 hover:text-red-500'
+            'text-default-500 hover:text-red-400'
           }
           title={t('common.remove')}
         >
@@ -160,7 +156,6 @@ export function OrderLineItem({
       {/* Bottom row: qty controls + total */}
       <div className='flex items-center justify-between gap-2'>
         <QtyStepper
-          theme={theme}
           value={qty}
           min={1}
           max={999}

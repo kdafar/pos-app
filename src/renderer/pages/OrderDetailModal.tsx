@@ -32,9 +32,9 @@ export function OrderDetailModal({
   const dark = theme === 'dark';
   const bg = dark ? 'bg-slate-900' : 'bg-white';
   const text = dark ? 'text-white' : 'text-gray-900';
-  const muted = dark ? 'text-slate-400' : 'text-gray-600';
-  const border = dark ? 'border-white/10' : 'border-gray-200';
-  const panel = dark ? 'bg-white/5' : 'bg-gray-50';
+  const muted = 'text-default-500';
+  const border = 'border-default-200';
+  const panel = 'bg-default-100';
 
   useEffect(() => {
     let cancelled = false;
@@ -116,7 +116,7 @@ export function OrderDetailModal({
             onClick={onClose}
             aria-label={t('common.close')}
             className={`rounded-full p-1.5 ${
-              dark ? 'hover:bg-white/10 text-slate-300' : 'hover:bg-gray-100 text-gray-600'
+              'hover:bg-default-200 text-default-600'
             }`}
           >
             <X size={18} />
@@ -140,9 +140,7 @@ export function OrderDetailModal({
               {data.isServerSeed && (
                 <div
                   className={`rounded-lg px-3 py-2 text-xs ${
-                    dark
-                      ? 'bg-amber-500/10 text-amber-200 border border-amber-500/30'
-                      : 'bg-amber-50 text-amber-800 border border-amber-200'
+                    'bg-amber-500/10 text-warning border border-amber-500/30'
                   }`}
                 >
                   {t('admin.orders.seedOnly')}

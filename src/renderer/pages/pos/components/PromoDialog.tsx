@@ -10,10 +10,10 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
   const { t, money } = useI18n();
 
   const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
-  const border = theme === 'dark' ? 'border-white/10' : 'border-gray-200';
+  const border = 'border-default-200';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = theme === 'dark' ? 'text-slate-300' : 'text-gray-600';
-  const inputBg = theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-white border-gray-300';
+  const textMuted = 'text-default-600';
+  const inputBg = 'bg-default-100 border-default-200';
 
     const isPromoActive = (p: Promo) => {
     // No flag at all? Assume active.
@@ -63,7 +63,7 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
       <div className={`${bg} border ${border} rounded-xl w-full max-w-md p-4`}>
         <div className="flex items-center justify-between mb-4">
           <h2 className={`text-xl font-bold ${text}`}>{t('promo.title')}</h2>
-          <button onClick={onClose} className={theme === 'dark' ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-900'}>
+          <button onClick={onClose} className={'text-default-500 hover:text-white'}>
             <X size={22} />
           </button>
         </div>
@@ -85,8 +85,7 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
             onClick={() => apply(code)}
             disabled={!code}
             className={`w-full px-4 py-2.5 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed ${
-              theme === 'dark' ? 'bg-primary text-primary-foreground'
-                               : 'bg-primary text-primary-foreground'
+              'bg-primary text-primary-foreground'
             }`}
           >
             {t('promo.applyCode')}
@@ -99,8 +98,7 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
                 {promos.filter(isPromoActive).map((promo: Promo) => (
                   <button key={promo.id} onClick={() => apply(promo.code)}
                     className={`w-full p-2.5 rounded-lg border text-start transition ${
-                      theme === 'dark' ? 'bg-white/5 border-white/10 hover:bg-white/10'
-                                       : 'bg-white border-gray-200 hover:border-blue-400'
+                      'bg-default-100 border-default-200 hover:bg-default-200'
                     }`}
                   >
                     {/* Promo codes are Latin alphanumerics — never mirror them. */}

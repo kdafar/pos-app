@@ -8,12 +8,10 @@ import { useI18n, LANGS } from '../i18n';
  * shifts, and cashiers should not need admin access to do it.
  */
 export function LanguageToggle({
-  theme = 'light',
   compact = false,
   collapsed = false,
   row = false,
 }: {
-  theme?: 'light' | 'dark';
   compact?: boolean;
   /** Single square button — for a collapsed sidebar with no room for two. */
   collapsed?: boolean;
@@ -63,9 +61,7 @@ export function LanguageToggle({
         className={`w-10 h-10 mx-auto flex items-center justify-center rounded-xl
           text-xs font-bold transition-colors
           ${
-            theme === 'dark'
-              ? 'bg-white/5 text-slate-200 hover:bg-white/10'
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            'bg-default-100 text-foreground hover:bg-default-200'
           }`}
       >
         {other.code === 'ar' ? 'ع' : 'EN'}
@@ -74,17 +70,11 @@ export function LanguageToggle({
   }
 
   const shell =
-    theme === 'dark'
-      ? 'bg-white/5 border-white/10'
-      : 'bg-gray-100 border-gray-300';
+    'bg-default-100 border-default-200';
   const active =
-    theme === 'dark'
-      ? 'bg-blue-600 text-white shadow'
-      : 'bg-blue-600 text-white shadow';
+    'bg-blue-600 text-white shadow';
   const idle =
-    theme === 'dark'
-      ? 'text-slate-300 hover:text-white'
-      : 'text-gray-700 hover:text-gray-900';
+    'text-default-600 hover:text-white';
 
   return (
     <div className={`inline-flex items-center rounded-lg border p-1 ${shell}`}>
@@ -92,7 +82,7 @@ export function LanguageToggle({
         <Languages
           size={14}
           className={`ms-1 me-1.5 ${
-            theme === 'dark' ? 'text-slate-400' : 'text-gray-500'
+            'text-default-500'
           }`}
         />
       )}

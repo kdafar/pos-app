@@ -43,10 +43,10 @@ type BlockRow = {
 
 /* ========== UI helpers ========== */
 const fieldCls =
-  'h-10 px-3 rounded-lg bg-white/5 border border-white/10 text-sm outline-none ' +
+  'h-10 px-3 rounded-lg bg-default-100 border border-default-200 text-sm outline-none ' +
   'focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
 const btnCls =
-  'h-10 px-3 rounded-lg border border-white/10 text-sm hover:bg-white/10 transition ' +
+  'h-10 px-3 rounded-lg border border-default-200 text-sm hover:bg-default-200 transition ' +
   'disabled:opacity-50 disabled:cursor-not-allowed';
 
 function parseBool(v: any): boolean {
@@ -201,8 +201,8 @@ const stateName = (() => {
         <span
           className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${
             parseBool(row.original.is_active ?? 1)
-              ? 'border-emerald-400/40 text-emerald-300'
-              : 'border-white/10 text-slate-300'
+              ? 'border-emerald-400/40 text-success'
+              : 'border-default-200 text-default-600'
           }`}
         >
           {parseBool(row.original.is_active ?? 1) ? t('admin.yes') : t('admin.no')}
@@ -286,8 +286,8 @@ const stateName = (() => {
         <span
           className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${
             parseBool(row.original.is_active ?? 1)
-              ? 'border-emerald-400/40 text-emerald-300'
-              : 'border-white/10 text-slate-300'
+              ? 'border-emerald-400/40 text-success'
+              : 'border-default-200 text-default-600'
           }`}
         >
           {parseBool(row.original.is_active ?? 1) ? t('admin.yes') : t('admin.no')}
@@ -363,8 +363,8 @@ const stateName = (() => {
         <span
           className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${
             parseBool(row.original.is_active ?? 1)
-              ? 'border-emerald-400/40 text-emerald-300'
-              : 'border-white/10 text-slate-300'
+              ? 'border-emerald-400/40 text-success'
+              : 'border-default-200 text-default-600'
           }`}
         >
           {parseBool(row.original.is_active ?? 1) ? t('admin.yes') : t('admin.no')}
@@ -473,15 +473,15 @@ const stateName = (() => {
           </div>
         </div>
 
-        <div className="overflow-auto rounded-xl border border-white/10">
+        <div className="overflow-auto rounded-xl border border-default-200">
           <table className="w-full text-start table-fixed">
-            <thead className="bg-white/5 sticky top-0 z-10">
+            <thead className="bg-default-100 sticky top-0 z-10">
               {statesTable.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
-                      className="p-2 border-b border-white/10 text-start select-none"
+                      className="p-2 border-b border-default-200 text-start select-none"
                       onClick={h.column.getToggleSortingHandler()}
                     >
                       {flexRender(h.column.columnDef.header, h.getContext())}
@@ -500,7 +500,7 @@ const stateName = (() => {
                 </tr>
               ) : (
                 statesTable.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="border-b border-white/10 hover:bg-white/5">
+                  <tr key={row.id} className="border-b border-default-200 hover:bg-default-100">
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -621,15 +621,15 @@ const stateName = (() => {
           </div>
         </div>
 
-        <div className="overflow-auto rounded-xl border border-white/10">
+        <div className="overflow-auto rounded-xl border border-default-200">
           <table className="w-full text-start table-fixed">
-            <thead className="bg-white/5 sticky top-0 z-10">
+            <thead className="bg-default-100 sticky top-0 z-10">
               {citiesTable.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
-                      className="p-2 border-b border-white/10 text-start select-none"
+                      className="p-2 border-b border-default-200 text-start select-none"
                       onClick={h.column.getToggleSortingHandler()}
                     >
                       {flexRender(h.column.columnDef.header, h.getContext())}
@@ -649,7 +649,7 @@ const stateName = (() => {
                 </tr>
               ) : (
                 citiesTable.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="border-b border-white/10 hover:bg-white/5">
+                  <tr key={row.id} className="border-b border-default-200 hover:bg-default-100">
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -750,15 +750,15 @@ const stateName = (() => {
           </div>
         </div>
 
-        <div className="overflow-auto rounded-xl border border-white/10">
+        <div className="overflow-auto rounded-xl border border-default-200">
           <table className="w-full text-start table-fixed">
-            <thead className="bg-white/5 sticky top-0 z-10">
+            <thead className="bg-default-100 sticky top-0 z-10">
               {blocksTable.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
                     <th
                       key={h.id}
-                      className="p-2 border-b border-white/10 text-start select-none"
+                      className="p-2 border-b border-default-200 text-start select-none"
                       onClick={h.column.getToggleSortingHandler()}
                     >
                       {flexRender(h.column.columnDef.header, h.getContext())}
@@ -778,7 +778,7 @@ const stateName = (() => {
                 </tr>
               ) : (
                 blocksTable.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="border-b border-white/10 hover:bg-white/5">
+                  <tr key={row.id} className="border-b border-default-200 hover:bg-default-100">
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className="p-2 text-start">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}

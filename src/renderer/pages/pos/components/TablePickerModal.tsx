@@ -30,13 +30,11 @@ export function TablePickerModal({
       : t('tables.occupied');
 
   const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
-  const border = theme === 'dark' ? 'border-white/10' : 'border-gray-200';
+  const border = 'border-default-200';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
+  const textMuted = 'text-default-500';
   const inputBg =
-    theme === 'dark'
-      ? 'bg-white/5 border-white/10'
-      : 'bg-white border-gray-300';
+    'bg-default-100 border-default-200';
 
   const colorFor = (s: TableStatus) => {
     if (s === 'available')
@@ -44,9 +42,7 @@ export function TablePickerModal({
         ? 'bg-emerald-500/10 text-emerald-200 border-emerald-500/40'
         : 'bg-emerald-50 text-emerald-700 border-emerald-300';
     if (s === 'reserved')
-      return theme === 'dark'
-        ? 'bg-amber-500/10 text-amber-200 border-amber-500/40'
-        : 'bg-amber-50 text-amber-700 border-amber-300';
+      return 'bg-amber-500/10 text-warning border-amber-500/40';
     return theme === 'dark'
       ? 'bg-rose-500/10 text-rose-200 border-rose-500/40'
       : 'bg-rose-50 text-rose-700 border-rose-300';
@@ -58,9 +54,7 @@ export function TablePickerModal({
         ? 'bg-emerald-500/20 text-emerald-200'
         : 'bg-emerald-100 text-emerald-700';
     if (s === 'reserved')
-      return theme === 'dark'
-        ? 'bg-amber-500/20 text-amber-200'
-        : 'bg-amber-100 text-amber-700';
+      return 'bg-amber-500/20 text-warning';
     return theme === 'dark'
       ? 'bg-rose-500/20 text-rose-200'
       : 'bg-rose-100 text-rose-700';
@@ -75,7 +69,7 @@ export function TablePickerModal({
         className={`${bg} border ${border} rounded-2xl w-full max-w-lg shadow-xl`}
       >
         {/* Header */}
-        <div className='flex items-center justify-between px-4 pt-4 pb-3 border-b border-white/5'>
+        <div className='flex items-center justify-between px-4 pt-4 pb-3 border-b border-default-100'>
           <div className='flex flex-col gap-1'>
             <h2 className={`text-lg font-semibold ${text}`}>
               {t('tables.assign')}
@@ -126,9 +120,7 @@ export function TablePickerModal({
             <button
               onClick={onRefresh}
               className={`px-3 py-1.5 rounded-md border text-xs font-medium transition ${
-                theme === 'dark'
-                  ? 'bg-white/5 border-white/10 text-slate-200 hover:bg-white/10'
-                  : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-100'
+                'bg-default-100 border-default-200 text-foreground hover:bg-default-200'
               }`}
             >
               {t('tables.refresh')}
@@ -136,9 +128,7 @@ export function TablePickerModal({
             <button
               onClick={onClose}
               className={
-                theme === 'dark'
-                  ? 'text-slate-400 hover:text-white'
-                  : 'text-gray-400 hover:text-gray-900'
+                'text-default-500 hover:text-white'
               }
             >
               <X size={20} />
@@ -220,7 +210,7 @@ export function TablePickerModal({
                       {isCurrent && (
                         <div
                           className={`mt-2 text-[10px] font-medium ${
-                            theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
+                            'text-primary'
                           }`}
                         >
                           {t('tables.currentlyAssigned')}

@@ -27,7 +27,7 @@ export function ItemCard({
   }, [item.id, item.image_local]);
 
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
+  const textMuted = 'text-default-500';
   const hasAddons = !!item.has_addons;
   const hasVariations = !!item.has_variations;
   const needsOptions = hasAddons || hasVariations;
@@ -58,21 +58,15 @@ export function ItemCard({
       className={`group relative flex flex-col rounded-xl border text-start transition
         ${
           item.is_outofstock === 1
-            ? theme === 'dark'
-              ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed'
-              : 'bg-gray-50 border-gray-200 opacity-50 cursor-not-allowed'
-            : theme === 'dark'
-            ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-blue-500/40'
-            : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-md'
+            ? 'bg-default-100 border-default-100 opacity-50 cursor-not-allowed'
+            : 'bg-default-100 border-default-200 hover:bg-default-200 hover:border-blue-500/40'
         } p-2.5`}
     >
       {/* IMAGE + ADDONS BADGE */}
       <div
         className={`relative w-full pos-thumb rounded-lg overflow-hidden border mb-2
           ${
-            theme === 'dark'
-              ? 'bg-slate-900 border-white/5'
-              : 'bg-gray-100 border-gray-200'
+            'bg-slate-900 border-default-100'
           }`}
       >
         {activeSrc ? (
@@ -145,7 +139,7 @@ export function ItemCard({
         )}
         <span
           className={`pos-price font-bold ${
-            theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
+            'text-primary'
           }`}
         >
           <span className='money'>{money(displayPrice)}</span>

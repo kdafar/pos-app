@@ -75,10 +75,10 @@ export default function OrderSide({
   const [showPromoDialog, setShowPromoDialog] = useState(false);
 
   const bg = theme === 'dark' ? 'bg-slate-900/60' : 'bg-white';
-  const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
+  const border = 'border-default-100';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = theme === 'dark' ? 'text-slate-400' : 'text-gray-600';
-  const cardBg = theme === 'dark' ? 'bg-white/5' : 'bg-gray-50';
+  const textMuted = 'text-default-500';
+  const cardBg = 'bg-default-100';
   const toast = useToast();
   const confirm = useConfirmDialog();
   const { t, money } = useI18n();
@@ -308,9 +308,7 @@ export default function OrderSide({
                       <button
                         onClick={() => setShowTablePicker(true)}
                         className={`px-3 py-1.5 rounded-lg border text-xs ${
-                          theme === 'dark'
-                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-600/30'
-                            : 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                          'bg-emerald-500/15 text-success border-emerald-600/30'
                         }`}
                       >
                         <Table2 size={14} className='inline me-1' />
@@ -321,9 +319,7 @@ export default function OrderSide({
                       <button
                         onClick={() => setShowTablePicker(true)}
                         className={`px-3 py-1.5 rounded-lg border text-xs ${
-                          theme === 'dark'
-                            ? 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
-                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                          'border-default-200 bg-default-100 text-foreground hover:bg-default-200'
                         }`}
                       >
                         <UtensilsCrossed size={14} className='inline me-1' />{' '}
@@ -346,9 +342,7 @@ export default function OrderSide({
                           }
                         }}
                         className={`px-3 py-1.5 rounded-lg border text-xs ${
-                          theme === 'dark'
-                            ? 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
-                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                          'border-default-200 bg-default-100 text-foreground hover:bg-default-200'
                         }`}
                       >
                         <X size={14} />
@@ -362,9 +356,7 @@ export default function OrderSide({
               <div className='flex flex-col items-end gap-1.5'>
                 <div
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${
-                    theme === 'dark'
-                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                      : 'bg-blue-100 text-blue-700 border-blue-300 border'
+                    'bg-blue-500/20 text-primary border border-blue-500/30'
                   }`}
                 >
                   {labelForType(currentOrder.order_type)}
@@ -378,9 +370,7 @@ export default function OrderSide({
                   inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium
                   border
                   ${
-                    theme === 'dark'
-                      ? 'bg-amber-500/10 text-amber-200 border-amber-400/40'
-                      : 'bg-amber-50 text-amber-700 border-amber-300'
+                    'bg-amber-500/10 text-warning border-amber-400/40'
                   }
                 `}
                     >
@@ -434,7 +424,7 @@ export default function OrderSide({
                   />
                   <span
                     className={`text-xs font-medium ${
-                      theme === 'dark' ? 'text-green-300' : 'text-green-700'
+                      'text-success'
                     }`}
                   >
                     {currentOrder.promocode}
@@ -443,9 +433,7 @@ export default function OrderSide({
                 <button
                   onClick={onRemovePromo}
                   className={`text-xs ${
-                    theme === 'dark'
-                      ? 'text-green-400 hover:text-green-300'
-                      : 'text-green-600 hover:text-green-700'
+                    'text-green-400 hover:text-success'
                   }`}
                 >
                   <X size={16} />
@@ -455,9 +443,7 @@ export default function OrderSide({
               <button
                 onClick={() => setShowPromoDialog(true)}
                 className={`w-full py-2 rounded-lg border text-xs font-medium transition ${
-                  theme === 'dark'
-                    ? 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                  'border-default-200 bg-default-100 text-default-600 hover:bg-default-200'
                 }`}
               >
                 <Percent size={14} className='inline me-1' />
@@ -491,9 +477,7 @@ export default function OrderSide({
             <button
               onClick={onCreateOrder}
               className={`px-4 py-2.5 rounded-lg text-sm font-medium ${
-                theme === 'dark'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-primary text-primary-foreground'
+                'bg-primary text-primary-foreground'
               }`}
             >
               {t('cart.createOrder')}
@@ -559,20 +543,19 @@ export default function OrderSide({
                   isWaived={
                     Number((currentOrder as any).void_delivery_fee) === 1
                   }
-                  theme={theme}
                   editable={!isOrderLocked}
                   onChanged={() => onSelectOrder(currentOrder.id)}
                 />
               )}
               <div
                 className={`flex justify-between pos-price font-bold ${text} pt-2 border-t ${
-                  theme === 'dark' ? 'border-white/10' : 'border-gray-200'
+                  'border-default-200'
                 }`}
               >
                 <span>{t('common.total')}</span>
                 <span
                   className={`money ${
-                    theme === 'dark' ? 'text-blue-300' : 'text-blue-600'
+                    'text-primary'
                   }`}
                 >
                   {money(currentOrder.grand_total)}
@@ -732,7 +715,7 @@ function Row({
   value: string;
   theme: 'light' | 'dark';
 }) {
-  const textMuted = theme === 'dark' ? 'text-slate-300' : 'text-gray-600';
+  const textMuted = 'text-default-600';
   return (
     <div className={`flex justify-between ${textMuted}`}>
       <span>{label}</span>

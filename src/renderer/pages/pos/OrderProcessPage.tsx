@@ -523,7 +523,7 @@ export default function OrderProcessPage() {
 
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
   const headerBg = theme === 'dark' ? 'bg-slate-900/95' : 'bg-white';
-  const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
+  const border = 'border-default-100';
 
   return (
     <div className={`pos-screen h-screen flex flex-col ${bg}`}>
@@ -555,9 +555,7 @@ export default function OrderProcessPage() {
                         ? theme === 'dark'
                           ? 'bg-blue-600 border-blue-500 text-white shadow-sm ring-1 ring-blue-500/50'
                           : 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                        : theme === 'dark'
-                        ? 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-slate-200'
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                        : 'bg-default-100 border-default-200 text-default-500 hover:bg-default-200 hover:text-foreground'
                     }
                   `}
                 >
