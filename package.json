@@ -43,7 +43,8 @@
       {
         "provider": "github",
         "owner": "kdafar",
-        "repo": "pos-app"
+        "repo": "pos-app",
+        "releaseType": "release"
       }
     ]
   },
