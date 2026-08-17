@@ -25,15 +25,19 @@ function ensureBridge() {
 async function initTheme() {
   try {
     const stored = await window.electronAPI!.invoke('store:get', 'ui.theme');
-    const prefersLight = window.matchMedia?.(
-      '(prefers-color-scheme: light)'
+    const prefersDark = window.matchMedia?.(
+      '(prefers-color-scheme: dark)'
     ).matches;
+    // Light is the default on a till. A counter is lit for reading receipts and
+    // handling cash, and a dark UI in a bright room fights the glare rather
+    // than the other way round. A shop that wants dark still gets it — either
+    // from the OS preference or from the toggle, which is remembered.
     const theme =
       stored === 'light' || stored === 'dark'
         ? stored
-        : prefersLight
-        ? 'light'
-        : 'dark';
+        : prefersDark
+        ? 'dark'
+        : 'light';
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.body.classList.toggle('bg-white', theme === 'light');
   } catch (e) {

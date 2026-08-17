@@ -62,7 +62,13 @@ export function Layout() {
   const navigate = useNavigate();
 
   /* ---------------- Theme (persist via meta store) ---------------- */
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  // Seeded from the class main.tsx has already applied, rather than a literal.
+  // Hardcoding 'dark' here meant the first render disagreed with the document
+  // until the effect below caught up — a visible flash, and the wrong one now
+  // that light is the default.
+  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
+    document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+  );
 
   useEffect(() => {
     (async () => {
