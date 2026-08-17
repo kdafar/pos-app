@@ -1205,26 +1205,42 @@ export function registerLocalPrintHandlers() {
         ? String(order.reference_no)
         : order.order_number || order.number || String(order.id);
 
-      // The QR opens the order on the website; a phone camera resolves a URL,
-      // which is the whole point of putting one on a customer's receipt.
+      // The QR opens the order on the website, and the website looks the order
+      // up by `order_number` — front/OrderController@orderdetails queries
+      // `where('order_number', $request->id)`. So the URL must carry the
+      // 15-character random string (or the POS-… one for till orders), NOT the
+      // reference.
       //
-      // The template is a setting so the path can change without a POS build.
-      // Falling back to the paired host is a guess at the path, so a shop that
-      // uses a different one sets `branding.order_url` to e.g.
-      //   https://shop.example.com/track/{reference}
-      const host = String(getSetting('server.base_url') || getMeta('server.base_url') || '')
+      // This is the correction to an earlier "cleanup": three identifiers for
+      // one sale did need fixing, but two of them are for humans (the header
+      // and the scanner code, both the reference) and this one is a database
+      // key. It cannot be normalised away.
+      //
+      // Keeping order_number in the URL is also what makes it safe to print:
+      // reference_no is a zero-padded sequence, so a reference-based URL would
+      // let anyone walk the whole order history by counting.
+      const lookupKey = order.order_number || order.number || String(order.id);
+
+      // Template is a setting so the path can move without a POS build.
+      // {order_number} is the one that belongs in a URL; {reference} is offered
+      // only for a template that wants it in a query string or label.
+      const host = String(
+        getSetting('server.base_url') || getMeta('server.base_url') || ''
+      )
         .trim()
         .replace(/\/+$/, '');
       const template = String(getSetting('branding.order_url') || '').trim();
       const orderUrl = template
-        ? template.replace(/\{reference\}|\{ref\}/gi, encodeURIComponent(scanRef))
+        ? template
+            .replace(/\{order_number\}/gi, encodeURIComponent(lookupKey))
+            .replace(/\{reference\}|\{ref\}/gi, encodeURIComponent(scanRef))
         : host
-        ? `${host}/orders/${encodeURIComponent(scanRef)}`
+        ? `${host}/order-details/${encodeURIComponent(lookupKey)}`
         : '';
 
-      // No host and no template means no page to open — encode the number
-      // itself rather than printing a QR that resolves to nothing.
-      const qrDataUrl = await makeQrPngDataUrl(orderUrl || scanRef);
+      // With no host and no template there is no page to open, so encode the
+      // lookup key itself rather than printing a QR that resolves nowhere.
+      const qrDataUrl = await makeQrPngDataUrl(orderUrl || lookupKey);
 
       // Code128 stays the short lookup code. A URL here would be far too wide
       // to scan on a 58mm roll, and in-store scanners want the number, not a
