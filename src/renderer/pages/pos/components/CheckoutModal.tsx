@@ -437,7 +437,7 @@ export function CheckoutModal({
         // payment methods — so the one action the cashier always needs was the
         // one thing they had to go looking for. Only the fields scroll now;
         // the totals and the buttons are pinned.
-        className={`${bg} border ${border} rounded-xl w-full max-w-[64rem] max-h-[92vh] flex flex-col overflow-hidden`}
+        className={`${bg} border ${border} rounded-xl w-full max-w-[76rem] max-h-[92vh] flex flex-col overflow-hidden`}
       >
         <div
           className={`shrink-0 ${bg} border-b ${border} p-4 flex items-center justify-between`}
@@ -501,7 +501,17 @@ export function CheckoutModal({
             e.preventDefault();
           }}
         >
-          {/* Only this region scrolls. */}
+          {/*
+            Split screen, the standard checkout shape: the form the cashier
+            works through on one side, the order summary persistently visible
+            on the other. It reads better and it removes the reason to scroll —
+            the totals and Place Order are simply always on screen.
+
+            Column below 64rem, row above it. In column mode the summary is
+            still pinned, so a small till behaves as it did rather than
+            inheriting a layout meant for width it does not have.
+          */}
+          <div className='flex-1 min-h-0 flex flex-col lg:flex-row'>
           <div className='flex-1 min-h-0 overflow-y-auto nice-scroll p-4 space-y-3'>
           {/* Customer lookup */}
           <div
@@ -542,7 +552,7 @@ export function CheckoutModal({
             )}
           </div>
 
-          <div className='grid grid-cols-2 gap-3'>
+          <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
             <div>
               <label className={`block text-xs font-medium ${label} mb-1`}>
                 <span className='inline-flex items-center'>
@@ -580,7 +590,7 @@ export function CheckoutModal({
 
           {order.order_type === 1 && (
             <>
-              <div className='grid grid-cols-3 gap-3'>
+              <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
                 <CommandSelect
                   theme={theme}
                   label={t('checkout.state')}
@@ -641,7 +651,7 @@ export function CheckoutModal({
                 />
               </div>
 
-              <div className='grid grid-cols-2 gap-3'>
+              <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
                 <div>
                   <label className={`block text-xs font-medium ${label} mb-1`}>
                     {t('cust.street')}
@@ -670,7 +680,7 @@ export function CheckoutModal({
                 </div>
               </div>
 
-              <div className='grid grid-cols-2 gap-3'>
+              <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
                 <div>
                   <label className={`block text-xs font-medium ${label} mb-1`}>
                     {t('cust.floor')}
@@ -728,7 +738,7 @@ export function CheckoutModal({
                 {t('cust.paymentMethod')} *
               </span>
             </label>
-            <div className='grid grid-cols-2 gap-2'>
+            <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
               {paymentMethods.map((m: any) => {
                 const checked =
                   String(m.id) === String(formData.payment_method_id);
@@ -770,11 +780,11 @@ export function CheckoutModal({
 
           </div>
 
-          {/*
-            Pinned footer. Totals and the two actions stay on screen whatever
-            the form's height, so Place Order is never something to scroll for.
-          */}
-          <div className={`shrink-0 border-t ${border} p-4 space-y-3 ${bg}`}>
+          {/* Summary column — the order, its totals, and the two actions. */}
+          <aside
+            className={`shrink-0 lg:w-[24rem] lg:overflow-y-auto nice-scroll
+              border-t lg:border-t-0 lg:border-s ${border} p-4 space-y-3 ${bg}`}
+          >
           {/* Summary (uses live displayDeliveryFee) */}
           <div
             className={`p-3 rounded-lg border ${
@@ -850,6 +860,7 @@ export function CheckoutModal({
               {t('cart.placeOrder')}
             </button>
           </div>
+          </aside>
           </div>
         </form>
       </div>
