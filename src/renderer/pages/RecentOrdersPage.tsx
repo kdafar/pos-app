@@ -550,7 +550,6 @@ export default function TodayOrdersReport() {
       <DataTable
         data={filtered}
         columns={columns}
-        theme={theme}
         loading={loading}
         initialSorting={[{ id: 'updated_at', desc: true }]}
         pageSize={pageSize}

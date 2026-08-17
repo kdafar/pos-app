@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Chip } from '@heroui/react';
 import { useI18n } from '../i18n';
-import { useRootTheme } from './pos/useRootTheme';
 import { DataTable } from '../components/DataTable';
 import {
   DataState,
@@ -77,7 +76,6 @@ function StatusChip({ active }: { active: any }) {
 
 export default function PaymentMethodsPage() {
   const { t, lang } = useI18n();
-  const theme = useRootTheme();
 
   const [data, setData] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
@@ -226,7 +224,6 @@ export default function PaymentMethodsPage() {
         <DataTable
           data={filtered}
           columns={columns}
-          theme={theme}
           initialSorting={[{ id: 'legacy_code', desc: false }]}
           getRowId={(r, i) => String(r.slug ?? i)}
         />
