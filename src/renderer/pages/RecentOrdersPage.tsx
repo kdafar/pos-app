@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Printer, QrCode, Eye } from 'lucide-react';
+import { Chip } from '@heroui/react';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
 import { PaymentMethodCell } from './PaymentMethodCell';
 import { OrderDetailModal } from './OrderDetailModal';
@@ -61,18 +62,38 @@ function useServerStatusLabel() {
   };
 }
 
-/** Colour tone per server status code, so badges stay readable in Arabic too. */
-const SERVER_STATUS_CLS: Record<number, string> = {
-  0: 'bg-white/5 text-slate-300 border-white/10',
-  1: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
-  2: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  3: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  4: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  5: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-  6: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-  7: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  8: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-  9: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+/**
+ * Status tone per server status code.
+ *
+ * These were hardcoded dark-theme classes — text-blue-300 and friends on a
+ * /15 tint. Pale-300 ink is built to sit on a dark surface; on the light theme
+ * it renders near-white on near-white, which is how "Open" and "Picked up"
+ * became unreadable the moment light became the default.
+ *
+ * HeroUI colours instead: one name per meaning, and the library picks the
+ * right ink and tint for whichever theme is active.
+ */
+type Tone = 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'danger';
+
+const SERVER_STATUS_TONE: Record<number, Tone> = {
+  0: 'default', // pending
+  1: 'primary', // accepted
+  2: 'warning', // preparing
+  3: 'warning', // out for delivery / ready
+  4: 'success', // delivered / picked up
+  5: 'danger', // cancelled
+  6: 'danger', // rejected
+  7: 'warning', // on hold
+  8: 'danger', // failed
+  9: 'danger', // refunded
+};
+
+const LOCAL_STATUS_TONE: Record<string, Tone> = {
+  open: 'primary',
+  prepared: 'warning',
+  completed: 'success',
+  closed: 'default',
+  cancelled: 'danger',
 };
 
 const StatusBadge = ({ order }: { order: Order }) => {
@@ -81,19 +102,11 @@ const StatusBadge = ({ order }: { order: Order }) => {
 
   const code = Number(order.status_code);
   const hasCode = Number.isFinite(code) && order.status_code != null;
-
   const k = String(order.status ?? '').toLowerCase();
-  const map: Record<string, string> = {
-    open: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
-    prepared: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-    completed: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-    closed: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
-    cancelled: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-  };
 
-  const cls = hasCode
-    ? SERVER_STATUS_CLS[code] ?? 'bg-white/5 text-slate-300 border-white/10'
-    : map[k] ?? 'bg-white/5 text-slate-300 border-white/10';
+  const tone: Tone = hasCode
+    ? SERVER_STATUS_TONE[code] ?? 'default'
+    : LOCAL_STATUS_TONE[k] ?? 'default';
 
   const label = hasCode
     ? serverLabel(code, order.order_type)
@@ -102,11 +115,9 @@ const StatusBadge = ({ order }: { order: Order }) => {
     : null;
 
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs border ${cls}`}
-    >
+    <Chip size='sm' color={tone} variant='flat' className='font-semibold'>
       {label || '—'}
-    </span>
+    </Chip>
   );
 };
 
