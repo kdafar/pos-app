@@ -149,7 +149,7 @@ export default function PaymentMethodsPage() {
             <div className='leading-tight'>
               <div className='font-semibold'>{primary || secondary || '—'}</div>
               {primary && secondary && (
-                <div className='text-xs text-default-500'>{secondary}</div>
+                <div className='text-xs text-default-700'>{secondary}</div>
               )}
             </div>
           );

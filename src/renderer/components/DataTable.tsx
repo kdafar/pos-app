@@ -174,7 +174,7 @@ export function DataTable<T>({
               <tr>
                 <td
                   colSpan={colCount}
-                  className='px-3 py-12 text-center text-base font-medium text-default-600'
+                  className='px-3 py-12 text-center text-base font-medium text-default-700'
                 >
                   {t('common.loading')}
                 </td>
@@ -185,7 +185,7 @@ export function DataTable<T>({
               <tr>
                 <td
                   colSpan={colCount}
-                  className='px-3 py-12 text-center text-base font-medium text-default-600'
+                  className='px-3 py-12 text-center text-base font-medium text-default-700'
                 >
                   {empty ?? t('pos.noItems')}
                 </td>
@@ -232,7 +232,7 @@ export function DataTable<T>({
                             prev === row.id ? null : row.id
                           )
                         }
-                        className='p-1 rounded-md text-default-500 hover:text-primary hover:bg-default-200 transition-colors'
+                        className='p-1 rounded-md text-default-700 hover:text-primary hover:bg-default-200 transition-colors'
                       >
                         <ChevronRight
                           size={16}
@@ -278,7 +278,7 @@ export function DataTable<T>({
       {/* Pagination — hidden entirely when everything already fits. */}
       {(total > size || pageCount > 1) && (
         <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm'>
-          <div className='font-medium text-default-600'>
+          <div className='font-medium text-default-700'>
             {t('table.pageOf', { page: pageIndex + 1, pages: pageCount })} ·{' '}
             <span className='money'>{total}</span>
           </div>

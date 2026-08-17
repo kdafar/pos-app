@@ -1,5 +1,6 @@
 // src/renderer/pages/PaymentMethodCell.tsx
 import { useEffect, useState } from 'react';
+import { Select, SelectItem } from '@heroui/react';
 import { useI18n } from '../i18n';
 
 type Method = {
@@ -17,11 +18,12 @@ type Method = {
  * only found at closing. Deliberately available on closed orders — the
  * correction is almost always needed after the sale, not during it.
  *
- * A native <select> on purpose. The first version was a custom button plus a
- * portalled menu, and it never opened inside the table: the menu was clipped by
- * the container's overflow, and once portalled it still failed to mount. A
- * native select is rendered by the OS, so it cannot be clipped, overlapped or
- * mis-stacked — which is exactly the class of bug that made this look dead.
+ * A native <select> was used here for a while, because the first attempt was a
+ * hand-rolled button plus a portalled menu that never opened inside the table —
+ * clipped by the container's overflow, and still dead once portalled. HeroUI's
+ * Select portals to the document root and manages its own stacking, so it does
+ * not reproduce that bug, and unlike the native control it can actually be
+ * themed to match the rest of the table.
  */
 export function PaymentMethodCell({
   orderId,
@@ -77,24 +79,29 @@ export function PaymentMethodCell({
   };
 
   return (
-    <select
-      value={methods.find((m) => m.slug === current)?.id ?? ''}
-      disabled={disabled || busy || methods.length === 0}
-      onChange={(e) => change(e.target.value)}
+    <Select
+      size='sm'
+      selectedKeys={
+        methods.find((m) => m.slug === current)
+          ? [String(methods.find((m) => m.slug === current)!.id)]
+          : []
+      }
+      isDisabled={disabled || busy || methods.length === 0}
+      isLoading={busy}
+      onSelectionChange={(keys) => {
+        const next = Array.from(keys)[0];
+        if (next != null) change(String(next));
+      }}
+      aria-label={t('admin.orders.changePayment')}
       title={t('admin.orders.changePayment')}
-      className={`w-full max-w-[8.5rem] h-8 px-2 rounded-md text-xs outline-none transition
-        disabled:opacity-50 disabled:cursor-not-allowed
-        focus:ring-2 focus:ring-sky-500/40 ${
-          'bg-default-200 text-foreground border border-default-200'
-        }`}
+      // Falls back to whatever the order carries, so a method the catalogue has
+      // since dropped still shows its name instead of an empty control.
+      placeholder={current || '—'}
+      className='w-full max-w-[10rem]'
     >
-      {/* Shown when the order has no method, or one the catalogue lost. */}
-      <option value=''>{current || '—'}</option>
       {methods.map((m) => (
-        <option key={m.id} value={m.id}>
-          {label(m)}
-        </option>
+        <SelectItem key={String(m.id)}>{label(m)}</SelectItem>
       ))}
-    </select>
+    </Select>
   );
 }

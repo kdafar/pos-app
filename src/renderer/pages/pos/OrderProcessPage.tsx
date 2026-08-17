@@ -555,7 +555,7 @@ export default function OrderProcessPage() {
                         ? theme === 'dark'
                           ? 'bg-blue-600 border-blue-500 text-white shadow-sm ring-1 ring-blue-500/50'
                           : 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                        : 'bg-default-100 border-default-200 text-default-500 hover:bg-default-200 hover:text-foreground'
+                        : 'bg-default-100 border-default-200 text-default-700 hover:bg-default-200 hover:text-foreground'
                     }
                   `}
                 >

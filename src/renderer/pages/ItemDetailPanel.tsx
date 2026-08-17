@@ -87,7 +87,7 @@ export function ItemDetailPanel({
 
   if (loading) {
     return (
-      <div className='flex items-center gap-2 py-2 text-sm font-medium text-default-600'>
+      <div className='flex items-center gap-2 py-2 text-sm font-medium text-default-700'>
         <Spinner size='sm' />
         {t('common.loading')}
       </div>
@@ -106,7 +106,7 @@ export function ItemDetailPanel({
 
   if (nothing) {
     return (
-      <div className='py-2 text-sm font-medium text-default-600'>
+      <div className='py-2 text-sm font-medium text-default-700'>
         {/* A flag saying the item has options while none load is worth stating
             plainly — it means the catalogue and its options disagree. */}
         {hasVariations || hasAddons
@@ -138,7 +138,7 @@ export function ItemDetailPanel({
                   <span className='truncate'>{localName(v)}</span>
                   <span className='whitespace-nowrap font-semibold'>
                     {sale > 0 && base > 0 && sale !== base && (
-                      <span className='money text-default-500 line-through me-1.5 font-normal'>
+                      <span className='money text-default-700 line-through me-1.5 font-normal'>
                         {money(base)}
                       </span>
                     )}
@@ -182,7 +182,7 @@ export function ItemDetailPanel({
                     )}
                   </div>
                   {list.length === 0 ? (
-                    <div className='text-xs font-medium text-default-600'>
+                    <div className='text-xs font-medium text-default-700'>
                       {t('admin.addons.noneInGroup')}
                     </div>
                   ) : (

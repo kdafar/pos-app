@@ -317,7 +317,7 @@ export function SettingsPage() {
             <h2 className='text-base font-bold text-foreground'>
               {t('nav.language')}
             </h2>
-            <p className='mt-0.5 text-sm font-medium text-default-600'>
+            <p className='mt-0.5 text-sm font-medium text-default-700'>
               {t('settings.languageHint')}
             </p>
           </div>
@@ -381,7 +381,7 @@ export function SettingsPage() {
         />
       </DataState>
 
-      <div className='mt-6 text-sm font-medium text-default-600'>
+      <div className='mt-6 text-sm font-medium text-default-700'>
         {t('settings.readOnlyNotice')}
       </div>
     </PageShell>

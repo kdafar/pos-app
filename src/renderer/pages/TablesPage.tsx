@@ -160,7 +160,7 @@ export default function TablesPage() {
         message: (
           <div className='space-y-1 text-sm'>
             <p>{t('admin.tables.clearBody')}</p>
-            <p className='text-xs text-default-500'>
+            <p className='text-xs text-default-700'>
               {t('admin.tables.clearHint')}
             </p>
           </div>

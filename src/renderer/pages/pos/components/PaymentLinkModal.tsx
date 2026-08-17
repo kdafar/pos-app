@@ -145,12 +145,12 @@ export function PaymentLinkModal({
     >
       <ModalContent>
         <ModalHeader className='flex flex-col gap-1'>
-          <span className='text-xs font-semibold uppercase tracking-wide text-default-600'>
+          <span className='text-xs font-semibold uppercase tracking-wide text-default-700'>
             {t('pay.title')}
           </span>
           <span className='flex items-baseline gap-2 text-foreground'>
             <span className='money text-xl font-bold'>{money(amount)}</span>
-            <span className='text-sm font-semibold text-default-600'>
+            <span className='text-sm font-semibold text-default-700'>
               {t('common.currency')}
             </span>
             {status === 'paid' && (
@@ -175,7 +175,7 @@ export function PaymentLinkModal({
             )}
           </span>
           {orderLabel && (
-            <span className='text-xs font-medium text-default-600'>
+            <span className='text-xs font-medium text-default-700'>
               {orderLabel}
             </span>
           )}
@@ -216,7 +216,7 @@ export function PaymentLinkModal({
             ) : (
               <div className='flex h-56 w-56 flex-col items-center justify-center gap-2 rounded-lg border border-default-200 bg-default-100'>
                 <Spinner size='lg' />
-                <span className='text-sm font-medium text-default-600'>
+                <span className='text-sm font-medium text-default-700'>
                   {t('common.loading')}
                 </span>
               </div>

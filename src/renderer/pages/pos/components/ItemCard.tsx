@@ -27,7 +27,7 @@ export function ItemCard({
   }, [item.id, item.image_local]);
 
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-500';
+  const textMuted = 'text-default-700';
   const hasAddons = !!item.has_addons;
   const hasVariations = !!item.has_variations;
   const needsOptions = hasAddons || hasVariations;

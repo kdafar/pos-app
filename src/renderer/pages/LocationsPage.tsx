@@ -345,7 +345,7 @@ export default function LocationsPage() {
           {/* Breadcrumb of the current drill-down, so the two filters below are
               never a mystery. */}
           {(selectedStateRow || selectedCityRow) && (
-            <div className='flex items-center gap-1.5 text-sm font-medium text-default-600 flex-wrap'>
+            <div className='flex items-center gap-1.5 text-sm font-medium text-default-700 flex-wrap'>
               <button
                 type='button'
                 onClick={() => {

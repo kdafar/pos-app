@@ -154,7 +154,7 @@ export function CategoriesPage() {
         size: 60,
         meta: { nowrap: true, align: 'end' },
         cell: (info) => (
-          <span className='money text-default-600'>
+          <span className='money text-default-700'>
             {String(info.getValue() ?? '')}
           </span>
         ),

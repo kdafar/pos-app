@@ -70,7 +70,7 @@ export function OrderLineItem({
     'bg-default-100 hover:bg-default-200';
   const border = 'border-default-200';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-500';
+  const textMuted = 'text-default-700';
 
   const unitPrice = Number(line.unit_price || 0);
   const qty = Number(line.qty || 0);
@@ -145,7 +145,7 @@ export function OrderLineItem({
         <button
           onClick={remove}
           className={
-            'text-default-500 hover:text-red-400'
+            'text-default-700 hover:text-red-400'
           }
           title={t('common.remove')}
         >

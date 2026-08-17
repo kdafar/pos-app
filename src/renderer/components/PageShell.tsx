@@ -65,7 +65,7 @@ export function PageShell({
             )}
           </div>
           {subtitle && (
-            <p className='text-sm font-medium text-default-600 mt-0.5'>
+            <p className='text-sm font-medium text-default-700 mt-0.5'>
               {subtitle}
             </p>
           )}
@@ -136,7 +136,7 @@ export function DataState({
     return (
       <div className='flex flex-col items-center justify-center gap-3 py-16'>
         <Spinner size='lg' />
-        <span className='text-base font-medium text-default-600'>
+        <span className='text-base font-medium text-default-700'>
           {t('common.loading')}
         </span>
       </div>
@@ -169,13 +169,13 @@ export function DataState({
   if (empty) {
     return (
       <div className='flex flex-col items-center justify-center gap-3 py-16 text-center px-4'>
-        <Inbox size={32} className='text-default-500' />
+        <Inbox size={32} className='text-default-700' />
         <div>
           <div className='text-lg font-bold text-foreground'>
             {emptyTitle ?? t('admin.noData')}
           </div>
           {emptyHint && (
-            <div className='text-sm font-medium text-default-600 mt-1'>
+            <div className='text-sm font-medium text-default-700 mt-1'>
               {emptyHint}
             </div>
           )}
@@ -211,7 +211,7 @@ export function SearchField({
       value={value}
       onValueChange={onChange}
       placeholder={placeholder ?? t('common.search')}
-      startContent={<Search size={17} className='text-default-500' />}
+      startContent={<Search size={17} className='text-default-700' />}
       isClearable
       onClear={() => onChange('')}
       className={`w-full sm:w-64 lg:w-80 ${className}`}
@@ -286,7 +286,7 @@ export function StatCard({
   tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
 }) {
   const accent = {
-    default: 'text-default-600 border-default-300',
+    default: 'text-default-700 border-default-300',
     primary: 'text-primary border-primary',
     success: 'text-success border-success',
     warning: 'text-warning border-warning',

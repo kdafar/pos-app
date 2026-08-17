@@ -34,7 +34,7 @@ function Row({
   value: string;
   theme: 'light' | 'dark';
 }) {
-  const textMuted = 'text-default-600';
+  const textMuted = 'text-default-700';
 
   return (
     <div className={`flex justify-between ${textMuted}`}>
@@ -413,13 +413,13 @@ export function CheckoutModal({
     }
   };
 
-  const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
+  const bg = 'bg-content1';
   const border = 'border-default-200';
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-600';
+  const text = 'text-foreground';
+  const textMuted = 'text-default-700';
   const inputBg =
     'bg-default-100 border-default-200';
-  const label = 'text-default-600';
+  const label = 'text-default-700';
 
   // Promo quick apply
   const [showPromo, setShowPromo] = useState(false);
@@ -438,7 +438,7 @@ export function CheckoutModal({
               type='button'
               onClick={() => setShowPromo(true)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
-                'bg-default-100 border border-default-200 text-default-600 hover:bg-default-200'
+                'bg-default-100 border border-default-200 text-default-700 hover:bg-default-200'
               }`}
             >
               <Percent size={14} /> {t('promo.short')}
@@ -452,7 +452,7 @@ export function CheckoutModal({
                 ${
                   useQuickMode
                     ? 'bg-amber-500/20 text-warning border-amber-400/60'
-                    : 'bg-transparent text-default-600 border-default-200 hover:bg-default-100'
+                    : 'bg-transparent text-default-700 border-default-200 hover:bg-default-100'
                 }
               `}
             >
@@ -467,7 +467,7 @@ export function CheckoutModal({
             <button
               onClick={onClose}
               className={
-                'text-default-500 hover:text-white'
+                'text-default-700 hover:text-white'
               }
             >
               <X size={22} />
@@ -493,11 +493,7 @@ export function CheckoutModal({
         >
           {/* Customer lookup */}
           <div
-            className={`p-3 rounded-lg border ${
-              theme === 'dark'
-                ? 'bg-blue-500/10 border-blue-500/30'
-                : 'bg-blue-50 border-blue-300'
-            }`}
+            className='p-3 rounded-lg border border-primary/40 bg-primary/10'
           >
             <label className={`block text-xs font-medium ${label} mb-1.5`}>
               <Phone size={14} className='inline me-1' />{' '}
@@ -511,11 +507,7 @@ export function CheckoutModal({
                   if (e.target.value.length >= 8)
                     searchCustomer(e.target.value);
                 }}
-                className={`flex-1 px-3 py-2 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                  theme === 'dark'
-                    ? 'focus:ring-blue-500/40'
-                    : 'focus:ring-blue-500'
-                }`}
+                className={`flex-1 px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
                 placeholder={t('checkout.mobilePlaceholder')}
               />
               {isSearching && (
@@ -552,11 +544,7 @@ export function CheckoutModal({
                 onChange={(e) =>
                   setFormData({ ...formData, full_name: e.target.value })
                 }
-                className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                  theme === 'dark'
-                    ? 'focus:ring-blue-500/40'
-                    : 'focus:ring-blue-500'
-                }`}
+                className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
                 placeholder={t('checkout.fullNamePlaceholder')}
               />
             </div>
@@ -572,11 +560,7 @@ export function CheckoutModal({
                 onChange={(e) =>
                   setFormData({ ...formData, email: e.target.value })
                 }
-                className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                  theme === 'dark'
-                    ? 'focus:ring-blue-500/40'
-                    : 'focus:ring-blue-500'
-                }`}
+                className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
                 placeholder='customer@email.com'
               />
             </div>
@@ -655,11 +639,7 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, street: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                      theme === 'dark'
-                        ? 'focus:ring-blue-500/40'
-                        : 'focus:ring-blue-500'
-                    }`}
+                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
                     placeholder={t('checkout.streetPlaceholder')}
                   />
                 </div>
@@ -672,11 +652,7 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, building: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                      theme === 'dark'
-                        ? 'focus:ring-blue-500/40'
-                        : 'focus:ring-blue-500'
-                    }`}
+                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
                     placeholder={t('checkout.buildingPlaceholder')}
                   />
                 </div>
@@ -692,11 +668,7 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, floor: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                      theme === 'dark'
-                        ? 'focus:ring-blue-500/40'
-                        : 'focus:ring-blue-500'
-                    }`}
+                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
                     placeholder={t('checkout.floorPlaceholder')}
                   />
                 </div>
@@ -712,11 +684,7 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, address: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                      theme === 'dark'
-                        ? 'focus:ring-blue-500/40'
-                        : 'focus:ring-blue-500'
-                    } resize-none`}
+                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none`}
                     rows={2}
                     placeholder={t('checkout.addressPlaceholder')}
                   />
@@ -734,11 +702,7 @@ export function CheckoutModal({
               onChange={(e) =>
                 setFormData({ ...formData, note: e.target.value })
               }
-              className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder-gray-500 focus:outline-none focus:ring-2 ${
-                theme === 'dark'
-                  ? 'focus:ring-blue-500/40'
-                  : 'focus:ring-blue-500'
-              } resize-none`}
+              className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none`}
               rows={2}
               placeholder={t('checkout.notesPlaceholder')}
             />
@@ -761,9 +725,7 @@ export function CheckoutModal({
                     key={m.id}
                     className={`cursor-pointer rounded-lg border p-3 flex items-center gap-2 ${
                       checked
-                        ? theme === 'dark'
-                          ? 'border-blue-400 bg-blue-500/10'
-                          : 'border-blue-500 bg-blue-50'
+                        ? 'border-primary bg-primary/10 font-semibold'
                         : 'border-default-200 bg-default-100 hover:bg-default-200'
                     }`}
                   >
@@ -782,9 +744,7 @@ export function CheckoutModal({
                       required
                     />
                     <span
-                      className={
-                        theme === 'dark' ? 'text-white' : 'text-gray-900'
-                      }
+                      className='text-foreground'
                     >
                       {/* payment_methods stores name_en/name_ar, so bridge it
                           onto the shape localName() expects. */}
@@ -828,11 +788,7 @@ export function CheckoutModal({
               />
             )}
             <div
-              className={`flex justify-between text-[15px] font-bold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              } pt-2 border-t ${
-                'border-default-200'
-              }`}
+              className='flex justify-between pos-price font-bold text-foreground pt-2 border-t border-default-200'
             >
               <span>{t('common.total')}</span>
               <span

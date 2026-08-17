@@ -158,7 +158,7 @@ export function PromoDialog({
                           </Chip>
                         </div>
                         {promo.min_total > 0 && (
-                          <div className='mt-1 text-sm font-medium text-default-600'>
+                          <div className='mt-1 text-sm font-medium text-default-700'>
                             {t('promo.min')}:{' '}
                             <span className='money'>
                               {money(promo.min_total)}

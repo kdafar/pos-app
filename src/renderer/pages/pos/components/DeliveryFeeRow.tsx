@@ -40,7 +40,7 @@ export function DeliveryFeeRow({
   useEffect(() => {
     if (!editing) setDraft(String(value ?? 0));
   }, [value, editing]);
-  const muted = 'text-default-500';
+  const muted = 'text-default-700';
 
   const apply = async (mode: 'auto' | 'manual' | 'none', amount?: number) => {
     setBusy(true);
@@ -172,7 +172,7 @@ export function DeliveryFeeRow({
           onClick={() => setEditing(true)}
           title={t('cart.editDeliveryFee')}
           className={`shrink-0 rounded-md p-1 ${
-            'hover:bg-default-200 text-default-500'
+            'hover:bg-default-200 text-default-700'
           }`}
         >
           <Pencil size={13} />

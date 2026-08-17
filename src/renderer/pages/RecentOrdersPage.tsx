@@ -370,7 +370,7 @@ export default function TodayOrdersReport() {
         cell: ({ row }) => (
           <div className='leading-tight'>
             <div className='font-medium'>{row.original.full_name || '—'}</div>
-            <div className='text-xs font-medium text-default-600'>
+            <div className='text-xs font-medium text-default-700'>
               {row.original.mobile || ''}
             </div>
           </div>
@@ -462,7 +462,7 @@ export default function TodayOrdersReport() {
               onChanged={refresh}
             />
           ) : (
-            <span className='text-default-600'>
+            <span className='text-default-700'>
               {(row.original as any).payment_method_slug || '—'}
             </span>
           ),
@@ -479,7 +479,7 @@ export default function TodayOrdersReport() {
       <div className='mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between'>
         <div>
           <h1 className='text-2xl font-bold'>{t('admin.orders.title')}</h1>
-          <div className='text-sm font-medium text-default-600'>
+          <div className='text-sm font-medium text-default-700'>
             {t('admin.orders.subtitle')}
           </div>
         </div>
@@ -515,7 +515,7 @@ export default function TodayOrdersReport() {
           </button>
 
           <div className='flex items-center gap-2 w-full'>
-            <label className='text-sm font-medium text-default-600'>{t('admin.rows')}</label>
+            <label className='text-sm font-medium text-default-700'>{t('admin.rows')}</label>
             <select
               className={fieldCls + ' w-full'}
               value={pageSize}

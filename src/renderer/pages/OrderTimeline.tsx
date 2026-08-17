@@ -33,15 +33,15 @@ type Event = { action: string; at: number; user?: string | null };
 
 /** Icon and tone per action. Unknown actions still get a sane default. */
 const LOOK: Record<string, { Icon: LucideIcon; tone: string }> = {
-  'orders.start': { Icon: Play, tone: 'text-default-500' },
-  'orders.setType': { Icon: Shuffle, tone: 'text-default-500' },
+  'orders.start': { Icon: Play, tone: 'text-default-700' },
+  'orders.setType': { Icon: Shuffle, tone: 'text-default-700' },
   'orders.addLineWithAddons': { Icon: CirclePlus, tone: 'text-primary' },
   'orders.clearLines': { Icon: Ban, tone: 'text-warning' },
   'orders.setDeliveryFee': { Icon: Truck, tone: 'text-warning' },
   'orders.setPaymentMethod': { Icon: CreditCard, tone: 'text-warning' },
   'orders.complete': { Icon: CheckCircle2, tone: 'text-success' },
   'orders.close': { Icon: Lock, tone: 'text-success' },
-  'orders.print': { Icon: Printer, tone: 'text-default-500' },
+  'orders.print': { Icon: Printer, tone: 'text-default-700' },
 };
 
 export function OrderTimeline({ events }: { events: Event[] }) {
@@ -49,7 +49,7 @@ export function OrderTimeline({ events }: { events: Event[] }) {
 
   if (!events.length) {
     return (
-      <div className='text-sm font-medium text-default-600'>
+      <div className='text-sm font-medium text-default-700'>
         {t('admin.orders.noHistory')}
       </div>
     );
@@ -77,7 +77,7 @@ export function OrderTimeline({ events }: { events: Event[] }) {
   return (
     <ol className='relative space-y-0'>
       {ordered.map((e, i) => {
-        const look = LOOK[e.action] ?? { Icon: Clock, tone: 'text-default-500' };
+        const look = LOOK[e.action] ?? { Icon: Clock, tone: 'text-default-700' };
         const last = i === ordered.length - 1;
         return (
           <li key={`${e.action}-${e.at}-${i}`} className='flex gap-3 min-w-0'>
@@ -96,7 +96,7 @@ export function OrderTimeline({ events }: { events: Event[] }) {
               <div className='text-sm font-semibold text-foreground'>
                 {label(e.action)}
               </div>
-              <div className='flex items-center gap-2 flex-wrap text-xs text-default-600'>
+              <div className='flex items-center gap-2 flex-wrap text-xs text-default-700'>
                 {/* Timestamps stay LTR so 17/08/2026 never mirrors in Arabic. */}
                 <span className='money' dir='ltr'>
                   {when(e.at)}

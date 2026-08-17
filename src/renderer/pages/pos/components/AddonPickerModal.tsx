@@ -38,7 +38,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
 
   const bg = theme === 'dark' ? 'bg-slate-900' : 'bg-white';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-500';
+  const textMuted = 'text-default-700';
   const border = 'border-default-200';
 
   useEffect(() => {
@@ -235,7 +235,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
             onClick={onClose}
             className={`rounded-full p-1.5 mt-1
               ${
-                'hover:bg-default-200 text-default-600'
+                'hover:bg-default-200 text-default-700'
               }`}
           >
             <X size={18} />
@@ -459,7 +459,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
                 <span className='font-semibold'>
                   <span className='money'>{money(totalWithAddons)}</span>
                 </span>
-                <span className='text-default-600'>
+                <span className='text-default-700'>
                   {' '}
                   (<span className='money'>{money(itemBasePrice)}</span> + <span className='money'>{money(addonsExtraTotal)}</span>)
                 </span>

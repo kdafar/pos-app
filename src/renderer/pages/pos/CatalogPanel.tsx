@@ -124,7 +124,7 @@ export default function CatalogPanel({
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
   const border = 'border-default-100';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-500';
+  const textMuted = 'text-default-700';
   const inputBg =
     'bg-default-100 border-default-200';
 
@@ -167,7 +167,7 @@ export default function CatalogPanel({
           {isSearching && (
             <div
               className={`mb-1.5 text-[11px] ${
-                'text-default-500'
+                'text-default-700'
               }`}
             >
               {t('pos.searchAllCategories')}
@@ -187,7 +187,7 @@ export default function CatalogPanel({
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                 !selCat && !isSearching
                   ? 'bg-primary text-primary-foreground'
-                  : 'bg-default-100 text-default-600 hover:bg-default-200 border border-default-200'
+                  : 'bg-default-100 text-default-700 hover:bg-default-200 border border-default-200'
               }`}
             >
               {t('pos.categories')}
@@ -210,7 +210,7 @@ export default function CatalogPanel({
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                   selCat === String(cat.id) && !isSearching
                     ? 'bg-primary text-primary-foreground'
-                    : 'bg-default-100 text-default-600 hover:bg-default-200 border border-default-200'
+                    : 'bg-default-100 text-default-700 hover:bg-default-200 border border-default-200'
                 }`}
               >
                 {localName(cat)}
@@ -235,7 +235,7 @@ export default function CatalogPanel({
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                 !selectedSubcategoryId && !isSearching
                   ? 'bg-blue-500/20 text-primary border border-blue-500/30'
-                  : 'bg-default-100 text-default-600 hover:bg-default-200 border border-default-200'
+                  : 'bg-default-100 text-default-700 hover:bg-default-200 border border-default-200'
               }`}
             >
               {t('common.all')}
@@ -255,7 +255,7 @@ export default function CatalogPanel({
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                   selectedSubcategoryId === String(sub.id) && !isSearching
                     ? 'bg-blue-500/20 text-primary border border-blue-500/30'
-                    : 'bg-default-100 text-default-600 hover:bg-default-200 border border-default-200'
+                    : 'bg-default-100 text-default-700 hover:bg-default-200 border border-default-200'
                 }`}
               >
                 {localName(sub)}

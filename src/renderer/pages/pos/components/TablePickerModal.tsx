@@ -114,7 +114,7 @@ export function TablePickerModal({
               </span>
               {/* The legend is the key to the whole grid, so it is a solid
                   default-600 at readable size rather than an 11px whisper. */}
-              <div className='flex flex-wrap items-center gap-4 text-xs font-medium text-default-600'>
+              <div className='flex flex-wrap items-center gap-4 text-xs font-medium text-default-700'>
                 {legend.map((s) => (
                   <span key={s} className='flex items-center gap-1.5'>
                     <span
@@ -154,7 +154,7 @@ export function TablePickerModal({
               </div>
 
               {current.table_id && (
-                <p className='text-sm font-medium text-default-600'>
+                <p className='text-sm font-medium text-default-700'>
                   {t('tables.tip')}
                 </p>
               )}
@@ -210,7 +210,7 @@ export function TablePickerModal({
                             <div className='truncate text-base font-semibold text-foreground'>
                               {tbl.name}
                             </div>
-                            <div className='mt-1 text-sm font-medium text-default-600'>
+                            <div className='mt-1 text-sm font-medium text-default-700'>
                               {t('tables.seats')}:{' '}
                               <span className='money'>{tbl.seats || 0}</span>
                             </div>

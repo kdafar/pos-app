@@ -20,7 +20,7 @@ export function OrderTypePicker({
   ];
   const bg = 'bg-default-100 border-default-200';
   const activeBtn = 'bg-primary text-primary-foreground';
-  const inactiveBtn = 'text-default-600 hover:text-white';
+  const inactiveBtn = 'text-default-700 hover:text-white';
 
   return (
     <div className={`inline-flex rounded-lg border p-1 ${bg}`}>

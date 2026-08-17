@@ -74,7 +74,7 @@ export function LanguageToggle({
   const active =
     'bg-blue-600 text-white shadow';
   const idle =
-    'text-default-600 hover:text-white';
+    'text-default-700 hover:text-white';
 
   return (
     <div className={`inline-flex items-center rounded-lg border p-1 ${shell}`}>
@@ -82,7 +82,7 @@ export function LanguageToggle({
         <Languages
           size={14}
           className={`ms-1 me-1.5 ${
-            'text-default-500'
+            'text-default-700'
           }`}
         />
       )}

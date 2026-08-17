@@ -89,7 +89,7 @@ function Section({
 }) {
   return (
     <div className='rounded-xl border border-default-200 bg-default-50 p-3.5 space-y-2'>
-      <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-default-600'>
+      <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-default-700'>
         <Icon size={14} />
         {title}
       </div>
@@ -185,17 +185,17 @@ export function OrderDetailModal({
                 {localName(l)}
               </span>
               {l.variation && (
-                <span className='ms-1 text-xs font-medium text-default-600'>
+                <span className='ms-1 text-xs font-medium text-default-700'>
                   [{l.variation}]
                 </span>
               )}
               {l.addons_name && (
-                <div className='text-xs font-medium text-default-600'>
+                <div className='text-xs font-medium text-default-700'>
                   + {l.addons_name}
                 </div>
               )}
               {l.notes && (
-                <div className='text-xs font-medium italic text-default-600'>
+                <div className='text-xs font-medium italic text-default-700'>
                   {l.notes}
                 </div>
               )}
@@ -241,7 +241,7 @@ export function OrderDetailModal({
     >
       <ModalContent>
         <ModalHeader className='flex flex-col gap-1'>
-          <span className='text-xs font-semibold uppercase tracking-wide text-default-600'>
+          <span className='text-xs font-semibold uppercase tracking-wide text-default-700'>
             {t('admin.orders.detailTitle')}
           </span>
           <span className='flex items-center gap-2 text-lg font-bold text-foreground'>
@@ -249,7 +249,7 @@ export function OrderDetailModal({
             {o && <PaymentChip status={o.payment_link_status} />}
           </span>
           {o?.reference_no && (
-            <span className='text-xs font-medium text-default-600' dir='ltr'>
+            <span className='text-xs font-medium text-default-700' dir='ltr'>
               {o.number}
             </span>
           )}
@@ -277,14 +277,14 @@ export function OrderDetailModal({
                       {o.full_name || '—'}
                     </div>
                     <div
-                      className='text-xs font-medium text-default-600'
+                      className='text-xs font-medium text-default-700'
                       dir='ltr'
                     >
                       {o.mobile || '—'}
                     </div>
                     {o.email && (
                       <div
-                        className='text-xs font-medium text-default-600'
+                        className='text-xs font-medium text-default-700'
                         dir='ltr'
                       >
                         {o.email}
@@ -296,11 +296,11 @@ export function OrderDetailModal({
                     <div className='text-sm font-medium text-foreground'>
                       {typeLabel(o.order_type)} · {statusLabel(o.status)}
                     </div>
-                    <div className='text-xs font-medium text-default-600'>
+                    <div className='text-xs font-medium text-default-700'>
                       {t('admin.orders.placedAt')}: {when(o.opened_at)}
                     </div>
                     {o.table_name && (
-                      <div className='text-xs font-medium text-default-600'>
+                      <div className='text-xs font-medium text-default-700'>
                         {t('cust.table')}: {o.table_name}
                       </div>
                     )}
@@ -311,12 +311,12 @@ export function OrderDetailModal({
                       {geoLine || '—'}
                     </div>
                     {o.address && (
-                      <div className='text-xs font-medium text-default-600'>
+                      <div className='text-xs font-medium text-default-700'>
                         {o.address}
                       </div>
                     )}
                     {o.landmark && (
-                      <div className='text-xs font-medium text-default-600'>
+                      <div className='text-xs font-medium text-default-700'>
                         {o.landmark}
                       </div>
                     )}
@@ -338,7 +338,7 @@ export function OrderDetailModal({
                       </Button>
                     )}
                     {data.payment?.verified_at && (
-                      <div className='text-xs font-medium text-default-600'>
+                      <div className='text-xs font-medium text-default-700'>
                         {when(data.payment.verified_at)}
                       </div>
                     )}

@@ -77,7 +77,7 @@ export default function OrderSide({
   const bg = theme === 'dark' ? 'bg-slate-900/60' : 'bg-white';
   const border = 'border-default-100';
   const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
-  const textMuted = 'text-default-500';
+  const textMuted = 'text-default-700';
   const cardBg = 'bg-default-100';
   const toast = useToast();
   const confirm = useConfirmDialog();
@@ -443,7 +443,7 @@ export default function OrderSide({
               <button
                 onClick={() => setShowPromoDialog(true)}
                 className={`w-full py-2 rounded-lg border text-xs font-medium transition ${
-                  'border-default-200 bg-default-100 text-default-600 hover:bg-default-200'
+                  'border-default-200 bg-default-100 text-default-700 hover:bg-default-200'
                 }`}
               >
                 <Percent size={14} className='inline me-1' />
@@ -715,7 +715,7 @@ function Row({
   value: string;
   theme: 'light' | 'dark';
 }) {
-  const textMuted = 'text-default-600';
+  const textMuted = 'text-default-700';
   return (
     <div className={`flex justify-between ${textMuted}`}>
       <span>{label}</span>

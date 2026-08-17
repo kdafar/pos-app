@@ -99,7 +99,7 @@ export function ItemsPage() {
         cell: ({ row }) => {
           const v = !!row.original.has_variations;
           const a = !!row.original.has_addons;
-          if (!v && !a) return <span className='text-default-500'>—</span>;
+          if (!v && !a) return <span className='text-default-700'>—</span>;
           return (
             <div className='flex items-center gap-1'>
               {v && (
@@ -142,7 +142,7 @@ export function ItemsPage() {
           return (
             <span className='font-semibold whitespace-nowrap'>
               {hasVar && min > 0 && (
-                <span className='text-default-500 font-normal me-1 text-xs'>
+                <span className='text-default-700 font-normal me-1 text-xs'>
                   {t('pos.from')}
                 </span>
               )}

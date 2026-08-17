@@ -23,7 +23,7 @@ export function TableQuickBar({
 
   const border = 'border-default-100';
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-  const label = 'text-default-600';
+  const label = 'text-default-700';
 
   const colorFor = (t: TableInfo, isActive: boolean) => {
     if (isActive) return 'bg-blue-600 text-white border-blue-500';
