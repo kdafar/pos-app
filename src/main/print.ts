@@ -19,6 +19,8 @@ type OrderRow = {
   city_id?: string | null; // ✅ add this
 
   delivery_fee?: number | null;
+  void_delivery_fee?: number | null;
+  delivery_fee_manual?: number | null;
   discount_amount?: number | null;
   discount_total?: number | null;
   grand_total?: number | null;
@@ -96,6 +98,8 @@ function getOrder(orderId: string): OrderRow | undefined {
       o.city_id,                     -- ✅ add this
 
       o.delivery_fee               AS delivery_fee,
+      o.void_delivery_fee          AS void_delivery_fee,
+      o.delivery_fee_manual        AS delivery_fee_manual,
       o.discount_total             AS discount_total,
       o.discount_amount            AS discount_amount,
       o.tax_total                  AS tax_total,
@@ -1195,6 +1199,8 @@ export function registerLocalPrintHandlers() {
 
       if (
         order.order_type === 1 && // only for Delivery
+        Number(order.void_delivery_fee) !== 1 && // explicit waiver is final
+        Number(order.delivery_fee_manual) !== 1 && // manual zero is final
         Math.abs(effectiveDelivery) < 0.0005 // if 0 or not set
       ) {
         const cityId = (order.city_id ?? null) as string | null;

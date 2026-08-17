@@ -96,6 +96,9 @@ export function pushStatusForLocal(localStatus: string): number {
     case 'ready':
       return SERVER_STATUS.READY; // 3 — "assigned to driver" / "waiting for pickup"
 
+    case 'awaiting_pickup':
+      return SERVER_STATUS.AWAITING_PICKUP;
+
     case 'prepared':
       // Was reported as READY, which the dashboard shows as ready to collect or
       // already with a driver. An order still being made is PREPARING; sending
@@ -167,4 +170,20 @@ export function safePushStatus(
   if (!Number.isFinite(server)) return local; // never synced; nothing to protect
 
   return progressRank(server) >= progressRank(local) ? server : local;
+}
+
+const ALLOWED_POS_TRANSITIONS: Record<number, readonly number[]> = {
+  [SERVER_STATUS.RECEIVED]: [SERVER_STATUS.PREPARING],
+  [SERVER_STATUS.PREPARING]: [SERVER_STATUS.READY],
+  [SERVER_STATUS.READY]: [SERVER_STATUS.DONE, SERVER_STATUS.AWAITING_PICKUP],
+  [SERVER_STATUS.AWAITING_PICKUP]: [SERVER_STATUS.DONE],
+  [SERVER_STATUS.DONE]: [],
+};
+
+export function isAllowedPosTransition(current: unknown, next: unknown): boolean {
+  const from = Number(current);
+  const to = Number(next);
+  if (!Number.isInteger(from) || !Number.isInteger(to)) return false;
+  if (!(from in ALLOWED_POS_TRANSITIONS) || !(to in ALLOWED_POS_TRANSITIONS)) return false;
+  return from === to || ALLOWED_POS_TRANSITIONS[from].includes(to);
 }

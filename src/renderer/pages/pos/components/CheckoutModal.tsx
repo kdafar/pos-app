@@ -150,11 +150,14 @@ export function CheckoutModal({
   const [displayDeliveryFee, setDisplayDeliveryFee] = useState<number>(
     order.order_type === 1 ? order.delivery_fee || 0 : 0
   );
+  const [deliveryFeeOverride, setDeliveryFeeOverride] = useState(() => ({
+    manual: Number((order as any).delivery_fee_manual) === 1,
+    waived: Number((order as any).void_delivery_fee) === 1,
+  }));
   // A hand-entered or waived fee is the cashier's decision and must survive
   // picking an area — otherwise choosing the city silently overwrites it.
   const feeOverridden =
-    Number((order as any).delivery_fee_manual) === 1 ||
-    Number((order as any).void_delivery_fee) === 1;
+    deliveryFeeOverride.manual || deliveryFeeOverride.waived;
 
   useEffect(() => {
     if (order.order_type !== 1) return;
@@ -838,12 +841,17 @@ export function CheckoutModal({
               <DeliveryFeeRow
                 orderId={order.id}
                 value={computeDisplayTotals().delivery}
-                isManual={Number((order as any).delivery_fee_manual) === 1}
-                isWaived={Number((order as any).void_delivery_fee) === 1}
+                isManual={deliveryFeeOverride.manual}
+                isWaived={deliveryFeeOverride.waived}
                 onChanged={async () => {
                   const fresh = await window.api.invoke('orders:get', order.id);
                   const fee = Number(fresh?.order?.delivery_fee ?? 0);
                   setDisplayDeliveryFee(Number.isFinite(fee) ? fee : 0);
+                  setDeliveryFeeOverride({
+                    manual:
+                      Number(fresh?.order?.delivery_fee_manual) === 1,
+                    waived: Number(fresh?.order?.void_delivery_fee) === 1,
+                  });
                 }}
               />
             )}

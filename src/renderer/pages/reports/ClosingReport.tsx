@@ -79,14 +79,7 @@ function toLocalInput(ms: number) {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return '';
   const pad = (x: number) => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}`;
-}
-
-function fromLocalInput(s: string) {
-  if (!s) return NaN;
-  return new Date(s).getTime();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export default function ClosingReport() {
@@ -149,14 +142,13 @@ export default function ClosingReport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     if (!canEditRange) return loadReport();
-    const f = fromLocalInput(fromStr);
-    const to = fromLocalInput(toStr);
-    loadReport({
-      from: isNaN(f) ? undefined : f,
-      to: isNaN(to) ? undefined : to,
+    const range = await window.api.invoke('report:operationalWindow', {
+      fromDate: fromStr,
+      toDate: toStr,
     });
+    loadReport({ from: Number(range.fromMs), to: Number(range.toMs) });
   };
 
   /* ---------------- columns ---------------- */
@@ -405,7 +397,7 @@ export default function ClosingReport() {
         canEditRange ? (
           <div className='flex flex-wrap items-end gap-2 no-print'>
             <Input
-              type='datetime-local'
+              type='date'
               label={t('admin.rep.startDate')}
               labelPlacement='outside'
               value={fromStr}
@@ -413,7 +405,7 @@ export default function ClosingReport() {
               className='w-56'
             />
             <Input
-              type='datetime-local'
+              type='date'
               label={t('admin.rep.endDate')}
               labelPlacement='outside'
               value={toStr}

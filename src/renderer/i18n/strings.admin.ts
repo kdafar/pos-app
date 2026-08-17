@@ -309,6 +309,7 @@ export const adminStrings = {
 
   /* ---------- Today's orders ---------- */
   'admin.orders.title': { en: 'Today’s Orders', ar: 'طلبات اليوم' },
+  'admin.orders.time': { en: 'Time', ar: 'الوقت' },
   'admin.orders.subtitle': {
     en: 'All statuses for the current day',
     ar: 'كل الحالات لليوم الحالي',
@@ -332,6 +333,9 @@ export const adminStrings = {
     en: 'No orders for today.',
     ar: 'لا توجد طلبات اليوم.',
   },
+  'admin.orders.fromDate': { en: 'From date', ar: 'من تاريخ' },
+  'admin.orders.toDate': { en: 'To date', ar: 'إلى تاريخ' },
+  'admin.orders.filter': { en: 'Filter', ar: 'تصفية' },
   'admin.orders.count': { en: '{n} orders', ar: '{n} طلب' },
   'admin.orders.printAdminOnly': {
     en: 'Only admin users are allowed to print this report.',

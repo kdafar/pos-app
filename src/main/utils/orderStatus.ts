@@ -19,6 +19,7 @@ export const ORDER_STATUS = {
   PLACED: 'placed',
   PREPARED: 'prepared',
   READY: 'ready',
+  AWAITING_PICKUP: 'awaiting_pickup',
   CLOSED: 'closed',
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
@@ -31,6 +32,7 @@ export const ACTIVE_STATUSES = [
   ORDER_STATUS.PLACED,
   ORDER_STATUS.PREPARED,
   ORDER_STATUS.READY,
+  ORDER_STATUS.AWAITING_PICKUP,
 ] as const;
 
 /** Finished — no longer shown as active. */
@@ -48,6 +50,8 @@ export const TERMINAL_STATUSES = [
 export const PUSHABLE_STATUSES = [
   ORDER_STATUS.PLACED,
   ORDER_STATUS.PREPARED,
+  ORDER_STATUS.READY,
+  ORDER_STATUS.AWAITING_PICKUP,
   ORDER_STATUS.CLOSED,
   ORDER_STATUS.COMPLETED,
 ] as const;

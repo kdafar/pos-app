@@ -1,5 +1,5 @@
 // src/renderer/pages/OrderStatusCell.tsx
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Select, SelectItem } from '@heroui/react';
 import { useI18n } from '../i18n';
 import type { StringKey } from '../i18n';
@@ -22,6 +22,7 @@ const FLOW: { value: string; key: StringKey }[] = [
   { value: 'placed', key: 'status.placed' },
   { value: 'prepared', key: 'status.prepared' },
   { value: 'ready', key: 'status.ready' },
+  { value: 'awaiting_pickup', key: 'admin.srv.7' },
   { value: 'closed', key: 'status.closed' },
 ];
 
@@ -29,29 +30,71 @@ const TONE: Record<string, 'default' | 'primary' | 'warning' | 'success'> = {
   placed: 'primary',
   prepared: 'warning',
   ready: 'warning',
+  awaiting_pickup: 'warning',
   closed: 'success',
 };
 
 export function OrderStatusCell({
   orderId,
   status,
+  statusCode,
   disabled = false,
   onChanged,
 }: {
   orderId: string;
   status?: string | null;
+  statusCode?: number | null;
   disabled?: boolean;
   onChanged?: () => void | Promise<void>;
 }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const statusNameForCode: Record<number, string> = {
+    1: 'placed',
+    2: 'prepared',
+    3: 'ready',
+    4: 'closed',
+    7: 'awaiting_pickup',
+  };
   const [current, setCurrent] = useState(
-    String(status ?? '').toLowerCase() || 'placed'
+    statusCode != null && statusNameForCode[Number(statusCode)]
+      ? statusNameForCode[Number(statusCode)]
+      : String(status ?? '').toLowerCase() || 'placed'
   );
+
+  useEffect(() => {
+    const fromServer =
+      statusCode != null ? statusNameForCode[Number(statusCode)] : undefined;
+    setCurrent(fromServer ?? (String(status ?? '').toLowerCase() || 'placed'));
+  }, [status, statusCode]);
 
   // An order the till has finished with, or one the server owns, is not
   // something a cashier should be reordering from a dropdown.
   const known = FLOW.some((f) => f.value === current);
+
+  const localCode: Record<string, number> = {
+    placed: 1,
+    prepared: 2,
+    ready: 3,
+    awaiting_pickup: 7,
+    closed: 4,
+  };
+  const rawServerCode = statusCode == null ? NaN : Number(statusCode);
+  const currentCode = Number.isFinite(rawServerCode)
+    ? Math.max(rawServerCode, localCode[current] ?? 1)
+    : localCode[current] ?? 1;
+  const nextCodes: Record<number, number[]> = {
+    1: [2],
+    2: [3],
+    3: [4, 7],
+    7: [4],
+    4: [],
+  };
+  const visible = FLOW.filter(
+    (f) =>
+      localCode[f.value] === currentCode ||
+      (nextCodes[currentCode] ?? []).includes(localCode[f.value])
+  );
 
   const change = async (next: string) => {
     const previous = current;
@@ -87,7 +130,7 @@ export function OrderStatusCell({
       color={TONE[current] ?? 'default'}
       className='w-full max-w-[10rem]'
     >
-      {FLOW.map((f) => (
+      {visible.map((f) => (
         <SelectItem key={f.value}>{t(f.key)}</SelectItem>
       ))}
     </Select>

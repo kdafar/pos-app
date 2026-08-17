@@ -16,6 +16,11 @@ import {
   TERMINAL_STATUSES,
   sqlList,
 } from '../utils/orderStatus';
+import {
+  isAllowedPosTransition,
+  isTerminalServerStatus,
+  pushStatusForLocal,
+} from '../utils/serverStatus';
 
 export function registerOrdersHandlers(
   ipcMain: IpcMain,
@@ -327,8 +332,11 @@ export function registerOrdersHandlers(
   });
 
   ipcMain.handle('orders:listByDate', async (_evt, args: any) => {
-    const from = Number(args?.from ?? 0);
-    const to = Number(args?.to ?? 0);
+    // The Today Orders page uses start_ms/end_ms while older callers use
+    // from/to. Reading only the latter silently turned both bounds into zero,
+    // removed the WHERE date clauses, and mixed old orders into today's list.
+    const from = Number(args?.from ?? args?.start_ms ?? 0);
+    const to = Number(args?.to ?? args?.end_ms ?? 0);
     const status = (args?.status ?? '').toString().trim();
     const branchId = args?.branch_id;
     const { sql: userSql, params: userParams } = buildUserFilter('orders');
@@ -572,6 +580,7 @@ export function registerOrdersHandlers(
         ORDER_STATUS.PLACED,
         ORDER_STATUS.PREPARED,
         ORDER_STATUS.READY,
+        ORDER_STATUS.AWAITING_PICKUP,
         ORDER_STATUS.CLOSED,
       ] as string[];
 
@@ -582,6 +591,20 @@ export function registerOrdersHandlers(
 
       const current = String(order.status || '').toLowerCase();
       if (current === target) return getOrderWithLines(orderId);
+
+      const serverCode = Number(order.status_code);
+      if (Number.isFinite(serverCode) && isTerminalServerStatus(serverCode)) {
+        throw new Error(
+          'Order is already finished on the server and cannot be changed by a device'
+        );
+      }
+      const localCode = pushStatusForLocal(current);
+      const effectiveCode = Number.isFinite(serverCode)
+        ? Math.max(serverCode, localCode)
+        : localCode;
+      if (!isAllowedPosTransition(effectiveCode, pushStatusForLocal(target))) {
+        throw new Error(`Invalid order status transition: ${current} -> ${target}`);
+      }
 
       const cols = ['status = ?', 'updated_at = ?'];
       const params: any[] = [target, nowMs()];

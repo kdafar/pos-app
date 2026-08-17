@@ -4,6 +4,7 @@ import {
   pushStatusForLocal,
   isTerminalServerStatus,
   safePushStatus,
+  isAllowedPosTransition,
 } from './serverStatus';
 
 describe('pushStatusForLocal', () => {
@@ -37,6 +38,27 @@ describe('pushStatusForLocal', () => {
     for (const s of ['', 'nonsense', undefined as any, null as any]) {
       expect(pushStatusForLocal(s)).toBe(SERVER_STATUS.RECEIVED);
     }
+  });
+});
+
+describe('isAllowedPosTransition', () => {
+  const S = SERVER_STATUS;
+
+  it('allows only the documented forward flow and idempotent repeats', () => {
+    expect(isAllowedPosTransition(S.RECEIVED, S.PREPARING)).toBe(true);
+    expect(isAllowedPosTransition(S.PREPARING, S.READY)).toBe(true);
+    expect(isAllowedPosTransition(S.READY, S.AWAITING_PICKUP)).toBe(true);
+    expect(isAllowedPosTransition(S.READY, S.DONE)).toBe(true);
+    expect(isAllowedPosTransition(S.AWAITING_PICKUP, S.DONE)).toBe(true);
+    expect(isAllowedPosTransition(S.READY, S.READY)).toBe(true);
+  });
+
+  it('blocks backward, skipped, terminal, cancellation and unknown moves', () => {
+    expect(isAllowedPosTransition(S.READY, S.PREPARING)).toBe(false);
+    expect(isAllowedPosTransition(S.RECEIVED, S.READY)).toBe(false);
+    expect(isAllowedPosTransition(S.DONE, S.READY)).toBe(false);
+    expect(isAllowedPosTransition(S.READY, S.CANCELLED_ADMIN)).toBe(false);
+    expect(isAllowedPosTransition(123, S.DONE)).toBe(false);
   });
 });
 

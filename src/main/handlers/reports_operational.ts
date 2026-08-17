@@ -230,6 +230,29 @@ function defaultOperationalWindow(now = new Date()): {
   return { fromMs: yStart, toMs: nowMs };
 }
 
+/** Resolve whole operational days for date-only filters used by report screens. */
+function operationalDateRange(fromDate?: string, toDate?: string): {
+  fromMs: number;
+  toMs: number;
+} {
+  if (!fromDate && !toDate) return defaultOperationalWindow(new Date());
+
+  const parseDate = (value: string | undefined) => {
+    const match = String(value ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const fromDay = parseDate(fromDate) ?? parseDate(toDate) ?? new Date();
+  const toDay = parseDate(toDate) ?? fromDay;
+  const first = fromDay.getTime() <= toDay.getTime() ? fromDay : toDay;
+  const last = fromDay.getTime() <= toDay.getTime() ? toDay : fromDay;
+  const fromRange = getOperationalDayRange(first);
+  const toRange = getOperationalDayRange(last);
+  return { fromMs: fromRange.startMs, toMs: toRange.endMs };
+}
+
 /* ---- helpers to classify orders ---- */
 
 function isSold(row: any): boolean {
@@ -279,6 +302,12 @@ function msExpr(col: string, alias = 'o') {
 /* ========== MAIN IPC HANDLER ========== */
 
 export function registerOperationalReportHandlers() {
+  ipcMain.handle(
+    'report:operationalWindow',
+    (_evt, opts?: { fromDate?: string; toDate?: string }) =>
+      operationalDateRange(opts?.fromDate, opts?.toDate)
+  );
+
   ipcMain.handle(
     'report:sales:preview',
     (_evt, opts?: { from?: number; to?: number }) => {

@@ -22,6 +22,8 @@ declare global {
 type Order = {
   id?: string;
   number: string;
+  /** Human-facing order number allocated by the server after push. */
+  reference_no?: string | null;
   status: string | null;
   /** Server enum 0–9 (sync.ts). Present on pulled orders; null on local ones. */
   status_code?: number | null;
@@ -134,27 +136,9 @@ const bestUpdatedMs = (row: Order) => {
   return 0;
 };
 
-function getTodayRangeMs() {
-  const now = new Date();
-  const start = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    0,
-    0,
-    0,
-    0
-  ).getTime();
-  const end = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    23,
-    59,
-    59,
-    999
-  ).getTime();
-  return { start_ms: start, end_ms: end };
+function localDateValue(date = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 export default function TodayOrdersReport() {
@@ -167,6 +151,8 @@ export default function TodayOrdersReport() {
   // filters
   const [q, setQ] = useState('');
   const [type, setType] = useState<'all' | '1' | '2' | '3'>('all');
+  const [fromDate, setFromDate] = useState(() => localDateValue());
+  const [toDate, setToDate] = useState(() => localDateValue());
 
   // table state
   const [pageSize, setPageSize] = useState(25);
@@ -255,7 +241,12 @@ export default function TodayOrdersReport() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const { start_ms, end_ms } = getTodayRangeMs();
+      const range = await window.api.invoke('report:operationalWindow', {
+        fromDate,
+        toDate,
+      });
+      const start_ms = Number(range?.fromMs);
+      const end_ms = Number(range?.toMs);
 
       let list: Order[] = [];
       try {
@@ -278,6 +269,8 @@ export default function TodayOrdersReport() {
 
   useEffect(() => {
     refresh();
+    // Initial load only; date changes are applied with the Filter button.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
@@ -285,9 +278,9 @@ export default function TodayOrdersReport() {
     return (rows || []).filter((r) => {
       if (type !== 'all' && String(r.order_type ?? '') !== type) return false;
       if (!qq) return true;
-      const hay = `${r.number}|${r.status ?? ''}|${typeLabel(r.order_type)}|${
-        r.full_name ?? ''
-      }|${r.mobile ?? ''}`.toLowerCase();
+      const hay = `${r.reference_no ?? ''}|${r.number}|${r.status ?? ''}|${typeLabel(
+        r.order_type
+      )}|${r.full_name ?? ''}|${r.mobile ?? ''}`.toLowerCase();
       return hay.includes(qq);
     });
   }, [rows, q, type, typeLabel]);
@@ -335,7 +328,8 @@ export default function TodayOrdersReport() {
   const columns = useMemo<ColumnDef<Order>[]>(
     () => [
       {
-        accessorKey: 'number',
+        id: 'reference_no',
+        accessorFn: (row) => row.reference_no || row.number,
         header: () => t('admin.orders.number'),
         cell: (info) => info.getValue() as string,
         size: 105,
@@ -358,6 +352,7 @@ export default function TodayOrdersReport() {
           <OrderStatusCell
             orderId={String((row.original as any).id)}
             status={row.original.status}
+            statusCode={row.original.status_code}
             disabled={!isAdmin}
             onChanged={refresh}
           />
@@ -426,7 +421,7 @@ export default function TodayOrdersReport() {
         },
         sortingFn: 'basic',
         size: 145,
-        meta: { nowrap: true, className: 'hidden 2xl:table-cell' },
+        meta: { nowrap: true, className: 'hidden' },
       },
       {
         id: 'actions',
@@ -484,6 +479,27 @@ export default function TodayOrdersReport() {
             </span>
           ),
       },
+      {
+        id: 'order_time',
+        header: () => t('admin.orders.time'),
+        accessorFn: (row) => bestUpdatedMs(row),
+        cell: ({ row }) => {
+          const ms = bestUpdatedMs(row.original);
+          return ms ? (
+            <span className='money'>
+              {new Date(ms).toLocaleTimeString(
+                lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB',
+                { hour: '2-digit', minute: '2-digit' }
+              )}
+            </span>
+          ) : (
+            '—'
+          );
+        },
+        sortingFn: 'basic',
+        size: 75,
+        meta: { nowrap: true },
+      },
     ],
     [handlePrint, showPaymentQr, isAdmin, t, money, lang, typeLabel, theme]
   ); // keep in sync with admin state
@@ -502,7 +518,7 @@ export default function TodayOrdersReport() {
         </div>
 
         {/* Toolbar */}
-        <div className='w-full md:w-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(260px,420px)_140px_110px_110px] gap-2'>
+        <div className='w-full grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_130px_150px_150px_100px_100px] gap-2'>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -522,13 +538,32 @@ export default function TodayOrdersReport() {
             <option value='3'>{typeLabel(3)}</option>
           </select>
 
+          <input
+            type='date'
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className={fieldCls + ' w-full'}
+            aria-label={t('admin.orders.fromDate')}
+            title={t('admin.orders.fromDate')}
+          />
+
+          <input
+            type='date'
+            value={toDate}
+            min={fromDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className={fieldCls + ' w-full'}
+            aria-label={t('admin.orders.toDate')}
+            title={t('admin.orders.toDate')}
+          />
+
           <button
             className={btnCls + ' w-full'}
             onClick={refresh}
             disabled={loading}
             title={t('admin.refresh')}
           >
-            {loading ? t('admin.refreshing') : t('admin.refresh')}
+            {loading ? t('admin.refreshing') : t('admin.orders.filter')}
           </button>
 
           <div className='flex items-center gap-2 w-full'>
