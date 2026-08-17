@@ -250,7 +250,26 @@ export function Layout() {
         `}
       >
         {/* User header + controls */}
-        <div className='flex items-center gap-2 px-1'>
+        <div
+          className={`flex items-center gap-2 ${
+            collapsed ? 'flex-col px-0' : 'px-1'
+          }`}
+        >
+          {/* Collapsed, the sidebar is the only place the operator is named —
+              the POS header used to repeat it, which meant the name appeared
+              twice whenever the sidebar was open. Keeping the avatar here lets
+              that duplicate go without losing the information. */}
+          {collapsed && (
+            <div
+              className='w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-xs uppercase shrink-0'
+              title={`${user?.name || t('pos.operator')}${
+                user?.role ? ` — ${user.role}` : ''
+              }`}
+            >
+              {(user?.name || 'U').slice(0, 2)}
+            </div>
+          )}
+
           {!collapsed && (
             <div
               className={`
@@ -317,24 +336,18 @@ export function Layout() {
             '
             title={sync?.base_url || ''}
           >
-            <div className='flex items-center justify-between gap-3'>
-              {/* LEFT: label + details */}
-              <div className='min-w-0'>
-                <div className='text-[10px] uppercase tracking-[0.22em] text-muted-foreground mb-1'>
-                  {t('sync.title')}
-                </div>
-                <div className='flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground'>
-                  <span className='inline-flex items-center gap-1 max-w-[140px]'>
-                    <GitBranch size={11} />
-                    <span className='truncate'>
-                      {sync?.branch_name || t('sync.noBranch')}
-                    </span>
-                  </span>
-                  <span className='inline-flex items-center gap-1 max-w-[120px]'>
-                    <Timer size={11} />
-                    <span className='truncate'>{lastSyncText}</span>
-                  </span>
-                </div>
+            {/*
+              The branch gets its own full-width line.
+              Previously the branch name, the last-sync time, a status pill and
+              the sync button all shared one row inside a 260px sidebar, and the
+              branch was capped at max-w-[140px] — so "Habiba Sweets - Salmiya"
+              rendered as "Habiba Sweets - " and the operator could not tell
+              which branch the till was posting to. That is the one fact on this
+              card that must never be ambiguous.
+            */}
+            <div className='flex items-center justify-between gap-2 mb-1.5'>
+              <div className='text-[10px] uppercase tracking-[0.22em] text-muted-foreground'>
+                {t('sync.title')}
               </div>
 
               {/* RIGHT: status + sync button */}
@@ -381,6 +394,22 @@ export function Layout() {
                   />
                 </button>
               </div>
+            </div>
+
+            {/* Branch: full width, and the whole name on hover when it is long */}
+            <div
+              className='flex items-center gap-1.5 text-[11px] text-foreground/90 min-w-0'
+              title={sync?.branch_name || undefined}
+            >
+              <GitBranch size={11} className='shrink-0 text-muted-foreground' />
+              <span className='truncate font-medium'>
+                {sync?.branch_name || t('sync.noBranch')}
+              </span>
+            </div>
+
+            <div className='flex items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5 min-w-0'>
+              <Timer size={11} className='shrink-0' />
+              <span className='truncate'>{lastSyncText}</span>
             </div>
 
             {!sync?.paired && (

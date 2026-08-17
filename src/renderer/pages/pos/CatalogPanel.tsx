@@ -176,7 +176,7 @@ export default function CatalogPanel({
             </div>
           )}
           <div
-            className={`flex items-center gap-1.5 overflow-x-auto nice-scroll pb-1 transition-opacity ${
+            className={`flex items-center gap-1.5 overflow-x-auto chip-scroll pb-1 transition-opacity ${
               isSearching ? 'opacity-50' : ''
             }`}
           >
@@ -232,7 +232,7 @@ export default function CatalogPanel({
         {/* Subcategories */}
         {filteredSubcategories.length > 0 && (
           <div
-            className={`flex items-center gap-1.5 overflow-x-auto nice-scroll pb-1 transition-opacity ${
+            className={`flex items-center gap-1.5 overflow-x-auto chip-scroll pb-1 transition-opacity ${
               isSearching ? 'opacity-50' : ''
             }`}
           >

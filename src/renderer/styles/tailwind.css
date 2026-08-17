@@ -151,6 +151,33 @@
   .dark .rail-scroll:hover::-webkit-scrollbar-thumb {
     background-color: rgba(148, 163, 184, 0.35);
   }
+
+  /* Horizontal strips of chips — categories, subcategories, open orders.
+     .nice-scroll gives these a 7px bar plus a reserved gutter above and below,
+     so a row of 28px chips carried ~11px of permanent scrollbar furniture
+     directly under it. The bar was heavier than the content it served. */
+  .chip-scroll {
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+  }
+
+  .chip-scroll::-webkit-scrollbar {
+    height: 3px;
+  }
+
+  .chip-scroll::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: transparent;
+  }
+
+  .chip-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.5);
+  }
+
+  .dark .chip-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.35);
+  }
 }
 
 /* ---------------------------------------------------------------

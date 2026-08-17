@@ -41,14 +41,6 @@ type AuthStatus = {
   branch_name?: string;
 };
 
-type PosUser = {
-  id: string | number;
-  name?: string;
-  role?: string;
-  type?: string;
-  is_admin?: boolean | number;
-};
-
 /**
  * Electron wraps handler errors as
  * "Error invoking remote method 'x': Error: real message" — show only the
@@ -455,19 +447,6 @@ export default function OrderProcessPage() {
     }
   };
 
-  const [user, setUser] = useState<PosUser | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const u = await window.api.invoke('auth:whoami');
-        setUser(u || null);
-      } catch {
-        setUser(null);
-      }
-    })();
-  }, []);
-
   const startDineInForTable = async (table: TableInfo) => {
     try {
       // 1. Check if we are already viewing this table's order
@@ -545,7 +524,6 @@ export default function OrderProcessPage() {
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
   const headerBg = theme === 'dark' ? 'bg-slate-900/95' : 'bg-white';
   const border = theme === 'dark' ? 'border-white/5' : 'border-gray-200';
-  const text = theme === 'dark' ? 'text-white' : 'text-gray-900';
 
   return (
     <div className={`h-screen flex flex-col ${bg} text-[13px]`}>
@@ -555,23 +533,16 @@ export default function OrderProcessPage() {
       >
         <div className='px-4 h-full'>
           <div className='flex h-full items-center gap-4'>
-            <div className='shrink-0 hidden md:flex flex-col leading-tight'>
-              <span className={`text-[11px] font-medium ${text} opacity-70`}>
-                {t('pos.signedInAs')}
-              </span>
-              <div className='flex items-center gap-2'>
-                <span className={`text-sm font-semibold ${text}`}>
-                  {user?.name || t('pos.operator')}
-                </span>
-                {user?.role && (
-                  <span className='text-[10px] px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-200'>
-                    {user.role}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className='flex-1 flex items-center gap-2 overflow-x-auto nice-scroll min-w-0 px-2 pb-0.5'>
+            {/*
+              "Signed in as <name> <role>" used to live here as well as in the
+              sidebar, so on any screen wide enough to show both, the operator's
+              name appeared twice within about 300px of itself. The sidebar owns
+              it — it is on every screen, and it keeps the avatar when collapsed.
+              Reclaiming this block also gives the active-orders strip roughly
+              180px, which is the difference between seeing three open orders
+              and seeing one on a scaled 13" display.
+            */}
+            <div className='flex-1 flex items-center gap-2 overflow-x-auto chip-scroll min-w-0 px-2 pb-0.5'>
               {activeOrders.map((order) => (
                 <button
                   key={order.id}
