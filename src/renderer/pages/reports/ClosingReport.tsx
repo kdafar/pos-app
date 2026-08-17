@@ -1,18 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Printer,
-  RefreshCcw,
-  Clock,
-  Moon,
-  XCircle,
-  DollarSign,
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Button, Chip, Input, Tab, Tabs } from '@heroui/react';
+import { Clock, DollarSign, Moon, Printer, XCircle } from 'lucide-react';
 
-import { useThemeTokens } from '../../hooks/useThemeTokens';
 import { useStore } from '../../src/store';
 import { useI18n, useOrderTypeLabel } from '../../i18n';
 import type { StringKey } from '../../i18n';
-import { StatCard } from '../../components/PageShell';
+import { DataTable } from '../../components/DataTable';
+import { DataState, PageShell, StatCard } from '../../components/PageShell';
 
 type BackendOrderRow = {
   id: string;
@@ -29,18 +24,8 @@ type BackendOrderRow = {
   grand_total: number;
 };
 
-type AggregateRow = {
-  item: string;
-  sold: number;
-  total: number;
-};
-
-type PaymentRow = {
-  id: string;
-  name: string;
-  total: number;
-};
-
+type AggregateRow = { item: string; sold: number; total: number };
+type PaymentRow = { id: string; name: string; total: number };
 type OrderTypeRow = {
   order_type: number;
   label: string;
@@ -84,7 +69,11 @@ const STATUS_KEY: Record<string, StringKey> = {
   '99': 'status.cancelled',
 };
 
-const CANCELLED_IDS = [9, 99, 'cancelled', 'canceled'];
+const CANCELLED_IDS: (number | string)[] = [9, 99, 'cancelled', 'canceled'];
+
+const isCancelled = (o: BackendOrderRow) =>
+  CANCELLED_IDS.includes(o.status) ||
+  String(o.status).toLowerCase() === 'cancelled';
 
 function toLocalInput(ms: number) {
   const d = new Date(ms);
@@ -97,36 +86,27 @@ function toLocalInput(ms: number) {
 
 function fromLocalInput(s: string) {
   if (!s) return NaN;
-  const d = new Date(s);
-  return d.getTime();
+  return new Date(s).getTime();
 }
 
 export default function ClosingReport() {
-  const { theme } = useThemeTokens();
   const { t, money, lang } = useI18n();
   const orderTypeLabel = useOrderTypeLabel();
-  /** Money on this page always renders Latin numerals, 3 decimals. */
+
   const fmt = (n: number | undefined | null) => money(n);
   const fmtDateTime = (ms: number) =>
     new Date(ms).toLocaleString(lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB');
 
-  // 1. Get User Data
   const user = useStore((s: any) => s.currentUser);
   const fetchWhoAmI = useStore((s: any) => s.actions.fetchWhoAmI);
 
-  // 2. Fetch user if missing
-  useEffect(() => {
-    if (!user) {
-      fetchWhoAmI();
-    }
-    loadReport();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('orders');
+  const [fromStr, setFromStr] = useState('');
+  const [toStr, setToStr] = useState('');
+  const [data, setData] = useState<ReportData | null>(null);
 
-  // 3. Strict Permission Logic
-  const rawRole = String(user?.role || '')
-    .toLowerCase()
-    .trim();
   const ALLOWED_ROLES = [
     'admin',
     'manager',
@@ -134,59 +114,43 @@ export default function ClosingReport() {
     'superadmin',
     'super admin',
   ];
+  const canEditRange =
+    !!user &&
+    ALLOWED_ROLES.includes(String(user?.role || '').toLowerCase().trim());
 
-  const isAdminUser =
-    !!user && // Must be logged in
-    ALLOWED_ROLES.includes(rawRole); // Must have permission
-
-  // final flag used in component
-  const canEditRange = isAdminUser;
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<0 | 1 | 2 | 3 | 5>(0);
-  const [fromStr, setFromStr] = useState('');
-  const [toStr, setToStr] = useState('');
-  const [data, setData] = useState<ReportData | null>(null);
-
-  const isDark =
-    theme === 'dark' ||
-    theme === 'night' ||
-    String(theme || '')
-      .toLowerCase()
-      .includes('dark');
-
-  const cardBase = isDark
-    ? 'bg-slate-800 border-slate-700'
-    : 'bg-white border-gray-200';
-  const textMain = isDark ? 'text-foreground' : 'text-slate-900';
-  const textMuted = isDark ? 'text-default-500' : 'text-slate-500';
-  const pageBg = isDark ? 'bg-slate-950' : 'bg-slate-50';
-
-  const loadReport = async (opts?: { from?: number; to?: number }) => {
-    setLoading(true);
-    try {
-      const resp = (await window.api.invoke(
-        'report:sales:preview',
-        opts
-      )) as ReportData;
-
-      if (resp) {
-        setData(resp);
-        if (!fromStr && resp.fromMs) setFromStr(toLocalInput(resp.fromMs));
-        if (!toStr && resp.toMs) setToStr(toLocalInput(resp.toMs));
+  const loadReport = useCallback(
+    async (opts?: { from?: number; to?: number }) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const resp = (await window.api.invoke(
+          'report:sales:preview',
+          opts
+        )) as ReportData;
+        if (resp) {
+          setData(resp);
+          setFromStr((prev) => prev || (resp.fromMs ? toLocalInput(resp.fromMs) : ''));
+          setToStr((prev) => prev || (resp.toMs ? toLocalInput(resp.toMs) : ''));
+        }
+      } catch (e) {
+        // A closing report that fails silently and shows zeroes is worse than
+        // one that shows nothing: the totals get written down as the day's take.
+        setError(e instanceof Error ? e.message : String(e ?? ''));
+      } finally {
+        setLoading(false);
       }
-    } catch (e) {
-      console.error('Report load failed', e);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!user) fetchWhoAmI();
+    loadReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRefresh = () => {
-    if (!canEditRange) {
-      loadReport();
-      return;
-    }
-
+    if (!canEditRange) return loadReport();
     const f = fromLocalInput(fromStr);
     const to = fromLocalInput(toStr);
     loadReport({
@@ -195,420 +159,374 @@ export default function ClosingReport() {
     });
   };
 
-  useEffect(() => {
-    loadReport();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /* ---------------- columns ---------------- */
 
-  const getRowClass = (order: BackendOrderRow) => {
-    const s = String(order.status).toLowerCase();
-    if (CANCELLED_IDS.includes(order.status) || s === 'cancelled') {
-      return isDark ? 'bg-red-900/30 text-red-200' : 'bg-red-50 text-red-900';
-    }
-    if (order.operational_status === 'outside') {
-      return isDark
-        ? 'bg-blue-900/30 text-blue-200'
-        : 'bg-blue-50 text-blue-900';
-    }
-    return 'border-b border-gray-100 dark:border-gray-700';
-  };
-
-  const renderDailyTable = () => (
-    <div className='overflow-x-auto'>
-      <table className='w-full text-sm text-start'>
-        <thead
-          className={`text-xs uppercase ${
-            isDark ? 'bg-slate-700 text-default-600' : 'bg-gray-100 text-gray-600'
-          }`}
-        >
-          <tr>
-            <th className='px-4 py-3 text-start'>#</th>
-            <th className='px-4 py-3 text-start'>{t('admin.rep.colClient')}</th>
-            <th className='px-4 py-3 text-start'>{t('admin.rep.colDate')}</th>
-            <th className='px-4 py-3 text-start'>{t('admin.rep.colOrderNo')}</th>
-            <th className='px-4 py-3 text-start'>{t('admin.type')}</th>
-            <th className='px-4 py-3 text-start'>{t('admin.status')}</th>
-            <th className='px-4 py-3 text-start'>{t('admin.rep.colOpStatus')}</th>
-            <th className='px-4 py-3 text-end'>{t('admin.rep.colDiscount')}</th>
-            <th className='px-4 py-3 text-end'>{t('common.total')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data?.orders.map((order, idx) => (
-            <tr key={order.id} className={getRowClass(order)}>
-              <td className='px-4 py-3 text-start'>{idx + 1}</td>
-              <td className='px-4 py-3 font-medium text-start'>
-                {order.full_name || '-'}
-              </td>
-              <td className='px-4 py-3 whitespace-nowrap text-start'>
-                <span className='money'>{fmtDateTime(order.ts_ms)}</span>
-              </td>
-              <td className='px-4 py-3 text-start'>{order.order_number}</td>
-              <td className='px-4 py-3 text-start'>
-                {Number(order.order_type) === 4
-                  ? t('admin.rep.orderTypeDriveThru')
-                  : orderTypeLabel(order.order_type)}
-              </td>
-              <td className='px-4 py-3 text-start'>
-                {STATUS_KEY[String(order.status)]
-                  ? t(STATUS_KEY[String(order.status)])
-                  : order.status}
-              </td>
-              <td className='px-4 py-3 text-start'>
-                {order.operational_status === 'inside' ? (
-                  <span className='px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'>
-                    {t('admin.rep.inside')}
-                  </span>
-                ) : (
-                  <span className='px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'>
-                    {t('admin.rep.outside')}
-                  </span>
-                )}
-              </td>
-              <td className='px-4 py-3 text-end'>
-                <span className='money'>
-                  {fmt(order.discount_total ?? order.discount_amount ?? 0)}
-                </span>
-              </td>
-              <td className='px-4 py-3 text-end font-bold'>
-                <span className='money'>{fmt(order.grand_total)}</span>
-              </td>
-            </tr>
-          ))}
-          {!data?.orders?.length && (
-            <tr>
-              <td colSpan={9} className='p-8 text-center opacity-50'>
-                {t('admin.rep.noOrders')}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-
-  const renderAggregateTable = (
-    rows: any[],
-    colName: string,
-    /** Order-type rows carry a numeric type; label them with the shared hook. */
-    localizeOrderType = false
-  ) => (
-    <div className='overflow-x-auto max-w-4xl mx-auto'>
-      <table className='w-full text-sm text-start'>
-        <thead
-          className={`text-xs uppercase ${
-            isDark ? 'bg-slate-700 text-default-600' : 'bg-gray-100 text-gray-600'
-          }`}
-        >
-          <tr>
-            <th className='px-4 py-3 text-start'>{colName}</th>
-            <th className='px-4 py-3 text-end'>{t('admin.rep.colCountSold')}</th>
-            <th className='px-4 py-3 text-end'>
-              {t('admin.rep.colTotalAmount')}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr
-              key={idx}
-              className='border-b border-gray-100 dark:border-gray-700'
+  const orderCols = useMemo<ColumnDef<BackendOrderRow, any>[]>(
+    () => [
+      {
+        accessorKey: 'order_number',
+        header: () => t('admin.rep.colOrderNo'),
+        size: 150,
+        meta: { nowrap: true },
+        cell: (info) => (
+          <span className='font-mono font-semibold' dir='ltr'>
+            {String(info.getValue() ?? '')}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'full_name',
+        header: () => t('admin.rep.colClient'),
+        size: 180,
+        cell: (info) => String(info.getValue() ?? '') || '—',
+      },
+      {
+        accessorKey: 'ts_ms',
+        header: () => t('admin.rep.colDate'),
+        size: 165,
+        meta: { nowrap: true },
+        cell: (info) => (
+          <span className='money'>{fmtDateTime(info.getValue() as number)}</span>
+        ),
+      },
+      {
+        accessorKey: 'order_type',
+        header: () => t('admin.type'),
+        size: 120,
+        meta: { nowrap: true },
+        cell: (info) =>
+          Number(info.getValue()) === 4
+            ? t('admin.rep.orderTypeDriveThru')
+            : orderTypeLabel(info.getValue() as number),
+      },
+      {
+        accessorKey: 'status',
+        header: () => t('admin.status'),
+        size: 130,
+        meta: { nowrap: true },
+        cell: ({ row }) => {
+          const s = String(row.original.status);
+          const label = STATUS_KEY[s] ? t(STATUS_KEY[s]) : s;
+          // Cancelled orders were a red row wash. That coloured the whole line
+          // including its money, which reads as "these numbers are wrong"
+          // rather than "this order was cancelled".
+          return (
+            <Chip
+              size='sm'
+              variant='flat'
+              color={isCancelled(row.original) ? 'danger' : 'default'}
+              className='font-semibold'
             >
-              <td className='px-4 py-3 font-medium text-start'>
-                {localizeOrderType && row.order_type != null
-                  ? Number(row.order_type) === 4
-                    ? t('admin.rep.orderTypeDriveThru')
-                    : orderTypeLabel(row.order_type)
-                  : row.name_ar && lang === 'ar'
-                  ? row.name_ar
-                  : row.item ||
-                    row.name ||
-                    row.label ||
-                    t('admin.rep.unknown')}
-              </td>
-              <td className='px-4 py-3 text-end'>
-                <span className='money'>{row.sold ?? row.count ?? 0}</span>
-              </td>
-              <td className='px-4 py-3 text-end font-bold'>
-                <span className='money'>{fmt(row.total)}</span>
-              </td>
-            </tr>
-          ))}
-          {!rows.length && (
-            <tr>
-              <td colSpan={3} className='p-8 text-center opacity-50'>
-                {t('admin.rep.noRows')}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+              {label}
+            </Chip>
+          );
+        },
+      },
+      {
+        accessorKey: 'operational_status',
+        header: () => t('admin.rep.colOpStatus'),
+        size: 120,
+        meta: { nowrap: true },
+        cell: (info) => {
+          const inside = info.getValue() === 'inside';
+          return (
+            <Chip
+              size='sm'
+              variant='flat'
+              color={inside ? 'success' : 'warning'}
+              className='font-semibold'
+            >
+              {inside ? t('admin.rep.inside') : t('admin.rep.outside')}
+            </Chip>
+          );
+        },
+      },
+      {
+        id: 'discount',
+        header: () => t('admin.rep.colDiscount'),
+        size: 120,
+        meta: { align: 'end', nowrap: true },
+        accessorFn: (row) => row.discount_total ?? row.discount_amount ?? 0,
+        cell: (info) => (
+          <span className='money'>{fmt(info.getValue() as number)}</span>
+        ),
+      },
+      {
+        accessorKey: 'grand_total',
+        header: () => t('common.total'),
+        size: 130,
+        meta: { align: 'end', nowrap: true },
+        cell: (info) => (
+          <span className='money font-bold'>
+            {fmt(info.getValue() as number)}
+          </span>
+        ),
+      },
+    ],
+    [t, orderTypeLabel, lang] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const dateInputClass = `px-3 py-2 rounded border bg-transparent border-gray-300 dark:border-gray-600 w-48 ${
-    !canEditRange ? 'opacity-60 cursor-not-allowed' : ''
-  }`;
+  /** Item / category / payment / order-type all share this shape. */
+  const aggregateCols = useCallback(
+    (colName: string, localizeOrderType = false): ColumnDef<any, any>[] => [
+      {
+        id: 'label',
+        header: () => colName,
+        size: 260,
+        accessorFn: (row) =>
+          localizeOrderType && row.order_type != null
+            ? String(row.order_type)
+            : row.item || row.name || row.label || '',
+        cell: ({ row }) => (
+          <span className='font-semibold'>
+            {localizeOrderType && row.original.order_type != null
+              ? Number(row.original.order_type) === 4
+                ? t('admin.rep.orderTypeDriveThru')
+                : orderTypeLabel(row.original.order_type)
+              : (lang === 'ar' && row.original.name_ar) ||
+                row.original.item ||
+                row.original.name ||
+                row.original.label ||
+                t('admin.rep.unknown')}
+          </span>
+        ),
+      },
+      {
+        id: 'sold',
+        header: () => t('admin.rep.colCountSold'),
+        size: 130,
+        meta: { align: 'end', nowrap: true },
+        accessorFn: (row) => Number(row.sold ?? row.count ?? 0),
+        cell: (info) => (
+          <span className='money'>{String(info.getValue() ?? 0)}</span>
+        ),
+      },
+      {
+        accessorKey: 'total',
+        header: () => t('admin.rep.colTotalAmount'),
+        size: 150,
+        meta: { align: 'end', nowrap: true },
+        cell: (info) => (
+          <span className='money font-bold'>
+            {fmt(info.getValue() as number)}
+          </span>
+        ),
+      },
+    ],
+    [t, orderTypeLabel, lang] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const TABS: {
+    key: string;
+    title: string;
+    rows: any[];
+    colName: string;
+    orderTypes?: boolean;
+  }[] = [
+    {
+      key: 'items',
+      title: t('admin.rep.tabItem'),
+      rows: data?.aggregates || [],
+      colName: t('admin.rep.colItem'),
+    },
+    {
+      key: 'categories',
+      title: t('admin.rep.tabCategory'),
+      rows: data?.categories || [],
+      colName: t('admin.rep.colCategory'),
+    },
+    {
+      key: 'payments',
+      title: t('admin.rep.tabPayment'),
+      rows: data?.payments || [],
+      colName: t('admin.rep.colPaymentMethod'),
+    },
+    {
+      key: 'orderTypes',
+      title: t('admin.rep.tabOrderType'),
+      rows: data?.orderTypes || [],
+      colName: t('admin.rep.colOrderType'),
+      orderTypes: true,
+    },
+  ];
+
+  const f = data?.footer;
+
+  /** One row of the settlement summary. */
+  const Total = ({
+    label,
+    value,
+    tone,
+    strong,
+    negative,
+  }: {
+    label: string;
+    value: number | undefined;
+    tone?: 'danger' | 'primary';
+    strong?: boolean;
+    negative?: boolean;
+  }) => (
+    <div
+      className={`flex items-center justify-between gap-4 px-4 py-2.5 ${
+        strong ? 'bg-default-100 font-bold text-base' : 'font-medium'
+      }`}
+    >
+      <span className={strong ? 'text-foreground' : 'text-default-700'}>
+        {label}
+      </span>
+      <span
+        className={`money whitespace-nowrap ${
+          tone === 'danger' ? 'text-danger' : 'text-foreground'
+        } ${strong ? 'text-lg' : ''}`}
+      >
+        {negative ? '- ' : ''}
+        {fmt(value)}
+      </span>
+    </div>
+  );
 
   return (
-    <div className={`p-4 md:p-6 space-y-6 ${textMain} min-h-screen ${pageBg}`}>
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          .print-only { display: block !important; }
-          body { -webkit-print-color-adjust: exact; }
-        }
-      `}</style>
-
-      {/* Header */}
-      <header className='no-print flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
-        <div>
-          <h1 className='text-2xl font-bold'>{t('admin.rep.title')}</h1>
-          <p className={`text-sm ${textMuted}`}>
-            {data?.footer.date || t('common.loading')}
-          </p>
-        </div>
-        <div className='flex items-center gap-2'>
-          <button
-            onClick={handleRefresh}
-            disabled={loading}
-            className='px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2'
-          >
-            <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
-            {loading ? t('common.loading') : t('admin.refresh')}
-          </button>
-          <button
-            onClick={() => window.print()}
-            className='px-4 py-2 bg-gray-200 text-gray-800 dark:bg-slate-700 dark:text-white rounded-lg hover:opacity-80 flex items-center gap-2'
-          >
-            <Printer size={16} /> {t('admin.rep.print')}
-          </button>
-        </div>
-      </header>
-
-      {/* Filter Bar */}
-      <div className={`no-print p-4 rounded-xl border ${cardBase} shadow-sm`}>
-        <div className='flex flex-col xl:flex-row gap-4 justify-between'>
-          <div className='flex flex-col sm:flex-row gap-3 items-end'>
-            <div>
-              <label className='text-xs font-semibold mb-1 block'>
-                {t('admin.rep.startDate')}
-              </label>
-              <input
-                type='datetime-local'
-                value={fromStr}
-                onChange={(e) => {
-                  if (!canEditRange) return;
-                  setFromStr(e.target.value);
-                }}
-                readOnly={!canEditRange}
-                className={dateInputClass}
-              />
-            </div>
-            <div>
-              <label className='text-xs font-semibold mb-1 block'>
-                {t('admin.rep.endDate')}
-              </label>
-              <input
-                type='datetime-local'
-                value={toStr}
-                onChange={(e) => {
-                  if (!canEditRange) return;
-                  setToStr(e.target.value);
-                }}
-                readOnly={!canEditRange}
-                className={dateInputClass}
-              />
-            </div>
-          </div>
-
-          <div className='flex flex-wrap gap-2'>
-            <button
-              onClick={() => setActiveTab(0)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === 0
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
-              }`}
-            >
-              {t('admin.rep.tabDaily')}
-            </button>
-            <button
-              onClick={() => setActiveTab(1)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === 1
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
-              }`}
-            >
-              {t('admin.rep.tabItem')}
-            </button>
-            <button
-              onClick={() => setActiveTab(5)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === 5
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
-              }`}
-            >
-              {t('admin.rep.tabCategory')}
-            </button>
-            <button
-              onClick={() => setActiveTab(2)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === 2
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
-              }`}
-            >
-              {t('admin.rep.tabPayment')}
-            </button>
-            <button
-              onClick={() => setActiveTab(3)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === 3
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-slate-700 hover:bg-gray-200'
-              }`}
-            >
-              {t('admin.rep.tabOrderType')}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary Cards */}
-      <div className='grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4'>
-        <StatCard
-          label={t('admin.rep.cardInside')}
-          value={data?.footer.inside_hours_count || 0}
-          icon={Clock}
-          tone='primary'
-        />
-        <StatCard
-          label={t('admin.rep.cardOutside')}
-          value={data?.footer.outside_hours_count || 0}
-          icon={Moon}
-        />
-        <StatCard
-          label={t('admin.rep.cardCancelled')}
-          value={data?.footer.canceled_order_count || 0}
-          icon={XCircle}
-          tone='danger'
-        />
-        <StatCard
-          label={t('admin.rep.cardEarning')}
-          value={fmt(data?.footer.grand_total)}
-          icon={DollarSign}
-          tone='success'
-        />
-      </div>
-
-      {/* Main Content: tab tables */}
-      <div
-        className={`border rounded-xl shadow-sm overflow-hidden ${cardBase}`}
-      >
-        {activeTab === 0 && renderDailyTable()}
-        {activeTab === 1 &&
-          renderAggregateTable(data?.aggregates || [], t('admin.rep.colItem'))}
-        {activeTab === 5 &&
-          renderAggregateTable(
-            data?.categories || [],
-            t('admin.rep.colCategory')
-          )}
-        {activeTab === 2 &&
-          renderAggregateTable(
-            data?.payments || [],
-            t('admin.rep.colPaymentMethod')
-          )}
-        {activeTab === 3 &&
-          renderAggregateTable(
-            data?.orderTypes || [],
-            t('admin.rep.colOrderType'),
-            true
-          )}
-      </div>
-
-      {/* ALWAYS-VISIBLE FOOTER TOTALS (like online report) */}
-      {data?.footer && (
-        <div
-          className={`border rounded-xl shadow-sm overflow-hidden ${cardBase}`}
+    <PageShell
+      title={t('admin.rep.title')}
+      subtitle={f?.date || undefined}
+      onRefresh={handleRefresh}
+      refreshing={loading}
+      primaryAction={
+        <Button
+          variant='flat'
+          startContent={<Printer size={16} />}
+          onPress={() => window.print()}
+          className='no-print'
         >
-          <div className='overflow-x-auto'>
-            <table className='w-full text-sm'>
-              <tbody>
-                <tr className={isDark ? 'bg-slate-900/40' : 'bg-gray-50'}>
-                  <td className='px-4 py-3 font-semibold text-end'>
-                    {t('admin.rep.grossSales')}
-                  </td>
-                  <td className='px-4 py-3 font-semibold text-end'>
-                    <span className='money'>
-                      {fmt(data.footer.gross_sales_total)}
-                    </span>
-                  </td>
-                </tr>
-                <tr>
-                  <td className='px-4 py-3 font-semibold text-end'>
-                    {t('admin.rep.discounts')}
-                  </td>
-                  <td className='px-4 py-3 font-semibold text-end text-red-500'>
-                    <span className='money'>
-                      - {fmt(data.footer.discounts)}
-                    </span>
-                  </td>
-                </tr>
-                <tr>
-                  <td className='px-4 py-3 font-semibold text-end'>
-                    {t('admin.rep.deliveryFees')}
-                  </td>
-                  <td className='px-4 py-3 font-semibold text-end'>
-                    <span className='money'>
-                      {fmt(data.footer.delivery_fees)}
-                    </span>
-                  </td>
-                </tr>
-                <tr className={isDark ? 'bg-blue-900/30' : 'bg-blue-100'}>
-                  <td className='px-4 py-3 font-semibold text-end'>
-                    {t('admin.rep.netTotal')}
-                  </td>
-                  <td className='px-4 py-3 font-semibold text-end'>
-                    <span className='money'>
-                      {fmt(data.footer.grand_total)}
-                    </span>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td className='px-4 py-3 text-end italic text-sm'>
-                    {t('admin.rep.outsideTotal')}
-                  </td>
-                  <td className='px-4 py-3 text-end font-semibold'>
-                    <span className='money'>
-                      {fmt(data.footer.outside_hours_total)}
-                    </span>
-                  </td>
-                </tr>
-                <tr>
-                  <td className='px-4 py-3 text-end italic text-sm'>
-                    {t('admin.rep.cancelledTotal')}
-                  </td>
-                  <td className='px-4 py-3 text-end font-semibold text-red-500'>
-                    <span className='money'>
-                      - {fmt(data.footer.cancelled_total)}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          {t('admin.rep.print')}
+        </Button>
+      }
+      filters={
+        canEditRange ? (
+          <div className='flex flex-wrap items-end gap-2 no-print'>
+            <Input
+              type='datetime-local'
+              label={t('admin.rep.startDate')}
+              labelPlacement='outside'
+              value={fromStr}
+              onValueChange={setFromStr}
+              className='w-56'
+            />
+            <Input
+              type='datetime-local'
+              label={t('admin.rep.endDate')}
+              labelPlacement='outside'
+              value={toStr}
+              onValueChange={setToStr}
+              className='w-56'
+            />
+            <Button color='primary' onPress={handleRefresh} isLoading={loading}>
+              {t('admin.refresh')}
+            </Button>
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
+        ) : undefined
+      }
+    >
+      <DataState loading={loading} error={error} onRetry={() => loadReport()}>
+        <div className='space-y-5'>
+          {/* Headline figures */}
+          <div className='grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4'>
+            <StatCard
+              label={t('admin.rep.cardInside')}
+              value={f?.inside_hours_count || 0}
+              icon={Clock}
+              tone='primary'
+            />
+            <StatCard
+              label={t('admin.rep.cardOutside')}
+              value={f?.outside_hours_count || 0}
+              icon={Moon}
+            />
+            <StatCard
+              label={t('admin.rep.cardCancelled')}
+              value={f?.canceled_order_count || 0}
+              icon={XCircle}
+              tone='danger'
+            />
+            <StatCard
+              label={t('admin.rep.cardEarning')}
+              value={fmt(f?.grand_total)}
+              icon={DollarSign}
+              tone='success'
+            />
+          </div>
 
-declare global {
-  interface Window {
-    api: { invoke: (channel: string, ...args: any[]) => Promise<any> };
-  }
+          {/* Orders and breakdowns */}
+          <Tabs
+            aria-label={t('admin.rep.title')}
+            selectedKey={activeTab}
+            onSelectionChange={(k) => setActiveTab(String(k))}
+            className='no-print'
+          >
+            <Tab key='orders' title={t('admin.rep.tabDaily')}>
+              <DataState
+                empty={!data?.orders?.length}
+                emptyTitle={t('admin.rep.noOrders')}
+              >
+                <DataTable
+                  data={data?.orders || []}
+                  columns={orderCols}
+                  initialSorting={[{ id: 'ts_ms', desc: true }]}
+                  getRowId={(r, i) => String(r.id ?? i)}
+                />
+              </DataState>
+            </Tab>
+
+            {TABS.map((tab) => (
+              <Tab key={tab.key} title={tab.title}>
+                <DataState
+                  empty={tab.rows.length === 0}
+                  emptyTitle={t('admin.rep.noRows')}
+                >
+                  <DataTable
+                    data={tab.rows}
+                    columns={aggregateCols(tab.colName, tab.orderTypes)}
+                    initialSorting={[{ id: 'total', desc: true }]}
+                    getRowId={(_r, i) => String(i)}
+                  />
+                </DataState>
+              </Tab>
+            ))}
+          </Tabs>
+
+          {/* Settlement — always visible, and the reason the page exists */}
+          {f && (
+            <div className='rounded-lg border border-default-200 bg-content1 overflow-hidden divide-y divide-default-200 max-w-xl ms-auto'>
+              <Total label={t('admin.rep.grossSales')} value={f.gross_sales_total} />
+              <Total
+                label={t('admin.rep.discounts')}
+                value={f.discounts}
+                tone='danger'
+                negative
+              />
+              <Total
+                label={t('admin.rep.deliveryFees')}
+                value={f.delivery_fees}
+              />
+              <Total
+                label={t('admin.rep.netTotal')}
+                value={f.grand_total}
+                strong
+              />
+              <Total
+                label={t('admin.rep.outsideTotal')}
+                value={f.outside_hours_total}
+              />
+              <Total
+                label={t('admin.rep.cancelledTotal')}
+                value={f.cancelled_total}
+                tone='danger'
+                negative
+              />
+            </div>
+          )}
+        </div>
+      </DataState>
+    </PageShell>
+  );
 }
