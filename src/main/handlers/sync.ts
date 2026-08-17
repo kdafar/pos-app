@@ -309,6 +309,12 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         mid
       );
 
+      // pairDevice used to return only { deviceId, branchId }, so this read was
+      // always undefined and the whole block below was dead — including the
+      // clearPosLock() that a re-pair depends on. A till carrying a stale
+      // pos.locked=1 could therefore never pair again: the check below threw
+      // every time, and the only line that could clear the flag never ran.
+      // Deleting the local DB was the sole escape.
       const device = result?.device;
       if (device) {
         // Save killswitch days
@@ -323,6 +329,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         if (device.locked_at) {
           // device is locked RIGHT NOW
           setMeta('pos.locked', '1');
+          setMeta('pos.lock_reason', 'server_locked');
           setMeta(
             'pos.locked_at',
             String(new Date(device.locked_at).getTime())
@@ -555,6 +562,45 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
 
       console.error('[Sync] Manual sync: bootstrap failed', err);
       throw err;
+    }
+
+    // The unlock half of the kill-switch. sync:run is the ONLY sync the running
+    // till ever performs — the Sync button, the 10s auto-sync and login all land
+    // here, while sync:bootstrap runs only while pairing. Without this the lock
+    // was one-way: a 423 set pos.locked and nothing on the success path ever
+    // cleared it, so an admin pressing Unlock left the till dead until it was
+    // re-paired. §6.4 says a lock is reversible, so honour that here too.
+    const syncDevice = payload?.device;
+    if (syncDevice) {
+      if (syncDevice.killswitch_after_days != null) {
+        setMeta(
+          'security.kill_after_days',
+          String(syncDevice.killswitch_after_days)
+        );
+      }
+
+      if (syncDevice.locked_at) {
+        setMeta('pos.locked', '1');
+        setMeta('pos.lock_reason', 'server_locked');
+        setMeta(
+          'pos.locked_at',
+          String(new Date(syncDevice.locked_at).getTime())
+        );
+      } else {
+        clearPosLock();
+      }
+    }
+
+    // Still locked → stop before importing or pushing. Nothing is destroyed;
+    // the catalog and the outbox wait for the unlock.
+    const runLockOutcome = enforcePosLockKillSwitch();
+    if (runLockOutcome.action !== 'none') {
+      console.warn('[Sync] Manual sync halted — till is locked.', runLockOutcome);
+      return {
+        ok: false,
+        reason: 'locked' as const,
+        locked_at: syncDevice?.locked_at ?? null,
+      };
     }
 
     const cat = payload?.catalog || {};

@@ -503,7 +503,14 @@ export async function pairDevice(
     setMeta('branch_id', String(data.device.branch_id));
   await saveSecret('device_token', data.token);
 
-  return { deviceId: data.device.id, branchId: data.device.branch_id };
+  // The caller needs the whole device, not just its ids: locked_at and
+  // killswitch_after_days ride along on this response and decide whether the
+  // freshly paired till starts locked.
+  return {
+    deviceId: data.device.id,
+    branchId: data.device.branch_id,
+    device: data.device,
+  };
 }
 
 /* ---------- Bootstrap (full catalog seed) ---------- */
@@ -699,8 +706,34 @@ export async function bootstrap(baseUrl: string) {
         max_select=excluded.max_select,
         updated_at=excluded.updated_at
     `);
-    for (const m of itemAddonGroups)
-      upItemAddonGroup.run(normItemAddonGroup(m));
+    // The server ships links whose addon group it does not ship: /bootstrap has
+    // returned 73 item_addon_groups referencing groups 3-10 while sending only 4
+    // groups. On a till that has synced for months the parents are already
+    // present and the insert passes, but on a FRESH database every one of those
+    // links violates the FK, the whole transaction rolls back, and the till can
+    // never bootstrap at all. One inconsistent link must not cost the operator
+    // their entire catalog, so skip the orphans and say how many — loudly, since
+    // each skipped row is an add-on group the operator will not see on an item.
+    const hasItem = db.prepare('SELECT 1 FROM items WHERE id=?').pluck();
+    const hasGroup = db.prepare('SELECT 1 FROM addon_groups WHERE id=?').pluck();
+    let orphanLinks = 0;
+    for (const m of itemAddonGroups) {
+      const link = normItemAddonGroup(m);
+      // Checked against the DB, not just this payload: a parent may legitimately
+      // have arrived in an earlier sync.
+      if (!hasItem.get(link.item_id) || !hasGroup.get(link.group_id)) {
+        orphanLinks++;
+        continue;
+      }
+      upItemAddonGroup.run(link);
+    }
+    if (orphanLinks) {
+      console.warn(
+        `[SYNC] skipped ${orphanLinks}/${itemAddonGroups.length} item add-on links — ` +
+          'the server sent links whose item or addon group it did not send. ' +
+          'Those add-ons will not appear on their items until the payload is fixed.'
+      );
+    }
 
     // promos
     const upPromo = db.prepare(`
@@ -1228,7 +1261,22 @@ export async function pullChanges() {
         else if (c.data) upAddon.run(normAddon(c.data));
       } else if (tbl === 'item_addons_group' || tbl === 'item_addon_groups') {
         if (op === 'delete') delBy('item_addon_groups', c.pk);
-        else if (c.data) upItemAddonGroup.run(normItemAddonGroup(c.data));
+        else if (c.data) {
+          // Same orphan guard as bootstrap: a link whose item or group was
+          // never sent would abort this whole pull transaction.
+          const link = normItemAddonGroup(c.data);
+          const parentsExist =
+            db.prepare('SELECT 1 FROM items WHERE id=?').pluck().get(link.item_id) &&
+            db
+              .prepare('SELECT 1 FROM addon_groups WHERE id=?')
+              .pluck()
+              .get(link.group_id);
+          if (parentsExist) upItemAddonGroup.run(link);
+          else
+            console.warn(
+              `[SYNC] pull: skipped item add-on link ${link.id} — no matching item or addon group`
+            );
+        }
       } else if (tbl === 'pos_user' || tbl === 'pos_users') {
         if (op === 'delete') delBy('pos_users', c.pk);
         else if (c.data) upUser.run(normUser(c.data));

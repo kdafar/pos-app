@@ -344,6 +344,38 @@ async function main() {
       }
     }
     if (!missing) ok(`all ${FEATURE_MARKERS.length} feature markers present`);
+
+    // The updater must be PRESENT, not merely referenced. A string marker is no
+    // use here: 'electron-updater' appears in the bundle as the argument to
+    // require() whether or not the package was ever installed. It was in fact
+    // declared in package.json and missing from node_modules, so every packaged
+    // build shipped an app that reported "updater unavailable" and could never
+    // update itself. That is the one defect you cannot fix remotely — it has to
+    // be carried to each till by hand — so it fails the release rather than
+    // warning.
+    // Read the asar's own index rather than scanning for a path string: the
+    // header is nested JSON, so "node_modules/electron-updater/..." never
+    // appears as a literal anywhere in the file.
+    let updaterPacked = false;
+    try {
+      const headerSize = a.readUInt32LE(12);
+      const header = JSON.parse(a.subarray(16, 16 + headerSize).toString('utf8'));
+      updaterPacked =
+        !!header.files?.node_modules?.files?.['electron-updater']?.files;
+    } catch {
+      warn('could not read asar header — updater check skipped');
+      updaterPacked = true; // do not fail the release on a parsing problem
+    }
+
+    if (!updaterPacked) {
+      fail(
+        'electron-updater is NOT in the package — this build cannot auto-update. ' +
+          'Run `npm install` and rebuild.'
+      );
+      process.exitCode = 1;
+      return;
+    }
+    ok('electron-updater packaged (auto-update can run)');
   } else warn('app.asar not found — skipped content check');
 
   console.log(`\n${C.green(C.bold('  Done.'))}  release/${version}\n`);

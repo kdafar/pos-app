@@ -21,6 +21,7 @@ import { AddonsPage } from './pages/AddonsPage';
 import PromosPage from './pages/PromosPage';
 import TablesPage from './pages/TablesPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { UpdatePage } from './pages/UpdatePage';
 import PaymentMethodsPage from './pages/PaymentMethodsPage';
 import LocationsPage from './pages/LocationsPage';
 
@@ -53,6 +54,7 @@ function App() {
           <Route path="payment-methods" element={<PaymentMethodsPage />} />
           <Route path="locations" element={<LocationsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="updates" element={<UpdatePage />} />
         </Route>
       </Route>
 

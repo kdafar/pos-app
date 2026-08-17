@@ -5,6 +5,7 @@ import packageJson from '../../../package.json';
 import { useToast } from '../components/ToastProvider';
 import { useI18n } from '../i18n';
 import { LanguageToggle } from './LanguageToggle';
+import { useUpdate } from '../hooks/useUpdate';
 import {
   Cloud,
   CloudOff,
@@ -12,6 +13,7 @@ import {
   GitBranch,
   Timer,
   AlertTriangle,
+  Rocket,
 } from 'lucide-react';
 
 type SyncStatus = {
@@ -92,6 +94,15 @@ export function Layout() {
 
     return false;
   }, [user]);
+
+  /* ---------------- Software update ---------------- */
+  // A downloaded update is worth surfacing on every screen — it only applies
+  // when the operator chooses, so nothing happens until they do.
+  const update = useUpdate();
+  const updateReady = update.state.status === 'ready';
+  // The running app is the authority on its own version; package.json is only
+  // a fallback for the moment before the bridge answers.
+  const shownVersion = update.currentVersion || APP_VERSION;
 
   /* ---------------- Sync status + controls ---------------- */
   const [sync, setSync] = useState<SyncStatus | null>(null);
@@ -463,6 +474,14 @@ export function Layout() {
                 collapsed={collapsed}
                 active={location.pathname === '/settings'}
               />
+              <NavLink
+                to='/updates'
+                text={t('nav.updates')}
+                icon='⬆️'
+                collapsed={collapsed}
+                active={location.pathname === '/updates'}
+                dot={updateReady}
+              />
             </>
           )}
         </nav>
@@ -480,6 +499,22 @@ export function Layout() {
             <LanguageToggle collapsed={collapsed} />
           </div>
 
+          {/* A downloaded update is announced to every operator, not just
+              admins, because whoever closes the till is who applies it. */}
+          {updateReady && !collapsed && (
+            <button
+              onClick={() => navigate('/updates')}
+              className='
+                mb-1 flex h-7 w-full items-center justify-center gap-1.5 rounded-md border
+                border-emerald-500/40 bg-emerald-500/10 px-2 text-[10px] font-medium
+                text-emerald-900 hover:bg-emerald-500/20 dark:text-emerald-200
+              '
+            >
+              <Rocket size={11} />
+              <span className='truncate'>{t('update.badgeReady')}</span>
+            </button>
+          )}
+
           <NavLink
             to='/logout'
             text={t('auth.logout')}
@@ -492,7 +527,7 @@ export function Layout() {
             <div className='px-3 pb-1 text-[10px] text-muted-foreground/80 flex items-center justify-between'>
               {/* Version + vendor are identifiers, never localized. */}
               <span className='font-mono' dir='ltr'>
-                v{APP_VERSION}
+                v{shownVersion}
               </span>
               <span className='uppercase tracking-[0.18em] text-xs' dir='ltr'>
                 {APP_VENDOR}
@@ -505,7 +540,7 @@ export function Layout() {
               className='flex items-center justify-center pb-1 text-[9px] text-muted-foreground/70 font-mono'
               dir='ltr'
             >
-              v{APP_VERSION}
+              v{shownVersion}
             </div>
           )}
         </div>
@@ -525,12 +560,15 @@ function NavLink({
   icon,
   collapsed,
   active = false,
+  dot = false,
 }: {
   to: string;
   text: string;
   icon?: string;
   collapsed?: boolean;
   active?: boolean;
+  /** Small marker for "something is waiting here" — e.g. a downloaded update. */
+  dot?: boolean;
 }) {
   const baseClasses =
     'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-200';
@@ -548,7 +586,12 @@ function NavLink({
         collapsed ? collapsedClasses : expandedClasses
       }`}
     >
-      <span className='text-lg flex-shrink-0'>{icon || '•'}</span>
+      <span className='relative text-lg flex-shrink-0'>
+        {icon || '•'}
+        {dot && (
+          <span className='absolute -top-0.5 -end-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950' />
+        )}
+      </span>
       {!collapsed && <span className='truncate'>{text}</span>}
     </Link>
   );
