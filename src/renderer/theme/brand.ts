@@ -153,11 +153,30 @@ export function buildRamp(role: string, base: Hsl): Record<string, string> {
 export type BrandColors = { primary?: string | null; secondary?: string | null };
 
 /**
+ * Lightness that keeps a brand colour readable as TEXT on a given surface.
+ *
+ * Only the *-foreground tokens were being corrected, which covers `bg-primary
+ * text-primary-foreground` but not bare `text-primary` on a neutral surface —
+ * and the app uses that for sort arrows, avatar initials, active nav and
+ * prices. With one ramp shared by both themes, a navy brand disappears on the
+ * dark theme and a lemon one disappears on the light theme.
+ *
+ * The hue and saturation are the brand's; only lightness is pulled into a band
+ * that contrasts with the surface, so the colour still reads as theirs.
+ */
+export function readableL(l: number, on: 'light' | 'dark'): number {
+  return on === 'dark'
+    ? Math.min(85, Math.max(58, l)) // light enough to sit on a dark surface
+    : Math.min(46, Math.max(20, l)); // dark enough to sit on a light one
+}
+
+/**
  * Apply brand colours to the running app.
  *
- * Writes to <html> so the variables cascade to portalled modals and toasts too,
- * and so both the light and dark HeroUI themes pick them up — the ramp is
- * shared, only the surface tokens differ between themes.
+ * The ramp goes on <html> so it cascades into portalled modals and toasts. The
+ * text-safe value is emitted as a stylesheet instead, because it needs two
+ * different values for `:root` and `.dark` and an inline style can only hold
+ * one.
  */
 export function applyBrandTheme(colors: BrandColors): void {
   const root = document.documentElement;
@@ -173,6 +192,32 @@ export function applyBrandTheme(colors: BrandColors): void {
   };
 
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+
+  // Per-theme override for the value `text-primary` resolves to.
+  const band = (c: Hsl, on: 'light' | 'dark') =>
+    `${c.h.toFixed(2)} ${Math.max(20, Math.min(96, c.s)).toFixed(2)}% ${readableL(
+      c.l,
+      on
+    ).toFixed(2)}%`;
+
+  const css = `
+:root{--heroui-primary:${band(primary, 'light')};--heroui-secondary:${band(
+    secondary,
+    'light'
+  )};}
+.dark{--heroui-primary:${band(primary, 'dark')};--heroui-secondary:${band(
+    secondary,
+    'dark'
+  )};}`;
+
+  const ID = 'brand-theme-contrast';
+  let el = document.getElementById(ID) as HTMLStyleElement | null;
+  if (!el) {
+    el = document.createElement('style');
+    el.id = ID;
+    document.head.appendChild(el);
+  }
+  el.textContent = css;
 }
 
 /**

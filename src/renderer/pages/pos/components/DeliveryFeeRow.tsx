@@ -84,7 +84,12 @@ export function DeliveryFeeRow({
             autoFocus
             type='number'
             inputMode='decimal'
-            step='0.001'
+            // Kuwait prices in 250-fils units, so the spinner moves a quarter
+            // dinar per click. At 0.001 it took 250 clicks to cover the same
+            // ground, and delivery is quoted in quarters, never in fils.
+            // Typing is unaffected — step only drives the arrows — so an odd
+            // amount like 1.750 can still be entered directly.
+            step='0.25'
             min='0'
             dir='ltr'
             value={draft}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHex, buildRamp, FALLBACK_BRAND } from './brand';
+import { parseHex, buildRamp, readableL, FALLBACK_BRAND } from './brand';
 
 describe('parseHex', () => {
   it('reads long, short and bare hex', () => {
@@ -72,5 +72,30 @@ describe('buildRamp', () => {
     const r = buildRamp('secondary', parseHex('#f97316')!);
     expect(r['--heroui-secondary-500']).toBeDefined();
     expect(r['--heroui-primary-500']).toBeUndefined();
+  });
+});
+
+describe('readableL', () => {
+  it('lifts a dark brand so it can be read on the dark theme', () => {
+    // A navy brand (~20% lightness) as bare text-primary on a dark surface is
+    // the failure this guards: the ramp is shared by both themes, so without
+    // this it renders near-black on near-black.
+    expect(readableL(20, 'dark')).toBeGreaterThanOrEqual(58);
+  });
+
+  it('darkens a pale brand so it can be read on the light theme', () => {
+    expect(readableL(92, 'light')).toBeLessThanOrEqual(46);
+  });
+
+  it('leaves a mid-tone brand alone in both themes', () => {
+    // 46 already sits inside the light band, so it should pass through.
+    expect(readableL(46, 'light')).toBe(46);
+    expect(readableL(60, 'dark')).toBe(60);
+  });
+
+  it('always separates the two themes', () => {
+    for (const l of [0, 10, 35, 50, 75, 100]) {
+      expect(readableL(l, 'dark')).toBeGreaterThan(readableL(l, 'light'));
+    }
   });
 });
