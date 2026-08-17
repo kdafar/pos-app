@@ -335,14 +335,7 @@ export default function TodayOrdersReport() {
     () => [
       {
         accessorKey: 'number',
-        header: ({ column }) => (
-          <button
-            className='font-medium inline-flex items-center gap-1'
-            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          >
-            {t('admin.orders.number')} <span className='opacity-60'>↕</span>
-          </button>
-        ),
+        header: () => t('admin.orders.number'),
         cell: (info) => info.getValue() as string,
         size: 150,
       },
@@ -366,14 +359,7 @@ export default function TodayOrdersReport() {
       },
       {
         accessorKey: 'order_type',
-        header: ({ column }) => (
-          <button
-            className='font-medium inline-flex items-center gap-1'
-            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          >
-            {t('admin.type')} <span className='opacity-60'>↕</span>
-          </button>
-        ),
+        header: () => t('admin.type'),
         cell: ({ row }) => typeLabel(row.original.order_type),
         sortingFn: 'alphanumeric',
         size: 120,
@@ -394,14 +380,7 @@ export default function TodayOrdersReport() {
       },
       {
         accessorKey: 'grand_total',
-        header: ({ column }) => (
-          <button
-            className='font-medium inline-flex items-center gap-1'
-            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          >
-            {t('common.total')} <span className='opacity-60'>↕</span>
-          </button>
-        ),
+        header: () => t('common.total'),
         cell: (info) => (
           <span className='font-semibold money'>
             {money(info.getValue() as number)}
@@ -412,14 +391,7 @@ export default function TodayOrdersReport() {
       },
       {
         id: 'updated_at',
-        header: ({ column }) => (
-          <button
-            className='font-medium inline-flex items-center gap-1'
-            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          >
-            {t('admin.orders.updated')} <span className='opacity-60'>↕</span>
-          </button>
-        ),
+        header: () => t('admin.orders.updated'),
         accessorFn: (row) => bestUpdatedMs(row),
         cell: ({ row }) => {
           const ms = bestUpdatedMs(row.original);
