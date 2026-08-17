@@ -251,8 +251,7 @@ export function Layout() {
         className={`
           h-full border-e flex flex-col min-h-0 min-w-0
           ${collapsed ? 'gap-2 p-2' : 'gap-2 p-2.5'}
-          bg-gradient-to-b from-slate-50 to-slate-100
-          dark:from-slate-950 dark:to-slate-900
+          bg-content1
         `}
       >
         {/* User header + controls */}

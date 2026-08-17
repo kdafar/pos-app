@@ -437,7 +437,7 @@ const stateName = (() => {
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">{t('admin.loc.title')}</h1>
-          <div className="text-sm opacity-70">{t('admin.loc.subtitle')}</div>
+          <div className="text-sm font-medium text-default-600">{t('admin.loc.subtitle')}</div>
         </div>
         <button className={btnCls} onClick={refresh} disabled={loading}>
           {loading ? t('admin.refreshing') : t('admin.refresh')}
@@ -457,7 +457,7 @@ const stateName = (() => {
               className={fieldCls + ' w-full'}
             />
             <div className="flex items-center gap-2">
-              <label className="text-sm opacity-70">{t('admin.rows')}</label>
+              <label className="text-sm font-medium text-default-600">{t('admin.rows')}</label>
               <select
                 className={fieldCls}
                 value={statePageSize}
@@ -514,7 +514,7 @@ const stateName = (() => {
         </div>
 
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
-          <div className="opacity-70">
+          <div className="text-default-600">
             {t('admin.pageOf', {
               page: statesTable.getState().pagination.pageIndex + 1,
               pages: statesTable.getPageCount(),
@@ -605,7 +605,7 @@ const stateName = (() => {
             />
 
             <div className="flex items-center gap-2">
-              <label className="text-sm opacity-70">{t('admin.rows')}</label>
+              <label className="text-sm font-medium text-default-600">{t('admin.rows')}</label>
               <select
                 className={fieldCls}
                 value={cityPageSize}
@@ -663,7 +663,7 @@ const stateName = (() => {
         </div>
 
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
-          <div className="opacity-70">
+          <div className="text-default-600">
             {t('admin.pageOf', {
               page: citiesTable.getState().pagination.pageIndex + 1,
               pages: citiesTable.getPageCount(),
@@ -734,7 +734,7 @@ const stateName = (() => {
             </select>
 
             <div className="flex items-center gap-2">
-              <label className="text-sm opacity-70">{t('admin.rows')}</label>
+              <label className="text-sm font-medium text-default-600">{t('admin.rows')}</label>
               <select
                 className={fieldCls}
                 value={blockPageSize}
@@ -792,7 +792,7 @@ const stateName = (() => {
         </div>
 
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
-          <div className="opacity-70">
+          <div className="text-default-600">
             {t('admin.pageOf', {
               page: blocksTable.getState().pagination.pageIndex + 1,
               pages: blocksTable.getPageCount(),

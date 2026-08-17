@@ -252,7 +252,7 @@ export default function PromosPage() {
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">{t('admin.promos.title')}</h1>
-          <div className="text-sm opacity-70">{t('admin.promos.subtitle')}</div>
+          <div className="text-sm font-medium text-default-600">{t('admin.promos.subtitle')}</div>
         </div>
 
         <div className="w-full md:w-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(260px,420px)_160px_160px_160px_110px] gap-2">
@@ -287,7 +287,7 @@ export default function PromosPage() {
           </button>
 
           <div className="flex items-center gap-2">
-            <label className="text-sm opacity-70">{t('admin.rows')}</label>
+            <label className="text-sm font-medium text-default-600">{t('admin.rows')}</label>
             <select className={fieldCls} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
               {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -341,7 +341,7 @@ export default function PromosPage() {
 
       {/* Pagination */}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
-        <div className="opacity-70">
+        <div className="text-default-600">
           {t('admin.pageOf', {
             page: table.getState().pagination.pageIndex + 1,
             pages: table.getPageCount(),

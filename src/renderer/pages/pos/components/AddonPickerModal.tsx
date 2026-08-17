@@ -467,7 +467,7 @@ export function AddonPickerModal({ theme, item, onClose, onConfirm }: Props) {
                 <span className='font-semibold'>
                   <span className='money'>{money(totalWithAddons)}</span>
                 </span>
-                <span className='opacity-70'>
+                <span className='text-default-600'>
                   {' '}
                   (<span className='money'>{money(itemBasePrice)}</span> + <span className='money'>{money(addonsExtraTotal)}</span>)
                 </span>

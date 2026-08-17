@@ -158,7 +158,7 @@ export function ItemsPage() {
           <tbody>
             {table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="p-6 text-center text-sm opacity-70">
+                <td colSpan={columns.length} className="p-6 text-center text-sm font-medium text-default-600">
                   {t('admin.noData')}
                 </td>
               </tr>
@@ -179,7 +179,7 @@ export function ItemsPage() {
 
       {/* Pagination */}
       <div className="mt-4 flex items-center justify-between gap-3">
-        <div className="text-sm opacity-70">
+        <div className="text-sm font-medium text-default-600">
           {t('admin.pageOf', {
             page: table.getState().pagination.pageIndex + 1,
             pages: table.getPageCount(),
@@ -188,7 +188,7 @@ export function ItemsPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <label className="text-sm opacity-70">{t('admin.rowsPerPage')}</label>
+          <label className="text-sm font-medium text-default-600">{t('admin.rowsPerPage')}</label>
           <select
             className="ui-field"
             value={pageSize}

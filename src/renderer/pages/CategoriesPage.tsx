@@ -270,7 +270,7 @@ export function CategoriesPage() {
           <div className="text-sm">
             {selectedCat
               ? <>{t('admin.cats.selected')}:&nbsp;<strong>{localName(selectedCat)}</strong></>
-              : <span className="opacity-70">{t('admin.cats.noneSelected')}</span>}
+              : <span className="text-default-600">{t('admin.cats.noneSelected')}</span>}
           </div>
           <button
             type="button"
@@ -360,7 +360,7 @@ export function CategoriesPage() {
 
         {/* Simple pagination controls */}
         <div className="mt-3 flex items-center justify-between text-sm">
-          <div className="opacity-70">
+          <div className="text-default-600">
             {t('admin.pageOf', {
               page: subsTable.getState().pagination.pageIndex + 1,
               pages: subsTable.getPageCount(),

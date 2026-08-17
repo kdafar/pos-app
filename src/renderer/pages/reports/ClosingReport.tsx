@@ -12,6 +12,7 @@ import { useThemeTokens } from '../../hooks/useThemeTokens';
 import { useStore } from '../../src/store';
 import { useI18n, useOrderTypeLabel } from '../../i18n';
 import type { StringKey } from '../../i18n';
+import { StatCard } from '../../components/PageShell';
 
 type BackendOrderRow = {
   id: string;
@@ -477,62 +478,30 @@ export default function ClosingReport() {
       </div>
 
       {/* Summary Cards */}
-      <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6'>
-        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-500 to-cyan-400 p-6 text-white shadow-lg'>
-          <div className='flex justify-between items-start z-10 relative'>
-            <div>
-              <h3 className='text-sm font-medium opacity-90 mb-1'>
-                {t('admin.rep.cardInside')}
-              </h3>
-              <h2 className='text-3xl font-bold money'>
-                {data?.footer.inside_hours_count || 0}
-              </h2>
-            </div>
-            <Clock className='opacity-40' size={32} />
-          </div>
-        </div>
-
-        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 p-6 text-white shadow-lg'>
-          <div className='flex justify-between items-start z-10 relative'>
-            <div>
-              <h3 className='text-sm font-medium opacity-90 mb-1'>
-                {t('admin.rep.cardOutside')}
-              </h3>
-              <h2 className='text-3xl font-bold money'>
-                {data?.footer.outside_hours_count || 0}
-              </h2>
-            </div>
-            <Moon className='opacity-40' size={32} />
-          </div>
-        </div>
-
-        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-orange-500 to-red-500 p-6 text-white shadow-lg'>
-          <div className='flex justify-between items-start z-10 relative'>
-            <div>
-              <h3 className='text-sm font-medium opacity-90 mb-1'>
-                {t('admin.rep.cardCancelled')}
-              </h3>
-              <h2 className='text-3xl font-bold money'>
-                {data?.footer.canceled_order_count || 0}
-              </h2>
-            </div>
-            <XCircle className='opacity-40' size={32} />
-          </div>
-        </div>
-
-        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 p-6 text-white shadow-lg'>
-          <div className='flex justify-between items-start z-10 relative'>
-            <div>
-              <h3 className='text-sm font-medium opacity-90 mb-1'>
-                {t('admin.rep.cardEarning')}
-              </h3>
-              <h2 className='text-3xl font-bold money'>
-                {fmt(data?.footer.grand_total)}
-              </h2>
-            </div>
-            <DollarSign className='opacity-40' size={32} />
-          </div>
-        </div>
+      <div className='grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4'>
+        <StatCard
+          label={t('admin.rep.cardInside')}
+          value={data?.footer.inside_hours_count || 0}
+          icon={Clock}
+          tone='primary'
+        />
+        <StatCard
+          label={t('admin.rep.cardOutside')}
+          value={data?.footer.outside_hours_count || 0}
+          icon={Moon}
+        />
+        <StatCard
+          label={t('admin.rep.cardCancelled')}
+          value={data?.footer.canceled_order_count || 0}
+          icon={XCircle}
+          tone='danger'
+        />
+        <StatCard
+          label={t('admin.rep.cardEarning')}
+          value={fmt(data?.footer.grand_total)}
+          icon={DollarSign}
+          tone='success'
+        />
       </div>
 
       {/* Main Content: tab tables */}

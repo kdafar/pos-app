@@ -259,3 +259,58 @@ export function FilterSelect({
     </Select>
   );
 }
+
+/**
+ * A headline figure.
+ *
+ * Replaces four differently-coloured gradient panels that shared a pattern:
+ * white text on a saturated wash, the label at opacity-90 and the icon at
+ * opacity-40. Faded white on a mid-tone gradient is the least legible thing you
+ * can put on a screen someone reads at a glance — and the four colours meant
+ * nothing, since blue, purple, orange and green were assigned by position
+ * rather than by what the number said.
+ *
+ * Here the surface stays neutral and the accent carries the meaning: `danger`
+ * for cancellations, `success` for takings. The label is a solid tone at full
+ * opacity, never a tinted white.
+ */
+export function StatCard({
+  label,
+  value,
+  icon: Icon,
+  tone = 'default',
+}: {
+  label: string;
+  value: ReactNode;
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
+}) {
+  const accent = {
+    default: 'text-default-600 border-default-300',
+    primary: 'text-primary border-primary',
+    success: 'text-success border-success',
+    warning: 'text-warning border-warning',
+    danger: 'text-danger border-danger',
+  }[tone];
+
+  return (
+    // The accent is a border and an icon, not a fill: a page of four saturated
+    // blocks makes every figure shout, so none of them stands out.
+    <div
+      className={`rounded-lg border border-default-200 border-s-4 ${accent.split(' ')[1]}
+        bg-content1 p-4 flex items-start justify-between gap-3 min-w-0`}
+    >
+      <div className='min-w-0'>
+        <div className='text-sm font-semibold text-default-700 mb-1 truncate'>
+          {label}
+        </div>
+        <div className='text-2xl xl:text-3xl font-bold text-foreground money'>
+          {value}
+        </div>
+      </div>
+      {Icon && (
+        <Icon size={26} className={`shrink-0 ${accent.split(' ')[0]}`} />
+      )}
+    </div>
+  );
+}

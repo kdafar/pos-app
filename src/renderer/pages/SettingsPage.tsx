@@ -210,7 +210,7 @@ export function SettingsPage() {
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h3 className="text-xl font-semibold">{t('settings.title')}</h3>
-          <div className="text-sm opacity-70">{t('settings.subtitle')}</div>
+          <div className="text-sm font-medium text-default-600">{t('settings.subtitle')}</div>
         </div>
 
         <div className="w-full md:w-auto grid grid-cols-1 sm:grid-cols-[minmax(260px,420px)_160px_120px] gap-2">
@@ -240,7 +240,7 @@ export function SettingsPage() {
       {/* Language */}
       <section className="mb-4 rounded-xl border border-white/10 p-4">
         <h4 className="text-sm font-semibold">{t('nav.language')}</h4>
-        <div className="mt-1 mb-3 text-xs opacity-70">
+        <div className="mt-1 mb-3 text-xs font-medium text-default-600">
           {t('settings.languageHint')}
         </div>
         <LanguageToggle />
@@ -286,14 +286,14 @@ export function SettingsPage() {
 
       {/* Pagination */}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
-        <div className="opacity-70">
+        <div className="text-default-600">
           {t('settings.page')}{' '}
           <strong>{table.getState().pagination.pageIndex + 1}</strong>{' '}
           {t('settings.pageOf')} <strong>{table.getPageCount()}</strong> •{' '}
           <span>{t('settings.rowCount', { n: filtered.length })}</span>
         </div>
         <div className="flex items-center gap-2">
-          <label className="opacity-70">{t('settings.rowsPerPage')}</label>
+          <label className="text-default-600">{t('settings.rowsPerPage')}</label>
           <select className={fieldCls} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
             {[10, 25, 50, 100].map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -314,7 +314,7 @@ export function SettingsPage() {
       </div>
 
       {/* Read-only notice */}
-      <div className="mt-6 text-xs opacity-70">{t('settings.readOnlyNotice')}</div>
+      <div className="mt-6 text-xs font-medium text-default-600">{t('settings.readOnlyNotice')}</div>
     </div>
   );
 }

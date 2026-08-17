@@ -22,8 +22,8 @@ export function OrderTypePicker({
   ];
   const bg = theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-gray-100 border-gray-300';
   const activeBtn = theme === 'dark'
-    ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow'
-    : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow';
+    ? 'bg-primary text-primary-foreground'
+    : 'bg-primary text-primary-foreground';
   const inactiveBtn = theme === 'dark'
     ? 'text-slate-300 hover:text-white'
     : 'text-gray-700 hover:text-gray-900';

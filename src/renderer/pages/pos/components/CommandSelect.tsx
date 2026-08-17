@@ -58,7 +58,7 @@ export function CommandSelect({
         >
           <Command label={`${label} search`} className={`max-h-72 overflow-auto rounded-md ${surface}`}>
             <div className={`flex items-center gap-2 px-2 py-2 rounded-md border ${border} ${surface} mb-2`}>
-              <Search size={16} className="opacity-70" />
+              <Search size={16} className="text-default-600" />
               <Command.Input
                 autoFocus
                 placeholder={placeholder}
@@ -67,7 +67,7 @@ export function CommandSelect({
             </div>
 
             <Command.List>
-              <Command.Empty className="px-3 py-2 text-xs opacity-70">No results</Command.Empty>
+              <Command.Empty className="px-3 py-2 text-xs font-medium text-default-600">No results</Command.Empty>
               {options.map(o => (
                 <Command.Item
                   key={o.id}

@@ -85,8 +85,8 @@ export function PromoDialog({ promos, theme, onClose, onApply }: { promos: Promo
             onClick={() => apply(code)}
             disabled={!code}
             className={`w-full px-4 py-2.5 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed ${
-              theme === 'dark' ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
-                               : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
+              theme === 'dark' ? 'bg-primary text-primary-foreground'
+                               : 'bg-primary text-primary-foreground'
             }`}
           >
             {t('promo.applyCode')}

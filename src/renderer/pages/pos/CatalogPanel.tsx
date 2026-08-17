@@ -189,8 +189,8 @@ export default function CatalogPanel({
               className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                 !selCat && !isSearching
                   ? theme === 'dark'
-                    ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
-                    : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-primary text-primary-foreground'
                   : theme === 'dark'
                   ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
@@ -216,8 +216,8 @@ export default function CatalogPanel({
                 className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${
                   selCat === String(cat.id) && !isSearching
                     ? theme === 'dark'
-                      ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
-                      : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-primary text-primary-foreground'
                     : theme === 'dark'
                     ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'

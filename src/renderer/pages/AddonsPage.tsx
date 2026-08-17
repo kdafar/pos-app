@@ -226,11 +226,11 @@ export function AddonsPage() {
 
         <div className='flex-1 min-h-0 overflow-auto rounded-xl border border-white/10'>
           {itemsLoading ? (
-            <div className='p-3 text-sm opacity-70'>
+            <div className='p-3 text-sm font-medium text-default-600'>
               {t('admin.addons.loadingItems')}
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className='p-3 text-sm opacity-70'>
+            <div className='p-3 text-sm font-medium text-default-600'>
               {t('admin.addons.noItems')}
             </div>
           ) : (
@@ -261,7 +261,7 @@ export function AddonsPage() {
                           {t('common.currency')}
                         </div>
                       </div>
-                      <div className='text-[11px] opacity-70 truncate'>
+                      <div className='text-[11px] font-medium text-default-600 truncate'>
                         {altName(it)}
                       </div>
                       <div className='mt-1 flex items-center gap-1 text-[11px]'>
@@ -297,7 +297,7 @@ export function AddonsPage() {
                     {t('common.currency')}
                   </div>
                 </div>
-                <div className='text-sm opacity-70 truncate'>
+                <div className='text-sm font-medium text-default-600 truncate'>
                   {altName(selectedItem)}
                 </div>
                 <div className='mt-2 flex items-center gap-2 text-xs opacity-80'>
@@ -311,7 +311,7 @@ export function AddonsPage() {
               </div>
             </div>
           ) : (
-            <div className='text-sm opacity-70'>
+            <div className='text-sm font-medium text-default-600'>
               {t('admin.addons.selectItemHint')}
             </div>
           )}
@@ -324,16 +324,16 @@ export function AddonsPage() {
               {t('admin.addons.groupsTitle')}
             </h4>
             {groupsLoading && (
-              <span className='text-xs opacity-70'>{t('common.loading')}</span>
+              <span className='text-xs font-medium text-default-600'>{t('common.loading')}</span>
             )}
           </div>
 
           {!selectedItem ? (
-            <div className='text-sm opacity-70'>
+            <div className='text-sm font-medium text-default-600'>
               {t('admin.addons.noItemSelected')}
             </div>
           ) : addonGroups.length === 0 ? (
-            <div className='text-sm opacity-70'>
+            <div className='text-sm font-medium text-default-600'>
               {t('admin.addons.noGroups')}
             </div>
           ) : (
@@ -348,7 +348,7 @@ export function AddonsPage() {
                     <div className='flex items-center justify-between gap-2 mb-1.5'>
                       <div>
                         <div className='font-medium text-sm'>{localName(g)}</div>
-                        <div className='text-[11px] opacity-70'>
+                        <div className='text-[11px] font-medium text-default-600'>
                           {altName(g)}
                         </div>
                       </div>
@@ -372,7 +372,7 @@ export function AddonsPage() {
                     </div>
 
                     {list.length === 0 ? (
-                      <div className='text-xs opacity-60'>
+                      <div className='text-xs font-medium text-default-600'>
                         {t('admin.addons.noneInGroup')}
                       </div>
                     ) : (
@@ -384,7 +384,7 @@ export function AddonsPage() {
                           >
                             <div>
                               <div className='font-medium'>{localName(a)}</div>
-                              <div className='opacity-70'>{altName(a)}</div>
+                              <div className='text-default-600'>{altName(a)}</div>
                             </div>
                             <div className='opacity-80 whitespace-nowrap'>
                               <span className='money'>{money(a.price)}</span>{' '}

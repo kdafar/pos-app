@@ -492,8 +492,8 @@ export default function OrderSide({
               onClick={onCreateOrder}
               className={`px-4 py-2.5 rounded-lg text-sm font-medium ${
                 theme === 'dark'
-                  ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
-                  : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-primary text-primary-foreground'
               }`}
             >
               {t('cart.createOrder')}
