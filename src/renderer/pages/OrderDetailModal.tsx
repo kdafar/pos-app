@@ -32,6 +32,7 @@ import { DataTable } from '../components/DataTable';
 import { DataState } from '../components/PageShell';
 import { OrderTimeline } from './OrderTimeline';
 
+import { errorLine as errLine } from '../utils/posError';
 /**
  * Everything one order holds: customer, address, items, totals, payment state
  * and a timeline of what happened when.
@@ -140,7 +141,7 @@ export function OrderDetailModal({
     } catch (e) {
       if (seq !== reqRef.current) return;
       setData(null);
-      setError(e instanceof Error ? e.message : String(e ?? ''));
+      setError(errLine(e));
     } finally {
       if (seq === reqRef.current) setLoading(false);
     }

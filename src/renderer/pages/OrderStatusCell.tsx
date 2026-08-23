@@ -24,14 +24,19 @@ const FLOW: { value: string; key: StringKey }[] = [
   { value: 'ready', key: 'status.ready' },
   { value: 'awaiting_pickup', key: 'admin.srv.7' },
   { value: 'closed', key: 'status.closed' },
+  { value: 'cancelled_client', key: 'admin.srv.5' },
 ];
 
-const TONE: Record<string, 'default' | 'primary' | 'warning' | 'success'> = {
+const TONE: Record<
+  string,
+  'default' | 'primary' | 'warning' | 'success' | 'danger'
+> = {
   placed: 'primary',
   prepared: 'warning',
   ready: 'warning',
   awaiting_pickup: 'warning',
   closed: 'success',
+  cancelled_client: 'danger',
 };
 
 export function OrderStatusCell({
@@ -54,6 +59,7 @@ export function OrderStatusCell({
     2: 'prepared',
     3: 'ready',
     4: 'closed',
+    5: 'cancelled_client',
     7: 'awaiting_pickup',
   };
   const [current, setCurrent] = useState(
@@ -78,17 +84,19 @@ export function OrderStatusCell({
     ready: 3,
     awaiting_pickup: 7,
     closed: 4,
+    cancelled_client: 5,
   };
   const rawServerCode = statusCode == null ? NaN : Number(statusCode);
   const currentCode = Number.isFinite(rawServerCode)
     ? Math.max(rawServerCode, localCode[current] ?? 1)
     : localCode[current] ?? 1;
   const nextCodes: Record<number, number[]> = {
-    1: [2],
-    2: [3],
-    3: [4, 7],
-    7: [4],
+    1: [2, 5],
+    2: [3, 5],
+    3: [4, 7, 5],
+    7: [4, 5],
     4: [],
+    5: [],
   };
   const visible = FLOW.filter(
     (f) =>

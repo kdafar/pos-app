@@ -1,6 +1,8 @@
 import { shell, type IpcMain } from 'electron';
 import crypto from 'node:crypto';
 import type { MainServices } from '../types/common';
+import { posError } from '../../shared/errorCodes';
+import { isDeliveryEnabled } from '../services/settings';
 
 // ⚙️ Utils
 import { allocUniqueOrderNumber } from '../utils/orderNumbers';
@@ -21,6 +23,7 @@ import {
   isTerminalServerStatus,
   pushStatusForLocal,
 } from '../utils/serverStatus';
+import { assertPermission, getEffectivePermissions } from '../utils/permissions';
 
 export function registerOrdersHandlers(
   ipcMain: IpcMain,
@@ -92,11 +95,12 @@ export function registerOrdersHandlers(
   };
 
   const buildUserFilter = (alias: string) => {
-    const { id, isAdmin } = getCurrentPosUser();
+    const { id } = getCurrentPosUser();
+    const canViewAll = getEffectivePermissions(services).includes('orders.view_all');
     const hasCreated = hasColumn('orders', 'created_by_user_id');
     const hasCompleted = hasColumn('orders', 'completed_by_user_id');
 
-    if (!id || isAdmin || (!hasCreated && !hasCompleted)) {
+    if (!id || canViewAll || (!hasCreated && !hasCompleted)) {
       return { sql: '', params: {} as Record<string, any> };
     }
 
@@ -146,25 +150,26 @@ export function registerOrdersHandlers(
     opts?: { allowAddOnLockedDineIn?: boolean }
   ) => {
     const order = getOrderRow(orderId);
-    if (!order) throw new Error('Order not found');
+    if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
-    const { isAdmin } = getCurrentPosUser();
     const locked =
       hasColumn('orders', 'is_locked') && Number(order.is_locked ?? 0) === 1;
     const status = (order.status || '').toLowerCase();
     const isDineIn = Number(order.order_type) === 3;
 
-    if (!isAdmin) {
-      if (locked) {
-        const canBypass = opts?.allowAddOnLockedDineIn && isDineIn;
+    // Role is not an edit mode. Once a sale is locked, admins must use the
+    // explicit audited reopen action just like everyone else; silently
+    // bypassing this check let an admin add items to an already placed sale.
+    // The one business exception is a dine-in table accepting a new round:
+    // existing printed lines stay locked and the new lines are appended.
+    if (TERMINAL_STATUSES.includes(status as any)) {
+      throw posError('POS_VAL_ORDER_LOCKED');
+    }
 
-        if (!canBypass) {
-          throw new Error('Order is locked');
-        }
-      }
-
-      if (TERMINAL_STATUSES.includes(status as any)) {
-        throw new Error('Completed orders cannot be edited');
+    if (locked) {
+      const canAppendDineIn = opts?.allowAddOnLockedDineIn && isDineIn;
+      if (!canAppendDineIn) {
+        throw posError('POS_VAL_ORDER_LOCKED');
       }
     }
 
@@ -304,7 +309,11 @@ export function registerOrdersHandlers(
 
   ipcMain.handle('orders:listActive', async () => {
     const { sql: userSql, params } = buildUserFilter('o');
-    // Only show orders from the last 24 hours to hide "yesterday's" orders
+    // The selling strip is a cart switcher, not an operations queue. Pickup
+    // and delivery leave it as soon as Place Order succeeds; their subsequent
+    // lifecycle belongs in Recent Orders / Kitchen Display. Dine-in stays
+    // switchable because staff legitimately append a new round to the table.
+    // Only show recent rows so an abandoned draft cannot live here forever.
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
 
     const rows = rawDb
@@ -312,7 +321,13 @@ export function registerOrdersHandlers(
         `
         SELECT o.*
         FROM orders o
-        WHERE o.status IN (${sqlList(ACTIVE_STATUSES)})
+        WHERE (
+          o.status IN ('${ORDER_STATUS.OPEN}', '${ORDER_STATUS.PENDING}')
+          OR (
+            o.order_type = 3
+            AND o.status IN (${sqlList(ACTIVE_STATUSES)})
+          )
+        )
         AND (o.opened_at > @cutoff OR o.created_at > @cutoff)
         ${userSql}
         ORDER BY o.opened_at DESC, o.created_at DESC
@@ -320,6 +335,21 @@ export function registerOrdersHandlers(
       )
       .all({ ...params, cutoff }) as any[];
     return rows;
+  });
+
+  ipcMain.handle('orders:kitchenBoard', async () => {
+    assertPermission(services, 'orders.kitchen_view');
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const orders = rawDb.prepare(`
+      SELECT o.* FROM orders o
+      WHERE o.status IN ('placed','prepared','ready')
+        AND CAST(COALESCE(NULLIF(o.opened_at, 0), o.created_at) AS REAL) > @cutoff
+        AND EXISTS (SELECT 1 FROM order_lines ol WHERE ol.order_id = o.id)
+      ORDER BY CAST(COALESCE(NULLIF(o.opened_at, 0), o.created_at) AS REAL) ASC
+    `).all({ cutoff }) as any[];
+    return orders
+      .map((order) => ({ order, lines: getOrderWithLines(String(order.id))?.lines || [] }))
+      .filter((ticket) => ticket.lines.length > 0);
   });
 
   ipcMain.handle('orders:listPrepared', async () => {
@@ -340,7 +370,16 @@ export function registerOrdersHandlers(
     const status = (args?.status ?? '').toString().trim();
     const branchId = args?.branch_id;
     const { sql: userSql, params: userParams } = buildUserFilter('orders');
-    const where: string[] = ['1=1'];
+    const where: string[] = [
+      // Drafts are created locally as soon as New is pressed. They are not
+      // sales and must not appear in the orders report before an item exists.
+      `NOT (
+        lower(COALESCE(status, '')) IN ('open', 'pending')
+        AND NOT EXISTS (
+          SELECT 1 FROM order_lines ol WHERE ol.order_id = orders.id
+        )
+      )`,
+    ];
     const params: any = { ...userParams };
 
     // `created_at` holds two different shapes: locally-created orders store
@@ -391,7 +430,7 @@ export function registerOrdersHandlers(
   // ─────────────────────────────────────────────────────────────
 
   ipcMain.handle('orders:start', async () => {
-    if (isPosLocked()) throw new Error('POS is locked');
+    if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
     const deviceId = store.get('device_id');
     const branchId = Number(store.get('branch_id') || 0);
@@ -488,22 +527,29 @@ export function registerOrdersHandlers(
   ipcMain.handle(
     'orders:setType',
     async (_e, orderId: string, type: 1 | 2 | 3) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
       const order = getOrderRow(orderId);
-      if (!order) throw new Error('Order not found');
+      if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
       const currentType = Number(order.order_type || 0);
       const status = (order.status || '').toLowerCase();
+
+      // The picker hides Delivery when the branch has it switched off, but the
+      // picker is UX. The setting can also flip mid-session now that it comes
+      // down the pull feed, so a renderer holding a stale `true` must still be
+      // refused here. Switching an order that is ALREADY delivery back to
+      // itself stays allowed — that is how staff finish work in flight.
+      if (type === 1 && currentType !== 1 && !isDeliveryEnabled()) {
+        throw posError('POS_VAL_DELIVERY_DISABLED');
+      }
 
       const isLocked =
         hasColumn('orders', 'is_locked') && Number(order.is_locked ?? 0) === 1;
 
       // ❌ 1) Do not allow changing type for a dine-in order that has a table
       if (currentType === 3 && order.table_id && type !== 3) {
-        throw new Error(
-          'Cannot change order type for a dine-in order that has a table assigned.'
-        );
+        throw posError('POS_VAL_TYPE_LOCKED_TABLE');
       }
 
       // ❌ 2) A finished order is history — reopening it is a different action.
@@ -515,9 +561,7 @@ export function registerOrdersHandlers(
       // about how the order leaves the shop, so it no longer blocks. Totals are
       // recalculated below, which is what actually has to be right.
       if (TERMINAL_STATUSES.includes(status as any) || isLocked) {
-        throw new Error(
-          'Order type cannot be changed after the order has been closed.'
-        );
+        throw posError('POS_VAL_TYPE_LOCKED_CLOSED');
       }
 
       // Leaving delivery drops any fee override with it. Keeping the override
@@ -571,10 +615,11 @@ export function registerOrdersHandlers(
   ipcMain.handle(
     'orders:setStatus',
     async (_e, orderId: string, next: string) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      assertPermission(services, 'orders.change_status');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
       const order = getOrderRow(orderId);
-      if (!order) throw new Error('Order not found');
+      if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
       const allowed = [
         ORDER_STATUS.PLACED,
@@ -582,28 +627,44 @@ export function registerOrdersHandlers(
         ORDER_STATUS.READY,
         ORDER_STATUS.AWAITING_PICKUP,
         ORDER_STATUS.CLOSED,
+        ORDER_STATUS.CANCELLED_CLIENT,
       ] as string[];
 
       const target = String(next || '').toLowerCase();
       if (!allowed.includes(target)) {
-        throw new Error(`Cannot set order status to "${next}".`);
+        throw posError('POS_VAL_STATUS_UNKNOWN');
       }
 
       const current = String(order.status || '').toLowerCase();
       if (current === target) return getOrderWithLines(orderId);
 
+      if (target === ORDER_STATUS.CANCELLED_CLIENT) {
+        const lineCount = Number(
+          rawDb
+            .prepare('SELECT COUNT(*) FROM order_lines WHERE order_id = ?')
+            .pluck()
+            .get(orderId) ?? 0
+        );
+        // Server-seeded lookup rows intentionally do not store their lines on
+        // this till, so a positive server total is also valid sale evidence.
+        // A genuinely empty local draft has neither lines nor a positive total.
+        if (lineCount === 0 && Number(order.grand_total || 0) <= 0) {
+          throw posError('POS_VAL_CANCEL_EMPTY_DRAFT');
+        }
+      }
+
       const serverCode = Number(order.status_code);
       if (Number.isFinite(serverCode) && isTerminalServerStatus(serverCode)) {
-        throw new Error(
-          'Order is already finished on the server and cannot be changed by a device'
-        );
+        throw posError('POS_PUSH_ORDER_FINALIZED');
       }
       const localCode = pushStatusForLocal(current);
       const effectiveCode = Number.isFinite(serverCode)
         ? Math.max(serverCode, localCode)
         : localCode;
       if (!isAllowedPosTransition(effectiveCode, pushStatusForLocal(target))) {
-        throw new Error(`Invalid order status transition: ${current} -> ${target}`);
+        throw posError('POS_VAL_STATUS_TRANSITION', {
+          params: { current, target },
+        });
       }
 
       const cols = ['status = ?', 'updated_at = ?'];
@@ -612,6 +673,13 @@ export function registerOrdersHandlers(
       // Reaching a terminal state is what finishes the sale, and it is the
       // point the server posts revenue against (DONE).
       if (target === ORDER_STATUS.CLOSED && hasColumn('orders', 'closed_at')) {
+        cols.push('closed_at = ?');
+        params.push(nowMs());
+      }
+      if (
+        target === ORDER_STATUS.CANCELLED_CLIENT &&
+        hasColumn('orders', 'closed_at')
+      ) {
         cols.push('closed_at = ?');
         params.push(nowMs());
       }
@@ -640,12 +708,12 @@ export function registerOrdersHandlers(
       orderId: string,
       input: { mode: 'auto' | 'manual' | 'none'; amount?: number }
     ) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
       const order = assertOrderEditable(orderId);
 
       if (Number(order.order_type) !== 1) {
-        throw new Error('Only delivery orders can carry a delivery charge.');
+        throw posError('POS_VAL_DELIVERY_FEE_WRONG_TYPE');
       }
 
       const mode = input?.mode ?? 'auto';
@@ -656,11 +724,11 @@ export function registerOrdersHandlers(
       if (mode === 'manual') {
         const amount = Number(input?.amount);
         if (!Number.isFinite(amount) || amount < 0) {
-          throw new Error('Delivery charge must be a positive amount.');
+          throw posError('POS_VAL_DELIVERY_FEE_NOT_POSITIVE', { field: 'delivery_fee' });
         }
         // Guard against a mis-keyed amount becoming a customer-facing charge.
         if (amount > 99) {
-          throw new Error('Delivery charge looks too large — check the amount.');
+          throw posError('POS_VAL_DELIVERY_FEE_TOO_LARGE', { field: 'delivery_fee' });
         }
         manual = 1;
         fee = +amount.toFixed(3);
@@ -686,6 +754,11 @@ export function registerOrdersHandlers(
 
       log('orders.setDeliveryFee', orderId, { mode, amount: fee });
 
+      // Without this the corrected fee never leaves the till: the row keeps
+      // whatever synced_at it already had, the outbox skips it, and the
+      // server's figure and the till's disagree permanently. Every other
+      // total-changing handler (close, complete, setStatus) already does this.
+      markForRepush(orderId);
       return recalcAndGet(orderId);
     }
   );
@@ -706,6 +779,21 @@ export function registerOrdersHandlers(
   ipcMain.handle('orders:getDetail', async (_e, orderId: string) => {
     const id = String(orderId ?? '').trim();
     if (!id) return null;
+
+    const permissions = getEffectivePermissions(services);
+    if (!permissions.includes('orders.view_all')) {
+      assertPermission(services, 'orders.view_own');
+      const actorId = getCurrentPosUser().id;
+      const owner = rawDb
+        .prepare(
+          `SELECT COALESCE(created_by_user_id, completed_by_user_id) AS user_id
+             FROM orders WHERE id = ?`
+        )
+        .get(id) as { user_id?: string | number | null } | undefined;
+      if (!actorId || String(owner?.user_id ?? '') !== String(actorId)) {
+        throw new Error('Permission denied.');
+      }
+    }
 
     const base = getOrderWithLines(id);
     if (!base?.order) return null;
@@ -793,17 +881,17 @@ export function registerOrdersHandlers(
   ipcMain.handle(
     'orders:addLine',
     async (_e, orderId: string, itemId: string, qty = 1) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
       // Allow adding even if locked for dine-in
-      const order = assertOrderEditable(orderId, {
+      assertOrderEditable(orderId, {
         allowAddOnLockedDineIn: true,
       });
 
       const item = rawDb
         .prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`)
         .get(itemId) as any;
-      if (!item) throw new Error('Item not found');
+      if (!item) throw posError('POS_VAL_ITEM_NOT_FOUND');
 
       // Items sold by variation have no meaningful bare price — force the
       // caller through orders:addLineWithAddons so a variation is picked.
@@ -811,13 +899,11 @@ export function registerOrdersHandlers(
         .prepare(`SELECT COUNT(*) AS c FROM variations WHERE item_id = ?`)
         .get(item.id) as { c?: number };
       if (Number(variationCount?.c ?? 0) > 0) {
-        throw new Error('Please choose a variation for this item');
+        throw posError('POS_VAL_VARIATION_REQUIRED');
       }
-
-      const isLockedDineIn =
-        Number(order.order_type) === 3 &&
-        hasColumn('orders', 'is_locked') &&
-        Number(order.is_locked ?? 0) === 1;
+      if (Number(item.price ?? 0) <= 0) {
+        throw posError('POS_VAL_ITEM_NO_PRICE', { params: { name: String(item.name ?? '') } });
+      }
 
       // Look for an *unlocked* line of the same bare item (no variation/addons)
       let row: any = null;
@@ -887,22 +973,22 @@ export function registerOrdersHandlers(
       qty: number = 1,
       payload: any
     ) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
       // Allow adding even if locked for dine-in (same as addLine)
-      const order = assertOrderEditable(orderId, {
+      assertOrderEditable(orderId, {
         allowAddOnLockedDineIn: true,
       });
 
       qty = Math.trunc(Number(qty));
       if (!Number.isFinite(qty) || qty <= 0)
-        throw new Error('Quantity must be > 0');
+        throw posError('POS_VAL_QTY', { field: 'qty' });
 
       // Base item
       const item = rawDb
         .prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`)
         .get(itemId) as any;
-      if (!item) throw new Error('Item not found');
+      if (!item) throw posError('POS_VAL_ITEM_NOT_FOUND');
 
       // ── Variations ───────────────────────────────────────────────
       // An item that has variations MUST be sold as one of them, otherwise
@@ -924,7 +1010,7 @@ export function registerOrdersHandlers(
       if (variationId) {
         const v = itemVariations.find((x) => String(x.id) === variationId);
         if (!v) {
-          throw new Error('Selected variation is not available for this item');
+          throw posError('POS_VAL_VARIATION');
         }
         variationName = v.name || null;
         variationPrice = variationEffectivePrice(v, item);
@@ -932,17 +1018,22 @@ export function registerOrdersHandlers(
         // §5.2: a variation saved without a price reaches us as 0.0 and is
         // indistinguishable from a real zero. Refuse rather than give it away.
         if (variationPrice <= 0) {
-          throw new Error(
-            `"${item.name} — ${v.name || 'variation'}" has no price set. ` +
-              `Fix it in the back office before selling it.`
-          );
+          throw posError('POS_VAL_VARIATION_NO_PRICE', {
+            params: {
+              name: String(item.name ?? ''),
+              variation: String(v.name || 'variation'),
+            },
+          });
         }
       } else if (itemVariations.length > 0) {
-        throw new Error('Please choose a variation for this item');
+        throw posError('POS_VAL_VARIATION_REQUIRED');
       }
 
       const basePrice =
         variationPrice != null ? variationPrice : Number(item.price || 0);
+      if (!Number.isFinite(basePrice) || basePrice <= 0) {
+        throw posError('POS_VAL_ITEM_NO_PRICE', { params: { name: String(item.name ?? '') } });
+      }
 
       // ── Addons ───────────────────────────────────────────────────
       // Only addons belonging to a group actually attached to this item may
@@ -971,11 +1062,11 @@ export function registerOrdersHandlers(
         const a = rawDb
           .prepare(`SELECT id, group_id, name, price FROM addons WHERE id = ?`)
           .get(sel.addon_id) as any;
-        if (!a) throw new Error('Selected add-on no longer exists');
+        if (!a) throw posError('POS_VAL_ADDON_NOT_FOUND');
 
         const groupId = String(a.group_id ?? '');
         if (!itemGroupIds.has(groupId)) {
-          throw new Error(`"${a.name}" is not available for this item`);
+          throw posError('POS_VAL_ADDON_UNAVAILABLE', { params: { name: String(a.name ?? '') } });
         }
 
         const q = Math.trunc(Number(sel.qty ?? 1));
@@ -995,11 +1086,13 @@ export function registerOrdersHandlers(
       for (const g of itemGroups) {
         const count = qtyByGroup.get(String(g.id)) ?? 0;
         if (Number(g.is_required) === 1 && count === 0) {
-          throw new Error(`Please select an option for "${g.name}"`);
+          throw posError('POS_VAL_ADDON_GROUP_REQUIRED', { params: { group: String(g.name ?? '') } });
         }
         const max = Number(g.max_select);
         if (Number.isFinite(max) && max > 0 && count > max) {
-          throw new Error(`You can select up to ${max} options for "${g.name}"`);
+          throw posError('POS_VAL_ADDON_GROUP_MAX', {
+            params: { max, group: String(g.name ?? '') },
+          });
         }
       }
 
@@ -1136,15 +1229,15 @@ export function registerOrdersHandlers(
   ipcMain.handle(
     'orders:setLineQty',
     async (_e, lineId: string, qty: number) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
       const line = rawDb
         .prepare(`SELECT * FROM order_lines WHERE id = ?`)
         .get(lineId) as any;
-      if (!line) throw new Error('Line not found');
+      if (!line) throw posError('POS_VAL_LINE_NOT_FOUND');
 
       // DINE-IN LOCK CHECK
       if (hasColumn('order_lines', 'is_locked') && line.is_locked == 1) {
-        throw new Error('This item is locked/printed and cannot be modified.');
+        throw posError('POS_VAL_LINE_SENT_MODIFY');
       }
 
       assertOrderEditable(line.order_id);
@@ -1165,7 +1258,7 @@ export function registerOrdersHandlers(
   );
 
   ipcMain.handle('orders:removeLine', async (_e, lineId: string) => {
-    if (isPosLocked()) throw new Error('POS is locked');
+    if (isPosLocked()) throw posError('POS_TILL_LOCKED');
     const line = rawDb
       .prepare(`SELECT * FROM order_lines WHERE id = ?`)
       .get(lineId) as any;
@@ -1173,7 +1266,7 @@ export function registerOrdersHandlers(
 
     // DINE-IN LOCK CHECK
     if (hasColumn('order_lines', 'is_locked') && line.is_locked == 1) {
-      throw new Error('This item is locked/printed and cannot be removed.');
+      throw posError('POS_VAL_LINE_SENT_REMOVE');
     }
 
     assertOrderEditable(line.order_id);
@@ -1184,7 +1277,7 @@ export function registerOrdersHandlers(
   ipcMain.handle(
     'orders:removeLineByItem',
     async (_e, orderId: string, itemId: string) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
       assertOrderEditable(orderId);
 
       // Only remove unlocked lines
@@ -1199,7 +1292,7 @@ export function registerOrdersHandlers(
   );
 
   ipcMain.handle('orders:clearLines', async (_e, orderId: string) => {
-    if (isPosLocked()) throw new Error('POS is locked');
+    if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
     // Will throw if order is locked or not editable for this user
     assertOrderEditable(orderId);
@@ -1223,7 +1316,7 @@ export function registerOrdersHandlers(
   // ─────────────────────────────────────────────────────────────
 
   ipcMain.handle('orders:removePromo', async (_e, orderId: string) => {
-    if (isPosLocked()) throw new Error('POS is locked');
+    if (isPosLocked()) throw posError('POS_TILL_LOCKED');
     assertOrderEditable(orderId);
     rawDb
       .prepare(
@@ -1236,7 +1329,7 @@ export function registerOrdersHandlers(
   ipcMain.handle(
     'orders:applyPromo',
     async (_e, orderId: string, promoCode: string | null) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
       assertOrderEditable(orderId);
       rawDb
         .prepare(`UPDATE orders SET promocode = ?, updated_at = ? WHERE id = ?`)
@@ -1249,7 +1342,7 @@ export function registerOrdersHandlers(
   ipcMain.handle('orders:close', async (_e, orderId: string) => {
     const ts = nowMs();
     const order = getOrderRow(orderId);
-    if (!order) throw new Error('Order not found');
+    if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
     // ── 0) Basic info ──────────────────────────────────────────────────────────
     const orderType = Number(order.order_type ?? order.type ?? 0);
@@ -1263,6 +1356,25 @@ export function registerOrdersHandlers(
       itemsCount = row?.c ?? 0;
     } catch (err) {
       console.error('[orders:close] failed to count order_lines', err);
+      throw posError('POS_VAL_LINES_UNREADABLE');
+    }
+
+    // Closing an empty draft is a discard, not a sale or a cancellation.
+    // Remove it completely so it never appears in history or reaches sync.
+    if (itemsCount === 0) {
+      log('orders.discardEmpty', orderId, {
+        previous_status: order.status,
+      });
+
+      rawDb.transaction(() => {
+        // Explicit child cleanup also covers legacy databases where foreign
+        // key enforcement may not have been enabled when the DB was created.
+        rawDb.prepare('DELETE FROM active_orders WHERE order_id = ?').run(orderId);
+        rawDb.prepare('DELETE FROM order_lines WHERE order_id = ?').run(orderId);
+        rawDb.prepare('DELETE FROM orders WHERE id = ?').run(orderId);
+      })();
+
+      return { order: null, lines: [], discarded: true };
     }
 
     // ── 0.1) DELIVERY GUARD: require address if there are items ───────────────
@@ -1273,18 +1385,14 @@ export function registerOrdersHandlers(
       const blockId = (order as any).block_id ?? (order as any).block ?? null;
 
       if (!stateId || !cityId || !blockId) {
-        throw new Error(
-          'Delivery address missing. Please select State, City and Block in the checkout screen before closing this delivery order.'
-        );
+        throw posError('POS_VAL_CITY_REQUIRED', { field: 'geo' });
       }
     }
 
     // ── 0.2) DINE-IN GUARD: require table if there are items ──────────────────
     if (itemsCount > 0 && orderType === 3) {
       if (!order.table_id) {
-        throw new Error(
-          'Table not assigned. Please assign a table before closing this dine-in order.'
-        );
+        throw posError('POS_VAL_TABLE_REQUIRED', { field: 'table' });
       }
     }
 
@@ -1387,16 +1495,23 @@ export function registerOrdersHandlers(
   });
 
   ipcMain.handle('orders:reopen', async (_e, orderId: string) => {
+    assertPermission(services, 'orders.reopen');
+    const order = getOrderRow(orderId);
+    if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
+
+    const assignments = [`status = '${ORDER_STATUS.OPEN}'`, 'updated_at = ?', 'synced_at = NULL'];
+    if (hasColumn('orders', 'is_locked')) assignments.push('is_locked = 0');
     rawDb
       .prepare(
-        `UPDATE orders SET status = '${ORDER_STATUS.OPEN}', updated_at = ? WHERE id = ?`
+        `UPDATE orders SET ${assignments.join(', ')} WHERE id = ?`
       )
       .run(nowMs(), orderId);
+    log('orders.reopen', orderId, { previous_status: order.status });
     return getOrderWithLines(orderId);
   });
 
   ipcMain.handle('orders:cancel', async (_e, orderId: string) => {
-    if (isPosLocked()) throw new Error('POS is locked');
+    if (isPosLocked()) throw posError('POS_TILL_LOCKED');
     rawDb
       .prepare(
         `UPDATE orders SET status = 'cancelled', updated_at = ? WHERE id = ?`
@@ -1412,23 +1527,38 @@ export function registerOrdersHandlers(
   ipcMain.handle(
     'orders:complete',
     async (_e, orderId: string, customer: any) => {
-      if (isPosLocked()) throw new Error('POS is locked');
+      if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
       assertOrderEditable(orderId);
 
       const order = getOrderRow(orderId);
-      if (!order) throw new Error('Order not found');
+      if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
+      const lineCount = Number(
+        rawDb
+          .prepare('SELECT COUNT(*) FROM order_lines WHERE order_id = ?')
+          .pluck()
+          .get(orderId) ?? 0
+      );
+      if (lineCount === 0) {
+        throw posError('POS_VAL_CART_EMPTY');
+      }
+
+      // Backstop only: the checkout screen validates the same three rules up
+      // front and marks the offending field, so a cashier normally never gets
+      // here. Reaching this means something bypassed the form, and one clear
+      // coded error is more use than a joined list of English sentences.
       const type = Number(order.order_type || 0);
-      const errors: string[] = [];
 
-      if (!customer.full_name?.trim()) errors.push('Customer name is required');
-      if (type === 1 && !customer.address)
-        errors.push('Address is required for delivery');
-      if (type === 3 && !order.table_id)
-        errors.push('Table must be assigned for dine-in');
-
-      if (errors.length) throw new Error(errors.join('\n'));
+      if (!customer.full_name?.trim()) {
+        throw posError('POS_VAL_NAME_REQUIRED', { field: 'full_name' });
+      }
+      if (type === 1 && !customer.address) {
+        throw posError('POS_VAL_ADDRESS_REQUIRED', { field: 'address' });
+      }
+      if (type === 3 && !order.table_id) {
+        throw posError('POS_VAL_TABLE_REQUIRED', { field: 'table' });
+      }
 
       const ts = nowMs();
       const { id: userId } = getCurrentPosUser();
@@ -1525,7 +1655,7 @@ export function registerOrdersHandlers(
         rawDb.prepare(sql).run(...params);
       } catch (err: any) {
         console.error('Orders:complete SQL Error:', err.message);
-        throw new Error('Database error during completion: ' + err.message);
+        throw posError('POS_DB_WRITE_FAILED', { cause: err });
       }
 
       markForRepush(orderId);
@@ -1546,7 +1676,7 @@ export function registerOrdersHandlers(
     if (hasColumn('orders', 'completed_at')) sql += `, completed_at = ?`;
     sql += ` WHERE id = ?`;
 
-    const params = [ts];
+    const params: Array<number | string> = [ts];
     if (hasColumn('orders', 'completed_at')) params.push(ts);
     params.push(orderId);
 
@@ -1607,11 +1737,11 @@ export function registerOrdersHandlers(
   );
 
   ipcMain.handle('orders:createFromCart', async (_e, customerData: any) => {
-    if (isPosLocked()) throw new Error('POS is locked');
+    if (isPosLocked()) throw posError('POS_TILL_LOCKED');
     const cartItems = rawDb
       .prepare(`SELECT * FROM cart ORDER BY created_at ASC`)
       .all() as any[];
-    if (cartItems.length === 0) throw new Error('Cart is empty');
+    if (cartItems.length === 0) throw posError('POS_VAL_CART_EMPTY');
 
     const id = crypto.randomUUID();
     const ts = nowMs();
@@ -1741,11 +1871,11 @@ export function registerOrdersHandlers(
       const table = rawDb
         .prepare(`SELECT * FROM tables WHERE id = ?`)
         .get(tableId) as any;
-      if (!table) throw new Error('Table not found');
+      if (!table) throw posError('POS_VAL_TABLE_NOT_FOUND');
 
       const o = getOrderRow(orderId);
-      if (!o) throw new Error('Order not found');
-      if (Number(o.order_type) !== 3) throw new Error('Order is not dine-in');
+      if (!o) throw posError('POS_VAL_ORDER_NOT_FOUND');
+      if (Number(o.order_type) !== 3) throw posError('POS_VAL_NOT_DINE_IN');
 
       rawDb.transaction(() => {
         if (o.table_id && o.table_id !== tableId) {
@@ -1801,14 +1931,12 @@ export function registerOrdersHandlers(
 
       const count = row?.c ?? 0;
       if (count > 0) {
-        throw new Error(
-          'Cannot remove the table from an order that already has items. Use "Close & Release" instead.'
-        );
+        throw posError('POS_VAL_TABLE_HAS_ITEMS');
       }
     } catch (err) {
       console.error('[orders:clearTable] count check failed', err);
       // If we can’t be sure, better not clear.
-      throw new Error('Could not verify order lines – table not cleared.');
+      throw posError('POS_VAL_TABLE_CLEAR_UNVERIFIED');
     }
 
     rawDb.transaction(() => {

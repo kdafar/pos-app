@@ -23,6 +23,7 @@ import { OrderLineItem } from './components/OrderLineItem';
 import { PromoDialog } from './components/PromoDialog';
 import { TablePickerModal } from './components/TablePickerModal';
 import { CheckoutModal } from './components/CheckoutModal';
+import { ERROR_CATALOG } from '../../../shared/errorCatalog';
 import { DeliveryFeeRow } from './components/DeliveryFeeRow';
 import { useToast } from '../../components/ToastProvider';
 import { useConfirmDialog } from '../../components/ConfirmDialogProvider';
@@ -94,7 +95,7 @@ export default function OrderSide({
   const cardBg = 'bg-default-100';
   const toast = useToast();
   const confirm = useConfirmDialog();
-  const { t, money } = useI18n();
+  const { t, lang, money } = useI18n();
   const labelForType = useOrderTypeLabel();
   const isOrderLocked =
     !!currentOrder &&
@@ -147,26 +148,20 @@ export default function OrderSide({
         title: t('cart.cleared'),
         message: t('cart.clearedMsg'),
       });
-    } catch (e: any) {
-      console.error('[handleClearCart] error:', e);
-      toast({
-        tone: 'danger',
-        title: t('cart.clearFailed'),
-        message: e?.message || t('common.checkLogs'),
-      });
+    } catch (e) {
+      toast.error(e, { title: t('cart.clearFailed') });
     }
   };
 
   const handlePrint = async (orderId: string) => {
     try {
       await window.api.invoke('orders:print', orderId);
-    } catch (e: any) {
+    } catch (e) {
       // A failed print must remain retryable. Previously we stamped printed_at
       // here, which hid the retry and made a printer failure look successful.
-      toast({
-        tone: 'danger',
+      toast.error(e, {
         title: t('admin.orders.printFailed'),
-        message: e?.message || t('common.checkLogs'),
+        onRetry: () => void handlePrint(orderId),
       });
       throw e;
     }
@@ -195,9 +190,9 @@ export default function OrderSide({
 
       if (!hasDeliveryAddress) {
         toast({
-          tone: 'danger',
+          tone: 'warning',
           title: t('cart.needAddress'),
-          message: t('common.checkLogs'),
+          message: ERROR_CATALOG.POS_VAL_CITY_REQUIRED[lang].body,
         });
         // open checkout so they can fill it
         setShowCheckout(true);
@@ -209,9 +204,9 @@ export default function OrderSide({
     if (currentOrder.order_type === 3 && orderLines.length > 0) {
       if (!currentOrder.table_id) {
         toast({
-          tone: 'danger',
+          tone: 'warning',
           title: t('cart.needTable'),
-          message: t('common.checkLogs'),
+          message: ERROR_CATALOG.POS_VAL_TABLE_REQUIRED[lang].body,
         });
         setShowTablePicker(true);
         return;
@@ -293,12 +288,7 @@ export default function OrderSide({
       await focusNextActive();
       await onRefreshTables();
     } catch (e) {
-      console.error(e);
-      toast({
-        tone: 'danger',
-        title: t('cart.releaseFailed'),
-        message: t('common.checkLogs'),
-      });
+      toast.error(e, { title: t('cart.releaseFailed') });
     }
   };
 
@@ -670,6 +660,9 @@ export default function OrderSide({
           onAfterReserve={() =>
             currentOrder ? onSelectOrder(currentOrder.id) : undefined
           }
+          // Checkout stays open behind the picker: assigning a table should not
+          // cost the cashier the customer details they have already typed.
+          onPickTable={() => setShowTablePicker(true)}
         />
       )}
 
@@ -691,12 +684,7 @@ export default function OrderSide({
               await onRefreshTables();
               setShowTablePicker(false);
             } catch (e) {
-              console.error(e);
-              toast({
-                tone: 'danger',
-                title: t('tables.assignFailed'),
-                message: t('common.checkLogs'),
-              });
+              toast.error(e, { title: t('tables.assignFailed') });
             }
           }}
         />

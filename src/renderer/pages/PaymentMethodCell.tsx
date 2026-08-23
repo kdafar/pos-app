@@ -13,6 +13,7 @@ import {
 } from '@heroui/react';
 import { useI18n } from '../i18n';
 
+import { errorLine as errLine } from '../utils/posError';
 type Method = {
   id: string;
   slug: string;
@@ -145,7 +146,7 @@ export function PaymentMethodCell({
       onChanged?.();
     } catch (e) {
       setCurrent(previous);
-      setError(e instanceof Error ? e.message : String(e ?? ''));
+      setError(errLine(e));
     } finally {
       setBusy(false);
     }

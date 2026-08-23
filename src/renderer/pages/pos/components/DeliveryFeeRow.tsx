@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Check, Pencil, X } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 
+import { useErrorLine } from '../../../utils/posError';
 /**
  * The delivery charge line, editable in place.
  *
@@ -32,6 +33,7 @@ export function DeliveryFeeRow({
   onChanged?: () => void | Promise<void>;
 }) {
   const { t, money } = useI18n();
+  const errLine = useErrorLine();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(value ?? 0));
   const [busy, setBusy] = useState(false);
@@ -53,7 +55,7 @@ export function DeliveryFeeRow({
       setEditing(false);
       await onChanged?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e ?? ''));
+      setError(errLine(e));
     } finally {
       setBusy(false);
     }

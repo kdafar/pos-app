@@ -14,6 +14,7 @@ import { Percent } from 'lucide-react';
 import { Promo } from '../types';
 import { useI18n } from '../../../i18n';
 
+import { errorLine as errLine } from '../../../utils/posError';
 export function PromoDialog({
   promos,
   onClose,
@@ -33,7 +34,6 @@ export function PromoDialog({
   const [err, setErr] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const { t, money } = useI18n();
-
   const isPromoActive = (p: Promo) => {
     // No flag at all? Assume active.
     if (p.active === undefined || p.active === null) return true;
@@ -77,7 +77,7 @@ export function PromoDialog({
     } catch (e) {
       // The real reason, when there is one — "couldn't apply" alone leaves the
       // cashier with nothing to act on.
-      const msg = e instanceof Error ? e.message : String(e ?? '');
+      const msg = errLine(e);
       setErr(msg || t('promo.applyFailed'));
     } finally {
       setBusy(false);

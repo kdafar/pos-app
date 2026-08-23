@@ -10,6 +10,9 @@ import {
   Mail,
   MapPin,
   CreditCard,
+  Utensils,
+  Loader2,
+  Check,
 } from 'lucide-react';
 import { Order, State, City, Block, Promo, Customer } from '../types';
 import { CommandSelect } from './CommandSelect';
@@ -18,6 +21,16 @@ import { PaymentLinkModal } from './PaymentLinkModal';
 import { useToast } from '../../../components/ToastProvider'; // adjust path if needed
 import { useI18n } from '../../../i18n';
 import { DeliveryFeeRow } from './DeliveryFeeRow';
+import { describeError } from '../../../utils/posError';
+import { paymentStatusCode } from '../../../../shared/errors';
+import {
+  FieldError,
+  ValidationSummary,
+  fieldRing,
+  focusField,
+  useFormIssues,
+  type FormIssue,
+} from '../../../components/FormIssues';
 
 declare global {
   interface Window {
@@ -59,6 +72,7 @@ export function CheckoutModal({
   onLoadBlocks,
   onPrintOrder,
   onAfterReserve,
+  onPickTable,
 }: {
   order: Order;
   states: State[];
@@ -74,6 +88,12 @@ export function CheckoutModal({
   onPrintOrder: (orderId: string) => Promise<void>;
   /** Called once a server reference has been reserved, so the view can refresh. */
   onAfterReserve?: () => Promise<void> | void;
+  /**
+   * Opens the table picker without closing checkout. A dine-in order with no
+   * table used to be refused at the very end, with the fix living on a screen
+   * the cashier had to abandon the form to reach.
+   */
+  onPickTable?: () => void;
 }) {
   const [formData, setFormData] = useState({
     full_name: '',
@@ -110,7 +130,10 @@ export function CheckoutModal({
   const [localCities, setLocalCities] = useState<City[]>(cities || []);
   const [localBlocks, setLocalBlocks] = useState<Block[]>(blocks || []);
   const toast = useToast();
-  const { t, name: localName, money } = useI18n();
+  const { t, lang, name: localName, money } = useI18n();
+  // Scoped so focusField only ever walks this modal's fields, never a field of
+  // the same name on the screen behind it.
+  const formRef = React.useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (states?.length) setLocalStates(states);
   }, [states]);
@@ -281,20 +304,117 @@ export function CheckoutModal({
     return { subtotal, discount, delivery, grand_total: grand };
   };
 
+  /** Payment slugs that hand the customer a link instead of taking cash here. */
+  const isOnlinePayment = (slug?: string | null) =>
+    [
+      'link',
+      'myfatoorah',
+      'online',
+      'online_knet',
+      'online_card',
+      'mf_online',
+    ].includes((slug ?? '').toLowerCase());
+
+  /*
+   * Every rule the main process enforces on orders:complete, checked here first
+   * and tied to the field it belongs to. The handler still enforces them — this
+   * is not a security boundary — but a cashier should never learn about a
+   * missing table from a rejected save.
+   */
+  const validate = (): FormIssue[] => {
+    const found: FormIssue[] = [];
+
+    if (!formData.full_name.trim()) {
+      found.push({ code: 'POS_VAL_NAME_REQUIRED', field: 'full_name' });
+    }
+
+    const mobileDigits = formData.mobile.replace(/\D/g, '');
+
+    if (order.order_type === 1) {
+      // Area and block are separate rows in the catalogue because they are
+      // separate mistakes: one sets the delivery charge, the other is the
+      // address. Telling a cashier "choose the area" when the area is already
+      // chosen is worse than saying nothing.
+      if (!selectedState?.id || !selectedCity?.id) {
+        found.push({ code: 'POS_VAL_CITY_REQUIRED', field: 'geo' });
+      } else if (!selectedBlock?.id) {
+        found.push({ code: 'POS_VAL_BLOCK_REQUIRED', field: 'geo' });
+      }
+      if (!makeAddress().trim()) {
+        found.push({ code: 'POS_VAL_ADDRESS_REQUIRED', field: 'address' });
+      }
+      // Delivery needs a number whatever the payment method — the driver
+      // cannot ring a doorbell that is not there.
+      if (mobileDigits.length < 8) {
+        found.push({ code: 'POS_VAL_MOBILE_REQUIRED', field: 'mobile' });
+      }
+      // The area minimum is the server's rule, but it is knowable here, and
+      // finding out after Place Order costs a re-ring.
+      const min = Number(selectedCity?.min_order ?? 0);
+      if (min > 0 && computeDisplayTotals().subtotal < min) {
+        found.push({
+          code: 'POS_VAL_MIN_ORDER',
+          field: 'totals',
+          params: { amount: money(min) },
+        });
+      }
+    }
+
+    if (order.order_type === 3 && !order.table_id) {
+      found.push({ code: 'POS_VAL_TABLE_REQUIRED', field: 'table' });
+    }
+
+    if (!formData.payment_method_id || !formData.payment_method_slug) {
+      found.push({ code: 'POS_VAL_PAYMENT_METHOD_REQUIRED', field: 'payment_method' });
+    } else if (
+      isOnlinePayment(formData.payment_method_slug) &&
+      (mobileDigits.length < 8 || mobileDigits.length > 15) &&
+      !found.some((i) => i.field === 'mobile')
+    ) {
+      // The link is delivered by SMS, so an online method without a usable
+      // number produces an order nobody can pay for.
+      found.push({ code: 'POS_VAL_MOBILE_REQUIRED', field: 'mobile' });
+    }
+
+    return found;
+  };
+
+  const issues = useFormIssues(validate);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Once the banner is up it tracks the form: a field the cashier fixes drops
+  // off the list as they type, so the count only ever counts what is still
+  // wrong. A clean form is left alone — nothing appears until they submit.
+  useEffect(() => {
+    issues.refresh();
+  }, [
+    formData.full_name,
+    formData.mobile,
+    formData.address,
+    formData.payment_method_id,
+    formData.payment_method_slug,
+    formData.state_id,
+    formData.city_id,
+    formData.block_id,
+    order.table_id,
+    order.subtotal,
+    displayDeliveryFee,
+  ]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
+
+    // Nothing leaves the till until the form is complete. The banner and the
+    // field markers say what is missing; no request, so no raw handler error.
+    if (!issues.check()) {
+      focusField(formRef.current, validate()[0]?.field ?? '');
+      return;
+    }
+
+    setSubmitting(true);
     try {
       const address = makeAddress();
-
-      // Basic validation for delivery
-      if (order.order_type === 1) {
-        if (!selectedState?.id || !selectedCity?.id || !selectedBlock?.id) {
-          throw new Error(t('checkout.errGeo'));
-        }
-        if (!address.trim()) {
-          throw new Error(t('checkout.errAddress'));
-        }
-      }
 
       // Compute totals once (for payment link)
       const totals = computeDisplayTotals();
@@ -310,10 +430,6 @@ export function CheckoutModal({
         city_id: selectedCity?.id ?? null,
         block_id: selectedBlock?.id ?? null,
       };
-
-      if (!payload.payment_method_id || !payload.payment_method_slug) {
-        throw new Error(t('checkout.errPayment'));
-      }
 
       // Complete order on server
       await window.api.invoke(
@@ -336,18 +452,6 @@ export function CheckoutModal({
           // Best-effort: offline sales keep their local order number.
         }
       }
-
-      const isOnlinePayment = (slug?: string | null) => {
-        const s = (slug ?? '').toLowerCase();
-        return [
-          'link',
-          'myfatoorah',
-          'online',
-          'online_knet',
-          'online_card',
-          'mf_online',
-        ].includes(s);
-      };
 
       // If online method → create payment link
       if (isOnlinePayment(formData.payment_method_slug)) {
@@ -389,19 +493,16 @@ export function CheckoutModal({
               orderNumber: order.number ?? null,
             });
           } else {
+            // The order is placed either way; only the link is missing, so this
+            // is a warning about what to do next, not a failure of the sale.
             toast({
-              tone: 'danger',
+              tone: 'warning',
               title: t('checkout.payLinkNoUrl'),
               message: t('common.checkConn'),
             });
           }
         } catch (err) {
-          console.error('payments:createLink failed', err);
-          toast({
-            tone: 'danger',
-            title: t('checkout.payLinkFailed'),
-            message: t('common.checkConn'),
-          });
+          toast.error(err, { title: t('checkout.payLinkFailed') });
         }
       }
 
@@ -434,16 +535,19 @@ export function CheckoutModal({
         await onAfterComplete();
       }
     } catch (err) {
-      console.error(err);
-
-      const message =
-        (err as any)?.message || t('checkout.completeFailedMsg');
-
-      toast({
-        tone: 'danger',
-        title: t('checkout.completeFailed'),
-        message,
-      });
+      // A rule the form did not catch (someone else took the table, the order
+      // was closed on another till). Translate it, and if the handler named a
+      // field, flag that field so the fix is visible rather than described.
+      const described = describeError(err, lang);
+      if (described.field) {
+        issues.setIssues([
+          { code: described.code as FormIssue['code'], field: described.field },
+        ]);
+        focusField(formRef.current, described.field);
+      }
+      toast.error(err, { title: t('checkout.completeFailed') });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -459,7 +563,7 @@ export function CheckoutModal({
   const [showPromo, setShowPromo] = useState(false);
 
   return (
-    <div className='fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4'>
+    <div className='fixed inset-0 bg-black/55 flex items-center justify-center z-50 p-4'>
       <div
         // max-w-2xl (42rem) forced three address selects into a cramped row
         // and left the form scrolling far more than it needed to. 64rem gives
@@ -471,17 +575,17 @@ export function CheckoutModal({
         // payment methods — so the one action the cashier always needs was the
         // one thing they had to go looking for. Only the fields scroll now;
         // the totals and the buttons are pinned.
-        className={`${bg} border ${border} rounded-xl w-full max-w-[76rem] max-h-[92vh] flex flex-col overflow-hidden`}
+        className={`${bg} border ${border} rounded-2xl shadow-xl w-full max-w-[76rem] max-h-[92vh] flex flex-col overflow-hidden`}
       >
         <div
-          className={`shrink-0 ${bg} border-b ${border} p-4 flex items-center justify-between`}
+          className={`shrink-0 ${bg} border-b ${border} px-5 py-4 flex items-center justify-between`}
         >
           <h2 className={`text-xl font-bold ${text}`}>{t('checkout.title')}</h2>
           <div className='flex items-center gap-2'>
             <button
               type='button'
               onClick={() => setShowPromo(true)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
+              className={`h-9 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
                 'bg-default-100 border border-default-200 text-default-700 hover:bg-default-200'
               }`}
             >
@@ -491,7 +595,7 @@ export function CheckoutModal({
               type='button'
               onClick={handleQuickMode}
               className={`
-                h-8 px-2.5 rounded-md text-[11px] font-semibold
+                h-9 px-3 rounded-lg text-xs font-semibold
                 flex items-center gap-1 border transition-colors
                 ${
                   useQuickMode
@@ -510,9 +614,8 @@ export function CheckoutModal({
 
             <button
               onClick={onClose}
-              className={
-                'text-default-700 hover:text-white'
-              }
+              className='grid h-9 w-9 place-items-center rounded-lg text-default-600 hover:bg-default-100 hover:text-foreground'
+              aria-label={t('common.close')}
             >
               <X size={22} />
             </button>
@@ -520,7 +623,11 @@ export function CheckoutModal({
         </div>
 
         <form
-          className='flex flex-col min-h-0 flex-1'
+          ref={formRef}
+          // `relative`: the validation card floats over these fields rather
+          // than sitting in the flow, where it both pushed the form down and
+          // got clipped by the scroller below.
+          className='relative flex flex-col min-h-0 flex-1'
           onSubmit={submit}
           // Enter inside any field used to implicitly submit the form, which
           // placed the order while the cashier was still filling in customer
@@ -535,6 +642,27 @@ export function CheckoutModal({
             e.preventDefault();
           }}
         >
+          {/* Floats over the form; dismissible, because the red border and the
+              message under the control keep saying it after the card is gone. */}
+          <ValidationSummary
+            issues={issues.issues}
+            attempt={issues.attempt}
+            onFocusField={(f) => focusField(formRef.current, f)}
+            onDismiss={() => issues.clear()}
+            extraAction={(issue) =>
+              issue.field === 'table' && onPickTable ? (
+                <button
+                  type='button'
+                  onClick={onPickTable}
+                  className='inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-danger px-3 text-[14px] font-semibold text-danger-foreground hover:opacity-90'
+                >
+                  <Utensils className='h-4 w-4' />
+                  {t('tables.assign')}
+                </button>
+              ) : null
+            }
+          />
+
           {/*
             Split screen, the standard checkout shape: the form the cashier
             works through on one side, the order summary persistently visible
@@ -549,6 +677,7 @@ export function CheckoutModal({
           <div className='flex-1 min-h-0 overflow-y-auto nice-scroll p-4 space-y-3'>
           {/* Customer lookup */}
           <div
+            data-field='mobile'
             className='p-3 rounded-lg border border-primary/40 bg-primary/10'
           >
             <label className={`block text-xs font-medium ${label} mb-1.5`}>
@@ -563,7 +692,9 @@ export function CheckoutModal({
                   if (e.target.value.length >= 8)
                     searchCustomer(e.target.value);
                 }}
-                className={`flex-1 px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
+                className={`flex-1 px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 ${fieldRing(
+                  issues.has('mobile')
+                )}`}
                 placeholder={t('checkout.mobilePlaceholder')}
               />
               {isSearching && (
@@ -584,10 +715,11 @@ export function CheckoutModal({
                 </span>
               </div>
             )}
+            <FieldError issue={issues.codeFor('mobile')} />
           </div>
 
           <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-            <div>
+            <div data-field='full_name'>
               <label className={`block text-xs font-medium ${label} mb-1`}>
                 <span className='inline-flex items-center'>
                   <User size={14} className='me-1' />{' '}
@@ -600,9 +732,12 @@ export function CheckoutModal({
                 onChange={(e) =>
                   setFormData({ ...formData, full_name: e.target.value })
                 }
-                className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
+                className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 ${fieldRing(
+                  issues.has('full_name')
+                )}`}
                 placeholder={t('checkout.fullNamePlaceholder')}
               />
+              <FieldError issue={issues.codeFor('full_name')} />
             </div>
             <div>
               <label className={`block text-xs font-medium ${label} mb-1`}>
@@ -624,6 +759,7 @@ export function CheckoutModal({
 
           {order.order_type === 1 && (
             <>
+              <div data-field='geo'>
               <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
                 <CommandSelect
                   theme={theme}
@@ -684,6 +820,8 @@ export function CheckoutModal({
                   }))}
                 />
               </div>
+              <FieldError issue={issues.codeFor('geo')} />
+              </div>
 
               <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
                 <div>
@@ -728,7 +866,7 @@ export function CheckoutModal({
                     placeholder={t('checkout.floorPlaceholder')}
                   />
                 </div>
-                <div>
+                <div data-field='address'>
                   <label className={`block text-xs font-medium ${label} mb-1`}>
                     <span className='inline-flex items-center'>
                       <MapPin size={14} className='me-1' />{' '}
@@ -740,13 +878,59 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, address: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none`}
+                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none ${fieldRing(
+                      issues.has('address')
+                    )}`}
                     rows={2}
                     placeholder={t('checkout.addressPlaceholder')}
                   />
+                  <FieldError issue={issues.codeFor('address')} />
                 </div>
               </div>
             </>
+          )}
+
+          {/* Dine-in: the table is decided outside this form, so show its state
+              inside the form. Otherwise the only mention of a missing table is
+              the refusal at the end. */}
+          {order.order_type === 3 && (
+            <div data-field='table'>
+              <label className={`block text-xs font-medium ${label} mb-1`}>
+                <span className='inline-flex items-center'>
+                  <Utensils size={14} className='me-1' /> {t('nav.tables')} *
+                </span>
+              </label>
+              <div
+                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                  order.table_id
+                    ? 'border-success/50 bg-success/10'
+                    : `border-default-200 bg-default-100 ${fieldRing(
+                        issues.has('table')
+                      )}`
+                }`}
+              >
+                <span className='inline-flex items-center gap-2 text-sm font-semibold text-foreground'>
+                  {order.table_id ? (
+                    <>
+                      <Check className='h-4 w-4 text-success' />
+                      {(order as any).table_name || t('tables.assign')}
+                    </>
+                  ) : (
+                    <span className='text-default-700'>{t('tables.notAssigned')}</span>
+                  )}
+                </span>
+                {onPickTable && (
+                  <button
+                    type='button'
+                    onClick={onPickTable}
+                    className='rounded-lg border border-default-200 px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-default-200'
+                  >
+                    {t('tables.assign')}
+                  </button>
+                )}
+              </div>
+              <FieldError issue={issues.codeFor('table')} />
+            </div>
           )}
 
           <div>
@@ -765,7 +949,7 @@ export function CheckoutModal({
           </div>
 
           {/* Payment Methods (radio) */}
-          <div>
+          <div data-field='payment_method'>
             <label className={`block text-xs font-medium ${label} mb-1`}>
               <span className='inline-flex items-center'>
                 <CreditCard size={14} className='me-1' />{' '}
@@ -810,6 +994,7 @@ export function CheckoutModal({
                 );
               })}
             </div>
+            <FieldError issue={issues.codeFor('payment_method')} />
           </div>
 
           </div>
@@ -821,6 +1006,7 @@ export function CheckoutModal({
           >
           {/* Summary (uses live displayDeliveryFee) */}
           <div
+            data-field='totals'
             className={`p-3 rounded-lg border ${
               'bg-default-100 border-default-200'
             } space-y-1.5`}
@@ -867,7 +1053,8 @@ export function CheckoutModal({
                 {money(computeDisplayTotals().grand_total)}
               </span>
             </div>
-            {order.order_type === 1 && selectedCity?.min_order > 0 && (
+            <FieldError issue={issues.codeFor('totals')} />
+            {order.order_type === 1 && Number(selectedCity?.min_order ?? 0) > 0 && (
               <div
                 className={`text-xs ${
                   'text-warning'
@@ -884,18 +1071,24 @@ export function CheckoutModal({
             <button
               type='button'
               onClick={onClose}
-              className={`flex-1 px-4 py-2.5 rounded-lg border font-medium ${
-                'border-default-200 bg-default-100 text-foreground hover:bg-default-200'
-              }`}
+              disabled={submitting}
+              className={`flex-1 h-11 px-4 rounded-xl border font-medium
+                border-default-200 bg-default-100 text-foreground hover:bg-default-200
+                disabled:opacity-60 disabled:cursor-not-allowed`}
             >
               {t('common.cancel')}
             </button>
+            {/* Disabled while in flight: a second press used to fire a second
+                orders:complete, and the loser came back as a raw handler error
+                on an order that had in fact gone through. */}
             <button
               type='submit'
-              className={`flex-1 px-4 py-2.5 rounded-lg font-medium ${
-                'bg-success text-success-foreground'
-              }`}
+              disabled={submitting}
+              className={`flex-1 h-11 px-4 rounded-xl font-medium inline-flex items-center justify-center gap-2
+                bg-success text-success-foreground transition-opacity
+                disabled:opacity-60 disabled:cursor-not-allowed`}
             >
+              {submitting && <Loader2 className='h-4 w-4 animate-spin' />}
               {t('cart.placeOrder')}
             </button>
           </div>
@@ -921,6 +1114,13 @@ export function CheckoutModal({
           orderLabel={payLink.orderNumber}
           onCheckStatus={async () => {
             const r = await window.api.invoke('payments:checkStatus', payLink.orderId);
+            // /payments/status answers 200 whatever it says, so a failed or
+            // expired payment used to come back as a bare string and go
+            // nowhere. The two codes are ours to raise — the server never
+            // sends them — and the cashier needs to be told to take cash or
+            // issue a fresh link.
+            const problem = paymentStatusCode(r?.status);
+            if (problem) toast.error(problem);
             return (r?.status ?? null) as 'pending' | 'paid' | 'failed' | null;
           }}
           onClose={() => { setPayLink(null); onClose(); }}

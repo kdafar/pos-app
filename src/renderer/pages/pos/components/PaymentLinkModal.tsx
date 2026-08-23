@@ -13,6 +13,7 @@ import {
 import { AlertCircle, Check, Copy, MessageCircle, RefreshCw } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 
+import { errorLine as errLine } from '../../../utils/posError';
 /**
  * Hands a payment link to the CUSTOMER.
  *
@@ -81,7 +82,7 @@ export function PaymentLinkModal({
     } catch (e) {
       if (seq !== reqRef.current) return;
       setQr(null);
-      setQrError(e instanceof Error ? e.message : String(e ?? ''));
+      setQrError(errLine(e));
     } finally {
       if (seq === reqRef.current) setQrLoading(false);
     }

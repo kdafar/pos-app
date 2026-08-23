@@ -10,6 +10,17 @@ import db, {
   clearPosLock,
 } from '../db';
 import { PUSHABLE_STATUSES, sqlList } from '../utils/orderStatus';
+
+// Keep every displayed/push-trigger count aligned with safeCollectUnsyncedOrders.
+// Rows held by the legacy duplicate guard and server lookup shells with no local
+// lines are deliberately not an outbox, so presenting them as "pending" leaves
+// a permanent warning that no amount of syncing can clear.
+const PUSH_ELIGIBLE = `
+  status IN (${sqlList(PUSHABLE_STATUSES)})
+  AND (synced_at IS NULL OR synced_at = 0)
+  AND COALESCE(push_legacy, 0) = 0
+  AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = orders.id)
+`;
 import { safePushStatus } from '../utils/serverStatus';
 import { loadSecret } from '../secureStore';
 import { readOrCreateMachineId } from '../machineId';
@@ -27,12 +38,12 @@ import { prefetchItemImages } from '../imageCache';
 import {
   ensureOrderNumberDedupeTriggers,
   normalizeDuplicateOrderNumbers,
-  markOrdersSynced,
   applyPushResult,
 } from '../utils/orderNumbers';
 
 import type { MainServices } from '../types/common';
 
+import { posError } from '../../shared/errorCodes';
 /* ------------------------------------------------------------------
  * 🛡️ ROBUST LOCAL HELPERS
  * ------------------------------------------------------------------ */
@@ -303,7 +314,7 @@ async function getSyncStatus(): Promise<SyncStatus> {
   const unsynced =
     (db
       .prepare(
-        `SELECT COUNT(*) FROM orders WHERE status IN (${sqlList(PUSHABLE_STATUSES)}) AND (synced_at IS NULL OR synced_at = 0)`
+        `SELECT COUNT(*) FROM orders WHERE ${PUSH_ELIGIBLE}`
       )
       .pluck()
       .get() as number) || 0;
@@ -343,7 +354,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       '';
     const branch_id = Number(getMeta('branch_id') ?? 0);
     const token = await loadSecret('device_token');
-    if (!device_id || !token) throw new Error('Not paired');
+    if (!device_id || !token) throw posError('POS_AUTH_MISSING');
 
     setMeta('server.base_url', baseUrl);
     configureApi(baseUrl, { id: device_id, branch_id }, token);
@@ -402,9 +413,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       // Immediately enforce lock policy if server says locked
       const outcome = enforcePosLockKillSwitch();
       if (outcome.action !== 'none') {
-        throw new Error(
-          'This device has been locked by the server. Contact your administrator.'
-        );
+        throw posError('POS_DEVICE_LOCKED');
       }
 
       // Fresh pairing succeeded — drop the "why were we unpaired" banner.
@@ -418,7 +427,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
   ipcMain.handle('sync:bootstrap', async (_e, baseUrl?: string) => {
     ensureOrderNumberDedupeTriggers();
     const url = baseUrl || getMeta('server.base_url') || '';
-    if (!url) throw new Error('Missing base URL');
+    if (!url) throw posError('POS_CFG_BASE_URL_MISSING');
 
     let payload: any;
     try {
@@ -692,14 +701,17 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     prefetchItemImages(5).catch((err) => console.error('Prefetch error', err));
 
     let pushedCount = 0;
+    // Reported back so the UI can say "3 synced, 1 still queued" instead of
+    // claiming a clean sync. POS_PUSH_PARTIAL is ours to derive — the server
+    // never sends it as a code.
+    let pushFailed = 0;
     const pending =
       (db
         .prepare(
           `
         SELECT COUNT(*)
         FROM orders
-        WHERE status IN (${sqlList(PUSHABLE_STATUSES)})
-        AND (synced_at IS NULL OR synced_at = 0)
+         WHERE ${PUSH_ELIGIBLE}
       `
         )
         .pluck()
@@ -718,6 +730,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         // queued under the same temp_id so the retry is idempotent.
         const applied = applyPushResult(result);
         pushedCount = applied.acked;
+        pushFailed = applied.retryable + applied.dropped;
         if (applied.retryable || applied.dropped) {
           console.warn('[Sync] push partial', {
             sent: batch.length,
@@ -730,18 +743,18 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     setMeta('sync.last_at', String(Date.now()));
     console.log(`[Sync] Manual sync:run complete. Pushed: ${pushedCount}`);
 
-    return { ok: true, pulled: true, pushed: pushedCount };
+    return { ok: true, pulled: true, pushed: pushedCount, failed: pushFailed };
   });
 
   ipcMain.handle('sync:pull', async () => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
-      throw new Error('Offline mode');
+      throw posError('POS_NET_OFFLINE');
     return pullChanges();
   });
 
   ipcMain.handle('sync:push', async (_e, envelope, batch) => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
-      throw new Error('Offline mode');
+      throw posError('POS_NET_OFFLINE');
     return pushOutbox(envelope, batch);
   });
 
@@ -786,7 +799,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     const n =
       (db
         .prepare(
-          `SELECT COUNT(*) FROM orders WHERE status IN (${sqlList(PUSHABLE_STATUSES)}) AND (synced_at IS NULL OR synced_at=0)`
+          `SELECT COUNT(*) FROM orders WHERE ${PUSH_ELIGIBLE}`
         )
         .pluck()
         .get() as number) || 0;
@@ -795,22 +808,29 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
 
   ipcMain.handle('orders:pushOne', async (_e, orderId: string) => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
-      throw new Error('Offline mode');
+      throw posError('POS_NET_OFFLINE');
 
     const payload = safeBuildOrderPayload(orderId);
-    if (!payload) throw new Error('Order not found');
+    if (!payload) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
     const envelope = {
       client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     };
-    await pushOutbox(envelope, { orders: [payload] });
-    markOrdersSynced([orderId]);
-    return { ok: true, pushed: 1 };
+    // applyPushResult, not markOrdersSynced. The blind stamp cleared the
+    // outbox on HTTP 200 regardless of what the server actually accepted —
+    // the exact thing the push contract forbids — so an order the server
+    // rejected was marked synced and never sent again. It also threw away the
+    // `references` map, which is why an order that HAD been given a server
+    // number (0057) kept showing its local one (POS-1-8ZH57CLV) on the till
+    // and in every report.
+    const result = await pushOutbox(envelope, { orders: [payload] });
+    const applied = applyPushResult(result);
+    return { ok: applied.acked > 0, pushed: applied.acked, ...applied };
   });
 
   ipcMain.handle('sync:flushOrders', async (_e, limit = 20) => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
-      throw new Error('Offline mode');
+      throw posError('POS_NET_OFFLINE');
 
     const toPush = safeCollectUnsyncedOrders(limit);
     if (!toPush.length) return { ok: true, pushed: 0 };
@@ -818,9 +838,11 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     const envelope = {
       client_msg_id: `pos-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     };
-    await pushOutbox(envelope, { orders: toPush });
+    const result = await pushOutbox(envelope, { orders: toPush });
 
-    markOrdersSynced(toPush.map((o) => o.id));
-    return { ok: true, pushed: toPush.length };
+    // Same fix as orders:pushOne — only what the server acked leaves the
+    // outbox; retryable failures stay queued under the same temp_id.
+    const applied = applyPushResult(result);
+    return { ok: true, pushed: applied.acked, sent: toPush.length, ...applied };
   });
 }

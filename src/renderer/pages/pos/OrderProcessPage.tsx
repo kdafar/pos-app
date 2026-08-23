@@ -27,6 +27,7 @@ import {
 } from './types';
 
 import { OrderTypePicker } from './components/OrderTypePicker';
+import { useDeliveryEnabled } from '../../hooks/useDeliveryEnabled';
 import { TableQuickBar } from './components/TableQuickBar';
 
 declare global {
@@ -41,25 +42,12 @@ type AuthStatus = {
   branch_name?: string;
 };
 
-/**
- * Electron wraps handler errors as
- * "Error invoking remote method 'x': Error: real message" — show only the
- * part the cashier can act on.
- */
-function ipcErrorMessage(e: unknown, fallback: string): string {
-  const raw = e instanceof Error ? e.message : String(e ?? '');
-  if (!raw) return fallback;
-  const stripped = raw
-    .replace(/^Error invoking remote method '[^']*':\s*/i, '')
-    .replace(/^(Error|TypeError):\s*/i, '')
-    .trim();
-  return stripped || fallback;
-}
-
 export default function OrderProcessPage() {
   const theme = useRootTheme();
   const { t } = useI18n();
   const labelForType = useOrderTypeLabel();
+
+  const deliveryEnabled = useDeliveryEnabled();
 
   const [defaultOrderType, setDefaultOrderType] = useState<OrderType>(() => {
     const s = Number(localStorage.getItem('pos.defaultOrderType') || 2);
@@ -68,6 +56,16 @@ export default function OrderProcessPage() {
   useEffect(() => {
     localStorage.setItem('pos.defaultOrderType', String(defaultOrderType));
   }, [defaultOrderType]);
+
+  // The remembered default outlives the setting. A till that was left on
+  // Delivery keeps that in localStorage, so when the office switches delivery
+  // off, every new order would still be created as one — the picker would hide
+  // the button while the order it just made was delivery anyway. This matters
+  // more now that the setting can flip while the app is running, so it is a
+  // reaction to the live value rather than a one-time read at boot.
+  useEffect(() => {
+    if (!deliveryEnabled && defaultOrderType === 1) setDefaultOrderType(2);
+  }, [deliveryEnabled, defaultOrderType]);
 
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const toast = useToast();
@@ -206,15 +204,26 @@ export default function OrderProcessPage() {
         return;
       }
 
-      // No current order yet (first boot / after manual clear) → focus first
+      // No current order yet (first boot / after checkout cleared it) → focus
+      // the newest ticket that is STILL BEING BUILT.
+      //
+      // It used to focus orders[0] outright, which undid the checkout: a
+      // placed order deliberately stays in the active list, it sorts first
+      // (opened_at DESC), so the order the cashier had just put through was
+      // pulled straight back into the cart pane on the very next refresh.
+      // That is the "it is still in view after I place the order" report.
       if (!currentOrder) {
-        await selectOrder(orders[0].id);
+        const stillBeingBuilt = orders.find((o) => {
+          const s = String(o.status ?? '').toLowerCase();
+          return s === 'open' || s === 'pending';
+        });
+        if (stillBeingBuilt) await selectOrder(stillBeingBuilt.id);
         return;
       }
 
-      // We HAD a current order, but it is no longer in the active list
-      // (e.g. just placed pickup/delivery). Clear selection instead of
-      // auto-jumping to some other order.
+      // We HAD a current order and it is no longer active at all (closed or
+      // cancelled elsewhere). Clear the selection rather than auto-jumping to
+      // some unrelated order.
       setCurrentOrder(null);
       setOrderLines([]);
     } catch (e) {
@@ -246,36 +255,11 @@ export default function OrderProcessPage() {
     try {
       const order = await startOrder(orderType);
       await selectOrder(order.id);
-    } catch (e: any) {
-      console.error('[createNewOrder] error', e);
-
-      const msg = ipcErrorMessage(e, 'Could not create a new order.');
-
-      const normalized = String(msg).toLowerCase();
-
-      if (normalized.includes('open order with no items')) {
-        toast({
-          tone: 'warning',
-          title: 'Open order already exists',
-          message: (
-            <div className='space-y-1 text-[11px]'>
-              <p>You already have an open order with no items.</p>
-              <p>
-                Please add items to it or cancel it before opening a new one.
-              </p>
-            </div>
-          ),
-        });
-
-        // Refresh list so they can see/select that open empty order
-        await loadActiveOrders();
-      } else {
-        toast({
-          tone: 'danger',
-          title: 'Could not create a new order',
-          message: msg,
-        });
-      }
+    } catch (e) {
+      toast.error(e, {
+        title: t('pos.createOrderFailed'),
+        onRetry: () => void createNewOrder(orderType),
+      });
     }
   };
 
@@ -293,12 +277,7 @@ export default function OrderProcessPage() {
       // table, a closed order). Logging to a console nobody has open made this
       // look like a dead button — the cashier clicked "Delivery" and nothing
       // whatsoever happened.
-      console.error(e);
-      toast({
-        tone: 'danger',
-        title: t('pos.typeChangeFailed'),
-        message: e instanceof Error ? e.message : String(e ?? ''),
-      });
+      toast.error(e, { title: t('pos.typeChangeFailed') });
     }
   };
 
@@ -322,36 +301,8 @@ export default function OrderProcessPage() {
       setCurrentOrder(res.order);
       // Optionally refresh active orders bar
       await loadActiveOrders();
-    } catch (e: any) {
-      console.error('[addItemToOrder] error', e);
-
-      const msg = ipcErrorMessage(e, 'Could not add this item to the order.');
-
-      const normalized = String(msg).toLowerCase();
-
-      if (normalized.includes('open order with no items')) {
-        toast({
-          tone: 'warning',
-          title: 'Open order already exists',
-          message: (
-            <div className='space-y-1 text-[11px]'>
-              <p>You already have an open order with no items.</p>
-              <p>
-                Please add items to it or cancel it before starting another one.
-              </p>
-            </div>
-          ),
-        });
-
-        // Refresh so they can see/select that open empty order
-        await loadActiveOrders();
-      } else {
-        toast({
-          tone: 'danger',
-          title: 'Could not add item to order',
-          message: msg,
-        });
-      }
+    } catch (e) {
+      toast.error(e, { title: t('toast.addFailed') });
     }
   };
 
@@ -391,11 +342,7 @@ export default function OrderProcessPage() {
       await addItemToOrder(item, 1);
     } catch (e) {
       console.error('[handleScan] failed', e);
-      toast({
-        tone: 'danger',
-        title: t('scan.failed'),
-        message: ipcErrorMessage(e, 'Could not look up that barcode.'),
-      });
+      toast.error(e, { title: t('scan.failed') });
     }
   };
 
@@ -416,11 +363,7 @@ export default function OrderProcessPage() {
         setCurrentOrder(res.order);
       }
     } catch (e) {
-      toast({
-        tone: 'danger',
-        title: 'Invalid or expired promo code.',
-        message: 'Please check the logs for details or contact support.',
-      });
+      toast.error(e, { title: t('promo.applyFailed') });
     }
   };
 
@@ -501,12 +444,7 @@ export default function OrderProcessPage() {
       // Also refresh active orders bar
       await loadActiveOrders();
     } catch (e) {
-      console.error('startDineInForTable failed', e);
-      toast({
-        tone: 'danger',
-        title: 'Could not assign table.',
-        message: 'Please check the logs for details or contact support.',
-      });
+      toast.error(e, { title: t('tables.assignFailed') });
       // If error, refresh anyway to show true state
       await loadTables();
     }
@@ -522,17 +460,17 @@ export default function OrderProcessPage() {
   };
 
   const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-  const headerBg = theme === 'dark' ? 'bg-slate-900/95' : 'bg-content1';
-  const border = 'border-default-100';
+  const headerBg = 'bg-content1';
+  const border = 'border-default-200';
 
   return (
     <div className={`pos-screen h-screen flex flex-col ${bg}`}>
       {/* Header */}
       <header
-        className={`border-b ${border} ${headerBg} backdrop-blur min-h-14 py-1.5 shrink-0 shadow-sm z-20`}
+        className={`border-b ${border} ${headerBg} min-h-14 shrink-0 z-20`}
       >
         <div className='px-4 h-full'>
-          <div className='flex h-full items-center gap-4'>
+          <div className='flex min-h-14 items-center gap-3'>
             {/*
               "Signed in as <name> <role>" used to live here as well as in the
               sidebar, so on any screen wide enough to show both, the operator's
@@ -542,28 +480,26 @@ export default function OrderProcessPage() {
               180px, which is the difference between seeing three open orders
               and seeing one on a scaled 13" display.
             */}
-            <div className='flex-1 flex items-center gap-2 overflow-x-auto chip-scroll min-w-0 px-2 pb-0.5'>
+            <div className='flex-1 flex items-center gap-2 overflow-x-auto chip-scroll min-w-0 py-2'>
               {activeOrders.map((order) => (
                 <button
                   key={order.id}
                   onClick={() => selectOrder(order.id)}
                   className={`
-                    shrink-0 h-9 px-3 rounded-md border text-xs font-medium transition-all select-none
-                    flex flex-col justify-center min-w-[100px]
+                    shrink-0 h-9 px-3 rounded-lg border text-xs transition-colors select-none
+                    flex items-center justify-center min-w-[108px]
                     ${
                       currentOrder?.id === order.id
-                        ? theme === 'dark'
-                          ? 'bg-blue-600 border-blue-500 text-white shadow-sm ring-1 ring-blue-500/50'
-                          : 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                        : 'bg-default-100 border-default-200 text-default-700 hover:bg-default-200 hover:text-foreground'
+                        ? 'bg-primary border-primary text-primary-foreground font-semibold'
+                        : 'bg-content1 border-default-200 text-default-700 hover:bg-default-100 hover:text-foreground'
                     }
                   `}
                 >
                   <div className='flex items-center justify-between gap-2 w-full'>
-                    <span className='opacity-90'>
+                    <span>
                       {labelForType(order.order_type)}
                     </span>
-                    <span className='opacity-70 text-[10px] flex items-center gap-1'>
+                    <span className='opacity-80 text-[10px] flex items-center gap-1'>
                       {shortOrderLabel(order as any)}
                       <PaymentBadge
                         status={(order as any).payment_link_status}
@@ -575,25 +511,25 @@ export default function OrderProcessPage() {
               ))}
             </div>
 
-            <div className='shrink-0 flex items-center gap-2 ps-2 border-s border-default-200 dark:border-white/10'>
+            <div className='shrink-0 flex items-center gap-2 ps-3 border-s border-default-200'>
 
               <button
                 onClick={() => createNewOrder(2)}
-                className='h-9 px-4 rounded-md text-xs font-bold transition flex items-center gap-2 shadow-sm bg-success text-success-foreground hover:opacity-90'
+                className='h-9 px-4 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90'
               >
                 <Plus size={16} strokeWidth={3} />
                 <span>{t('pos.new')}</span>
               </button>
 
               {currentOrder && (
-                <div className='w-px h-6 bg-default-200 mx-1' />
+                <div className='w-px h-7 bg-default-200' />
               )}
 
               {currentOrder && (
                 <OrderTypePicker
                   value={currentOrder.order_type}
                   onChange={changeOrderType}
-                  theme={theme}
+                  allowDelivery={deliveryEnabled}
                 />
               )}
             </div>
@@ -697,18 +633,7 @@ export default function OrderProcessPage() {
                 await loadActiveOrders();
               }
             } catch (e) {
-              console.error(
-                '[OrderProcessPage] add line with options failed',
-                e
-              );
-              toast({
-                tone: 'danger',
-                title: t('toast.addFailed'),
-                message: ipcErrorMessage(
-                  e,
-                  'Please check the logs for details or contact support.'
-                ),
-              });
+              toast.error(e, { title: t('toast.addFailed') });
             } finally {
               setAddonItem(null);
             }

@@ -183,17 +183,7 @@ export default function TodayOrdersReport() {
         setQrOrder({ ...link, orderId });
       } catch (e) {
         // Was silent: a rejected invoke left the button looking dead.
-        console.error('orders:paymentLink:get failed', e);
-        const raw = e instanceof Error ? e.message : String(e ?? '');
-        toast({
-          tone: 'danger',
-          title: t('admin.orders.noPayLink'),
-          message:
-            raw
-              .replace(/^Error invoking remote method '[^']*':\s*/i, '')
-              .replace(/^(Error|TypeError):\s*/i, '')
-              .trim() || t('admin.supportHint'),
-        });
+        toast.error(e, { title: t('admin.orders.noPayLink') });
       }
     },
     [t, toast]
@@ -290,7 +280,7 @@ export default function TodayOrdersReport() {
       try {
         if (!isAdmin) {
           toast({
-            tone: 'danger',
+            tone: 'warning',
             title: t('admin.orders.printAdminOnly'),
             message: t('admin.supportHint'),
           });
@@ -299,7 +289,7 @@ export default function TodayOrdersReport() {
 
         if (!orderId) {
           toast({
-            tone: 'danger',
+            tone: 'warning',
             title: t('admin.orders.printNoId'),
             message: t('admin.supportHint'),
           });
@@ -307,18 +297,11 @@ export default function TodayOrdersReport() {
         }
         await window.api.invoke('orders:print', orderId);
       } catch (e) {
-        console.error('orders:print failed', e);
-        // Show what actually went wrong (no printer, lookup-only order, …)
+        // Says what actually went wrong (no printer, lookup-only order, …)
         // rather than a generic failure the cashier cannot act on.
-        const raw = e instanceof Error ? e.message : String(e ?? '');
-        const detail = raw
-          .replace(/^Error invoking remote method '[^']*':\s*/i, '')
-          .replace(/^(Error|TypeError):\s*/i, '')
-          .trim();
-        toast({
-          tone: 'danger',
+        toast.error(e, {
           title: t('admin.orders.printFailed'),
-          message: detail || t('admin.supportHint'),
+          onRetry: () => void handlePrint(orderId),
         });
       }
     },

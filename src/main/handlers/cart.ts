@@ -3,6 +3,7 @@ import type { IpcMain } from 'electron';
 import crypto from 'node:crypto';
 import db, { getMeta } from '../db';
 
+import { posError } from '../../shared/errorCodes';
 const nowMs = () => Date.now();
 
 /* --------------------- helpers (local to cart) --------------------- */
@@ -176,7 +177,7 @@ export function registerCartHandlers(ipcMain: IpcMain) {
 
   ipcMain.handle('cart:setQty', async (_e, id: string, qty: number) => {
     const q = Number(qty);
-    if (!Number.isFinite(q) || q <= 0) throw new Error('Invalid qty');
+    if (!Number.isFinite(q) || q <= 0) throw posError('POS_VAL_QTY', { field: 'qty' });
 
     db.prepare(`UPDATE cart SET qty = ?, updated_at = ? WHERE id = ?`).run(
       q,

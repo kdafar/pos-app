@@ -23,9 +23,10 @@ export const ORDER_STATUS = {
   CLOSED: 'closed',
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
+  CANCELLED_CLIENT: 'cancelled_client',
 } as const;
 
-/** Still on the till: shown in the active-orders bar and editable. */
+/** Operationally active; only drafts and active dine-in appear in the cart bar. */
 export const ACTIVE_STATUSES = [
   ORDER_STATUS.OPEN,
   ORDER_STATUS.PENDING,
@@ -40,6 +41,7 @@ export const TERMINAL_STATUSES = [
   ORDER_STATUS.CLOSED,
   ORDER_STATUS.COMPLETED,
   ORDER_STATUS.CANCELLED,
+  ORDER_STATUS.CANCELLED_CLIENT,
 ] as const;
 
 /**
@@ -54,6 +56,7 @@ export const PUSHABLE_STATUSES = [
   ORDER_STATUS.AWAITING_PICKUP,
   ORDER_STATUS.CLOSED,
   ORDER_STATUS.COMPLETED,
+  ORDER_STATUS.CANCELLED_CLIENT,
 ] as const;
 
 /** Render as a SQL list, e.g. `'placed','closed'`. */

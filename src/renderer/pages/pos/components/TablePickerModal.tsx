@@ -15,6 +15,7 @@ import { TableInfo, TableStatus, Order } from '../types';
 import { DataState } from '../../../components/PageShell';
 import { useI18n } from '../../../i18n';
 
+import { errorLine as errLine } from '../../../utils/posError';
 /**
  * Table status has exactly one meaning per colour, taken from the semantic
  * scale so both themes get correct contrast from one definition. The previous
@@ -65,7 +66,6 @@ export function TablePickerModal({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { t } = useI18n();
-
   const statusLabel = (s: TableStatus) =>
     s === 'available'
       ? t('tables.available')
@@ -85,7 +85,7 @@ export function TablePickerModal({
     try {
       await onRefresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e ?? ''));
+      setError(errLine(e));
     } finally {
       setRefreshing(false);
     }

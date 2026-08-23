@@ -4,6 +4,7 @@ import { deleteSecret, loadSecret, saveSecret } from './secureStore';
 import { prefetchItemImages } from './imageCache';
 import { app } from 'electron';
 
+import { posError } from '../shared/errorCodes';
 type Device = { id: string; branch_id: number };
 
 // ---------- Auth error ----------
@@ -126,7 +127,7 @@ function mapRole(typeOrRole: any) {
       case 4: // TYPE_KITCHEN
         return 'kitchen';
       case 6: // TYPE_POS / branch user
-        return 'branch';
+        return 'pos';
       default:
         return 'branch';
     }
@@ -136,7 +137,7 @@ function mapRole(typeOrRole: any) {
   const raw = String(typeOrRole).toLowerCase().trim();
 
   // Already normalized
-  if (raw === 'admin' || raw === 'kitchen' || raw === 'branch') {
+  if (['admin', 'manager', 'accountant', 'pos', 'kitchen', 'branch'].includes(raw)) {
     return raw;
   }
 
@@ -176,9 +177,7 @@ function mapRole(typeOrRole: any) {
       'store helper',
       'store supervisor',
       'customer',
-      'accountant',
-      'finance_manager',
-      'services',
+       'services',
     ].includes(raw)
   ) {
     return 'branch';
@@ -432,7 +431,7 @@ function normOrderSeed(o: any) {
 export async function syncPosTime(): Promise<void> {
   // ⬇ adjust client name if yours is different (`api`, `http`, etc.)
   if (!api) {
-    throw new Error('API client not configured. Call configureApi() first.');
+    throw posError('POS_CFG_API_NOT_READY');
   }
 
   const res = await api.get('/time'); // Laravel route we created
@@ -502,7 +501,7 @@ export async function pairDevice(
   });
 
   if (!data.device?.id || !data.token) {
-    throw new Error('Invalid response from server during pairing.');
+    throw posError('POS_PAIR_RESPONSE_INVALID');
   }
 
   setMeta('device_id', data.device.id);
@@ -527,7 +526,7 @@ export async function bootstrap(baseUrl: string) {
   const deviceId = getMeta('device_id') ?? '';
   const token = await loadSecret('device_token');
   const branchId = Number(getMeta('branch_id') ?? 0);
-  if (!deviceId || !token) throw new Error('Not paired');
+  if (!deviceId || !token) throw posError('POS_AUTH_MISSING');
 
   const device = { id: deviceId, branch_id: branchId };
   configureApi(baseUrl, device, token);
@@ -988,7 +987,10 @@ export async function bootstrap(baseUrl: string) {
         | { id: string }
         | undefined;
 
-      if (local && String(local.id) !== String(row.id)) {
+      // A local order is authoritative even after the server starts returning
+      // the same temp_id as its id. Re-applying the seed's older status here
+      // resurrected completed kitchen tickets as READY on every bootstrap.
+      if (local) {
         console.log(
           '[sync] seed order already exists locally, skipping duplicate',
           { number: row.number, localId: local.id, serverId: row.id }
