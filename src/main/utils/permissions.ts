@@ -2,6 +2,8 @@
 import type { MainServices } from '../types/common';
 import { allowAnonymousAdmin, isAdminRole } from './authContext';
 
+import { posError } from '../../shared/errorCodes';
+import { rolePermissions, type Permission } from '../../shared/permissions';
 export type PosUserContext = {
   id: string | null;
   isAdmin: boolean;
@@ -67,6 +69,21 @@ export function getCurrentPosUser(services: MainServices): PosUserContext {
     console.error('[permissions] role lookup failed; denying admin:', e);
     return { id, isAdmin: false };
   }
+}
+
+export function getEffectivePermissions(services: MainServices): Permission[] {
+  const user = getCurrentPosUser(services);
+  if (!user.id) return [];
+  const effective = new Set(rolePermissions(user.role));
+  try {
+    const rows = services.rawDb.prepare('SELECT permission, allowed FROM pos_user_permissions WHERE user_id = ?').all(user.id) as Array<{ permission: Permission; allowed: number }>;
+    for (const row of rows) row.allowed ? effective.add(row.permission) : effective.delete(row.permission);
+  } catch {}
+  return [...effective];
+}
+
+export function assertPermission(services: MainServices, permission: Permission): void {
+  if (!getEffectivePermissions(services).includes(permission)) throw new Error('Permission denied.');
 }
 
 /**
@@ -139,7 +156,7 @@ export function assertOrderEditable(
   orderId: string
 ): any {
   const order = getOrderRow(services, orderId);
-  if (!order) throw new Error('Order not found');
+  if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
   const { isAdmin } = getCurrentPosUser(services);
   const locked =
@@ -148,9 +165,9 @@ export function assertOrderEditable(
   const status = (order.status || '').toString().toLowerCase();
 
   if (!isAdmin) {
-    if (locked) throw new Error('Order is locked');
+    if (locked) throw posError('POS_VAL_ORDER_LOCKED');
     if (['completed', 'cancelled', 'canceled'].includes(status)) {
-      throw new Error('Completed/cancelled orders cannot be edited');
+      throw posError('POS_VAL_ORDER_LOCKED');
     }
   }
 

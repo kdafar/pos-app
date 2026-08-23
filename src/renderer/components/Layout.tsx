@@ -5,7 +5,9 @@ import packageJson from '../../../package.json';
 import { useToast } from '../components/ToastProvider';
 import { useI18n } from '../i18n';
 import { LanguageToggle } from './LanguageToggle';
+import { Hint } from './Hint';
 import { useUpdate } from '../hooks/useUpdate';
+import { pushPartialCode } from '../../shared/errors';
 import {
   Cloud,
   CloudOff,
@@ -25,6 +27,8 @@ import {
   Armchair,
   Settings,
   ArrowUpCircle,
+  ShieldCheck,
+  ChefHat,
   LogOut,
   type LucideIcon,
 } from 'lucide-react';
@@ -45,6 +49,7 @@ type PosUser = {
   id: string | number;
   name?: string;
   role?: string;
+  permissions?: string[];
   type?: string;
   is_admin?: boolean | number;
 };
@@ -104,15 +109,12 @@ export function Layout() {
     })();
   }, []);
 
-  const isAdmin = useMemo(() => {
-    if (!user) return true;
-    if (user.is_admin === true || user.is_admin === 1) return true;
-
-    const role = String(user.role ?? user.type ?? '').toLowerCase();
-    if (role === 'admin' || role === 'manager' || role === 'owner') return true;
-
-    return false;
-  }, [user]);
+  // The backend returns effective permissions (role defaults with explicit
+  // per-user grants/denials applied). Role-based bypasses here previously made
+  // every unchecked permission ineffective for users whose role was admin.
+  const canReport = !!user?.permissions?.includes('reports.view');
+  const canManageAny = !!user?.permissions?.some((permission) => ['catalog.manage', 'payments.manage', 'locations.manage', 'tables.manage', 'settings.manage', 'updates.manage', 'users.permissions'].includes(permission));
+  const can = (permission: string) => !!user?.permissions?.includes(permission);
 
   /* ---------------- Software update ---------------- */
   // A downloaded update is worth surfacing on every screen — it only applies
@@ -214,15 +216,20 @@ export function Layout() {
   const runSync = async () => {
     try {
       setSyncing(true);
-      await window.api.invoke('sync:run');
+      const res = await window.api.invoke('sync:run');
       await refreshStatus();
-    } catch (e) {
-      console.error('sync:run failed', e);
-      toast({
-        tone: 'danger',
-        title: t('sync.failed'),
-        message: t('sync.failedHint'),
+      // A sync that pushed 3 of 4 used to report as a plain success. The
+      // queued one is not an error — it retries by itself — but the cashier
+      // should know the till is not fully caught up.
+      const partial = pushPartialCode({
+        acked: res?.pushed ?? 0,
+        retryable: res?.failed ?? 0,
       });
+      if (partial) toast.error(partial);
+    } catch (e) {
+      // Sync failing is usually "no connection", which is a normal state for a
+      // till — the translated copy says so and offers the retry.
+      toast.error(e, { title: t('sync.failed'), onRetry: () => void runSync() });
     } finally {
       setSyncing(false);
     }
@@ -234,11 +241,21 @@ export function Layout() {
     if (d < 15_000) return t('sync.justNow');
     if (d < 60_000) return t('sync.secondsAgo', { n: Math.floor(d / 1000) });
     if (d < 3_600_000) return t('sync.minutesAgo', { n: Math.floor(d / 60_000) });
-    return new Date(sync.last_sync_at).toLocaleString();
+    if (d < 86_400_000) return t('sync.hoursAgo', { n: Math.floor(d / 3_600_000) });
+    return t('sync.daysAgo', { n: Math.floor(d / 86_400_000) });
   }, [sync?.last_sync_at, t]);
 
+  /** The stamp behind the relative one, for the hover. */
+  const lastSyncExact = useMemo(
+    () =>
+      sync?.last_sync_at
+        ? new Date(Number(sync.last_sync_at)).toLocaleString()
+        : '',
+    [sync?.last_sync_at]
+  );
+
   const iconButtonClass =
-    'inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9 text-muted-foreground';
+    'inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-medium transition-colors hover:bg-default-100 hover:text-foreground h-9 w-9 text-default-700';
 
   return (
     <div
@@ -248,7 +265,7 @@ export function Layout() {
       {/* Sidebar */}
       <aside
         className={`
-          h-full border-e flex flex-col min-h-0 min-w-0
+          h-full border-e border-default-200 flex flex-col min-h-0 min-w-0
           ${collapsed ? 'gap-2 p-2' : 'gap-2 p-2.5'}
           bg-content1
         `}
@@ -264,14 +281,15 @@ export function Layout() {
               twice whenever the sidebar was open. Keeping the avatar here lets
               that duplicate go without losing the information. */}
           {collapsed && (
-            <div
-              className='w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-xs uppercase shrink-0'
-              title={`${user?.name || t('pos.operator')}${
+            <Hint
+              content={`${user?.name || t('pos.operator')}${
                 user?.role ? ` — ${user.role}` : ''
               }`}
             >
-              {(user?.name || 'U').slice(0, 2)}
-            </div>
+              <div className='w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-xs uppercase shrink-0'>
+                {(user?.name || 'U').slice(0, 2)}
+              </div>
+            </Hint>
           )}
 
           {!collapsed && (
@@ -293,7 +311,7 @@ export function Layout() {
                 <span className='text-sm font-semibold truncate text-foreground'>
                   {user?.name || t('pos.operator')}
                 </span>
-                <span className='text-[10px] uppercase tracking-[0.16em] text-muted-foreground truncate'>
+                <span className='text-[10px] uppercase tracking-[0.16em] text-default-700 truncate'>
                   {user?.role ||
                     (user?.is_admin ? t('nav.role.admin') : t('nav.role.staff'))}
                 </span>
@@ -303,30 +321,31 @@ export function Layout() {
 
           {/* Controls */}
           <div className='flex flex-col gap-1 items-center'>
-            <button
-              className={`${iconButtonClass} ${collapsed ? 'hidden' : ''}`}
-              title={t('nav.toggleTheme')}
-              onClick={toggleTheme}
-            >
-              {theme === 'light' ? (
-                <IconMoon className='h-5 w-5' />
-              ) : (
-                <IconSun className='h-5 w-5' />
-              )}
-            </button>
-            <button
-              className={iconButtonClass}
-              title={
+            <Hint content={t('nav.toggleTheme')}>
+              <button
+                className={`${iconButtonClass} ${collapsed ? 'hidden' : ''}`}
+                onClick={toggleTheme}
+              >
+                {theme === 'light' ? (
+                  <IconMoon className='h-5 w-5' />
+                ) : (
+                  <IconSun className='h-5 w-5' />
+                )}
+              </button>
+            </Hint>
+            <Hint
+              content={
                 collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')
               }
-              onClick={toggleCollapsed}
             >
-              {collapsed ? (
-                <IconPanelRight className='h-5 w-5 flip-rtl' />
-              ) : (
-                <IconPanelLeft className='h-5 w-5 flip-rtl' />
-              )}
-            </button>
+              <button className={iconButtonClass} onClick={toggleCollapsed}>
+                {collapsed ? (
+                  <IconPanelRight className='h-5 w-5 flip-rtl' />
+                ) : (
+                  <IconPanelLeft className='h-5 w-5 flip-rtl' />
+                )}
+              </button>
+            </Hint>
           </div>
         </div>
 
@@ -334,10 +353,9 @@ export function Layout() {
         {!collapsed && (
           <section
             className='
-              rounded-xl border bg-content1 px-2.5 py-2 text-[11px] shadow-sm
-              dark:bg-slate-900/80 dark:border-default-200
+              rounded-xl border border-default-200 bg-content1
+              px-2.5 py-2 text-[11px] shadow-sm
             '
-            title={sync?.base_url || ''}
           >
             {/*
               The branch gets its own full-width line.
@@ -349,79 +367,101 @@ export function Layout() {
               card that must never be ambiguous.
             */}
             <div className='flex items-center justify-between gap-2 mb-1'>
-              <div className='text-[10px] uppercase tracking-[0.22em] text-muted-foreground'>
-                {t('sync.title')}
-              </div>
+              <Hint placement='bottom' content={lastSyncExact}>
+                <div className='flex min-w-0 items-center gap-1 text-[10px] text-default-700'>
+                  <Timer size={11} className='shrink-0' />
+                  <span className='truncate'>{lastSyncText}</span>
+                </div>
+              </Hint>
 
               {/* RIGHT: status + sync button */}
               <div className='flex items-center gap-2 shrink-0'>
-                <div
-                  className={[
-                    'inline-flex h-7 px-3 items-center justify-center gap-1 rounded-full border text-[10px] font-medium',
-                    sync?.mode === 'live'
-                      ? 'bg-emerald-600 text-emerald-50 border-emerald-700'
-                      : 'bg-muted text-foreground border-border',
-                  ].join(' ')}
-                  title={
-                    sync?.mode === 'live'
-                      ? t('sync.onlineHint')
-                      : t('sync.offlineHint')
+                <Hint
+                  placement='bottom'
+                  content={
+                    <span className='block'>
+                      {sync?.mode === 'live'
+                        ? t('sync.onlineHint')
+                        : t('sync.offlineHint')}
+                      {sync?.base_url && (
+                        <span className='mt-0.5 block text-default-700'>
+                          {sync.base_url}
+                        </span>
+                      )}
+                    </span>
                   }
                 >
-                  {sync?.mode === 'live' ? (
-                    <Cloud size={13} />
-                  ) : (
-                    <CloudOff size={13} />
-                  )}
-                  <span>
-                    {sync?.mode === 'live' ? t('sync.online') : t('sync.offline')}
-                  </span>
-                </div>
+                  <div
+                    className={[
+                      'inline-flex h-7 px-3 items-center justify-center gap-1 rounded-full border text-[10px] font-medium',
+                      sync?.mode === 'live'
+                        ? 'bg-success text-success-foreground border-success'
+                        : 'bg-default-100 text-foreground border-default-200',
+                    ].join(' ')}
+                  >
+                    {sync?.mode === 'live' ? (
+                      <Cloud size={13} />
+                    ) : (
+                      <CloudOff size={13} />
+                    )}
+                    <span>
+                      {sync?.mode === 'live'
+                        ? t('sync.online')
+                        : t('sync.offline')}
+                    </span>
+                  </div>
+                </Hint>
 
-                <button
-                  onClick={runSync}
-                  disabled={sync?.mode !== 'live' || syncing}
-                  className={[
-                    'inline-flex h-8 w-8 items-center justify-center rounded-full border text-[10px]',
-                    'bg-foreground text-background border-border hover:bg-foreground/90',
-                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                    'disabled:cursor-not-allowed disabled:opacity-60',
-                  ].join(' ')}
-                  title={
+                <Hint
+                  placement='bottom'
+                  content={
                     sync?.mode === 'live' ? t('nav.sync') : t('sync.cannotSync')
                   }
                 >
-                  <RefreshCw
-                    size={13}
-                    className={syncing ? 'animate-spin' : ''}
-                  />
-                </button>
+                  <button
+                    onClick={() => {
+                      if (sync?.mode !== 'live' || syncing) return;
+                      runSync();
+                    }}
+                    aria-disabled={sync?.mode !== 'live' || syncing}
+                    className={[
+                      'inline-flex h-8 w-8 items-center justify-center rounded-full border text-[10px]',
+                      'bg-foreground text-background border-transparent hover:bg-foreground/90',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+                      // The button sits on the card, so the ring is offset off
+                      // that surface rather than Tailwind's default white.
+                      'focus-visible:ring-offset-1 focus-visible:ring-offset-content1',
+                      'aria-disabled:cursor-not-allowed aria-disabled:opacity-60',
+                      'aria-disabled:hover:bg-foreground',
+                    ].join(' ')}
+                  >
+                    <RefreshCw
+                      size={13}
+                      className={syncing ? 'animate-spin' : ''}
+                    />
+                  </button>
+                </Hint>
               </div>
             </div>
 
-            {/* Branch: full width, and the whole name on hover when it is long */}
-            <div
-              className='flex items-center gap-1.5 text-[11px] text-foreground/90 min-w-0'
-              title={sync?.branch_name || undefined}
-            >
-              <GitBranch size={11} className='shrink-0 text-muted-foreground' />
-              <span className='truncate font-medium'>
-                {sync?.branch_name || t('sync.noBranch')}
-              </span>
-            </div>
-
-            <div className='flex items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5 min-w-0'>
-              <Timer size={11} className='shrink-0' />
-              <span className='truncate'>{lastSyncText}</span>
-            </div>
+            {/* Branch: the whole width of the card, and the whole name on
+                hover on the rare one that still outruns it. */}
+            <Hint placement='bottom' content={sync?.branch_name || ''}>
+              <div className='flex min-w-0 items-center gap-1.5 text-[11px] text-foreground'>
+                <GitBranch size={11} className='shrink-0 text-default-700' />
+                <span className='truncate font-medium'>
+                  {sync?.branch_name || t('sync.noBranch')}
+                </span>
+              </div>
+            </Hint>
 
             {!sync?.paired && (
               <button
                 onClick={() => navigate('/settings')}
                 className='
-                  mt-2 flex h-6 w-full items-center justify-center gap-1.5 rounded-md border
-                  border-warning/40 bg-warning/15 px-2 text-[10px] font-semibold
-                  text-warning hover:bg-warning/25
+                  mt-2 flex h-6 w-full items-center justify-center gap-1.5 rounded-md
+                  border border-warning bg-warning px-2 text-[10px] font-semibold
+                  text-warning-foreground hover:bg-warning/90
                 '
               >
                 <AlertTriangle size={11} />
@@ -434,29 +474,24 @@ export function Layout() {
         {/* Nav (RBAC) */}
         <nav className='space-y-0.5 flex-grow overflow-y-auto nice-scroll rail-scroll min-h-0'>
           <SectionLabel hidden={collapsed}>{t('nav.orders')}</SectionLabel>
-          <NavLink
+          {can('orders.create') && <NavLink
             to='/'
             text={t('nav.orderProcess')}
             icon={ShoppingCart}
             collapsed={collapsed}
             active={location.pathname === '/'}
-          />
-          <NavLink
+          />}
+          {can('orders.view_own') && <NavLink
             to='/orders'
             text={t('nav.recentOrders')}
             icon={ReceiptText}
             collapsed={collapsed}
             active={location.pathname === '/orders'}
-          />
+          />}
+          {can('orders.kitchen_view') && <NavLink to='/kitchen' text={t('nav.kitchen')} icon={ChefHat} collapsed={collapsed} active={location.pathname === '/kitchen'} />}
           {/* Closing Report → admin only */}{' '}
-          <NavLink
-            to='/reports/closing'
-            text={t('nav.closingReport')}
-            icon={BarChart3}
-            collapsed={collapsed}
-            active={location.pathname === '/reports/closing'}
-          />
-          {isAdmin && (
+          {canReport && <NavLink to='/reports/closing' text={t('nav.closingReport')} icon={BarChart3} collapsed={collapsed} active={location.pathname === '/reports/closing'} />}
+          {canManageAny && (
             <>
               <SectionLabel hidden={collapsed}>
                 {t('nav.section.catalog')}
@@ -522,6 +557,7 @@ export function Layout() {
                 active={location.pathname === '/updates'}
                 dot={updateReady}
               />
+              {can('users.permissions') && <NavLink to='/permissions' text={t('nav.permissions')} icon={ShieldCheck} collapsed={collapsed} active={location.pathname === '/permissions'} />}
             </>
           )}
         </nav>
@@ -559,7 +595,7 @@ export function Layout() {
           />
           {/* Tiny version badge */}
           {!collapsed && (
-            <div className='px-2.5 pt-0.5 text-[10px] text-muted-foreground/80 flex items-center justify-between'>
+            <div className='px-2.5 pt-0.5 text-[10px] text-default-700 flex items-center justify-between'>
               {/* Version + vendor are identifiers, never localized. */}
               <span className='font-mono' dir='ltr'>
                 v{shownVersion}
@@ -572,7 +608,7 @@ export function Layout() {
 
           {collapsed && (
             <div
-              className='flex items-center justify-center pb-1 text-[9px] text-muted-foreground/70 font-mono'
+              className='flex items-center justify-center pb-1 text-[9px] text-default-700 font-mono'
               dir='ltr'
             >
               v{shownVersion}
@@ -625,30 +661,31 @@ function NavLink({
     // pill — the active nav item was unreadable.
     'bg-foreground text-background shadow-sm';
   const inactiveClasses =
-    'text-muted-foreground hover:text-foreground hover:bg-slate-100/80 dark:hover:bg-slate-800/80';
+    'text-default-700 hover:text-foreground hover:bg-default-100';
   // Collapsed rows are square and centred so the icons form a straight column.
   const collapsedClasses = 'h-10 w-10 mx-auto justify-center';
   const expandedClasses = 'w-full gap-2.5 px-2.5 py-2 nav-row';
 
   return (
-    <Link
-      to={to}
-      // The label is the only thing identifying an icon once the rail is
-      // collapsed, so it has to survive as a tooltip and for screen readers.
-      title={collapsed ? text : undefined}
-      aria-label={collapsed ? text : undefined}
-      className={`${baseClasses} ${active ? activeClasses : inactiveClasses} ${
-        collapsed ? collapsedClasses : expandedClasses
-      }`}
-    >
-      <span className='relative flex-shrink-0 inline-flex items-center justify-center'>
-        {Icon ? <Icon size={18} strokeWidth={1.9} /> : null}
-        {dot && (
-          <span className='absolute -top-1 -end-1 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-950' />
-        )}
-      </span>
-      {!collapsed && <span className='truncate'>{text}</span>}
-    </Link>
+    // The label is the only thing identifying an icon once the rail is
+    // collapsed, so it has to survive as a hint and for screen readers.
+    <Hint content={text} isDisabled={!collapsed}>
+      <Link
+        to={to}
+        aria-label={collapsed ? text : undefined}
+        className={`${baseClasses} ${active ? activeClasses : inactiveClasses} ${
+          collapsed ? collapsedClasses : expandedClasses
+        }`}
+      >
+        <span className='relative flex-shrink-0 inline-flex items-center justify-center'>
+          {Icon ? <Icon size={18} strokeWidth={1.9} /> : null}
+          {dot && (
+            <span className='absolute -top-1 -end-1 h-2 w-2 rounded-full bg-success ring-2 ring-content1' />
+          )}
+        </span>
+        {!collapsed && <span className='truncate'>{text}</span>}
+      </Link>
+    </Hint>
   );
 }
 
@@ -664,10 +701,10 @@ function SectionLabel({
   // that just looks like inconsistent spacing.
   if (hidden)
     return (
-      <div className='mx-auto my-2 h-px w-6 bg-slate-200 dark:bg-slate-800' />
+      <div className='mx-auto my-2 h-px w-6 bg-default-200' />
     );
   return (
-    <div className='mt-2.5 mb-0.5 uppercase tracking-wide text-[10px] text-muted-foreground px-2.5 nav-section'>
+    <div className='mt-2.5 mb-0.5 uppercase tracking-wide text-[10px] text-default-700 px-2.5 nav-section'>
       {children}
     </div>
   );

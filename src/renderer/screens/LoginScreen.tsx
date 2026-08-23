@@ -18,6 +18,7 @@ import { Wifi, WifiOff, Link2, RefreshCcw } from 'lucide-react';
 import { useConfirmDialog } from '../components/ConfirmDialogProvider';
 import { useI18n } from '../i18n';
 
+import { useErrorLine } from '../utils/posError';
 type PosMode = 'live' | 'offline';
 
 type SyncStatus = {
@@ -72,6 +73,7 @@ export function LoginScreen() {
   const [rememberLogin, setRememberLogin] = useState(true);
   const confirm = useConfirmDialog();
   const { t } = useI18n();
+  const errLine = useErrorLine();
 
   const [err, setErr] = useState<string | null>(null);
   const [branch, setBranch] = useState<{ id: number | null; name: string }>({
@@ -139,7 +141,7 @@ export function LoginScreen() {
       if (val) await doManualSync();
       else await refreshStatus();
     } catch (e: any) {
-      setErr(e?.message || t('auth.errModeChange'));
+      setErr(errLine(e));
     }
   };
 
@@ -150,7 +152,7 @@ export function LoginScreen() {
       await (window as any).api.invoke('sync:setMode', val);
       await refreshStatus();
     } catch (e: any) {
-      setErr(e?.message || t('auth.errModeChange'));
+      setErr(errLine(e));
     }
   };
 
@@ -167,7 +169,7 @@ export function LoginScreen() {
         setErr(res.message || t('auth.errSync'));
       }
     } catch (e: any) {
-      setErr(e?.message || t('auth.errSync'));
+      setErr(errLine(e));
     } finally {
       setSyncRunning(false);
       await refreshStatus();
@@ -186,7 +188,7 @@ export function LoginScreen() {
       await (window as any).pos.auth.loginWithPassword(login.trim(), password);
       nav('/', { replace: true });
     } catch (e: any) {
-      setErr(e?.message || t('auth.errCredentials'));
+      setErr(errLine(e));
     } finally {
       setPwdLoading(false);
     }
@@ -230,7 +232,7 @@ export function LoginScreen() {
 
       nav('/pair', { replace: true });
     } catch (e: any) {
-      setErr(e?.message || t('auth.errUnpair'));
+      setErr(errLine(e));
     } finally {
       setUnpairLoading(false);
     }

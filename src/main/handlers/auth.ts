@@ -8,6 +8,8 @@ import { loadSecret, saveSecret } from '../secureStore';
 import type { MainServices } from '../types/common';
 import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
 
+import { posError } from '../../shared/errorCodes';
+import { PERMISSIONS, rolePermissions, type Permission } from '../../shared/permissions';
 type DBUser = {
   id: number;
   name: string;
@@ -48,6 +50,14 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
       started_at INTEGER NOT NULL,
       ended_at INTEGER,
       FOREIGN KEY(user_id) REFERENCES pos_users(id)
+    );
+    CREATE TABLE IF NOT EXISTS pos_user_permissions (
+      user_id INTEGER NOT NULL,
+      permission TEXT NOT NULL,
+      allowed INTEGER NOT NULL CHECK (allowed IN (0, 1)),
+      updated_by INTEGER,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, permission)
     );
   `);
 
@@ -103,6 +113,14 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     return u || null;
   }
 
+  function permissionsFor(user: any): Permission[] {
+    if (!user) return [];
+    const effective = new Set(rolePermissions(user.role));
+    const overrides = db.prepare('SELECT permission, allowed FROM pos_user_permissions WHERE user_id = ?').all(user.id) as Array<{ permission: Permission; allowed: number }>;
+    for (const item of overrides) item.allowed ? effective.add(item.permission) : effective.delete(item.permission);
+    return [...effective];
+  }
+
   function canUseBranch(
     u: { role?: string | null; branch_id?: number | null },
     deviceBranchId: number
@@ -138,6 +156,7 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
             name: user.name,
             role: user.role,
             is_admin: isAdminRole(user.role),
+            permissions: permissionsFor(user),
           }
         : null,
       session_open: !!session,
@@ -146,6 +165,36 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
 
   ipcMain.handle('auth:listUsers', () => qListUsers.all());
 
+  ipcMain.handle('permissions:listUsers', () => {
+    const actor = getCurrentUser();
+    if (!actor || !permissionsFor(actor).includes('users.permissions')) throw new Error('Permission denied.');
+    return (qListUsers.all() as any[])
+      .map((user) => ({
+        ...user,
+        is_self: Number(user.id) === Number(actor.id),
+        permissions: permissionsFor(user),
+      }));
+  });
+
+  ipcMain.handle('permissions:setUser', (_event, userId: number, permissions: string[]) => {
+    const actor = getCurrentUser();
+    if (!actor || !permissionsFor(actor).includes('users.permissions')) throw new Error('Permission denied.');
+    if (Number(actor.id) === Number(userId)) throw new Error('You cannot change your own permissions.');
+    const target = db.prepare('SELECT id, role FROM pos_users WHERE id = ?').get(userId) as any;
+    if (!target) throw new Error('User not found.');
+    const chosen = new Set(permissions.filter((p): p is Permission => (PERMISSIONS as readonly string[]).includes(p)));
+    const defaults = new Set(rolePermissions(target.role));
+    const remove = db.prepare('DELETE FROM pos_user_permissions WHERE user_id = ?');
+    const insert = db.prepare('INSERT INTO pos_user_permissions (user_id, permission, allowed, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)');
+    db.transaction(() => {
+      remove.run(userId);
+      for (const permission of PERMISSIONS) {
+        if (chosen.has(permission) !== defaults.has(permission)) insert.run(userId, permission, chosen.has(permission) ? 1 : 0, actor.id, Date.now());
+      }
+    })();
+    return { ok: true, permissions: permissionsFor(target) };
+  });
+
   /* ---------- Login with Email/Username + Password (no PIN) ---------- */
   ipcMain.handle(
     'auth:loginWithPassword',
@@ -153,21 +202,21 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
       const ident = String(login || '')
         .trim()
         .toLowerCase();
-      if (!ident || !password) throw new Error('Invalid credentials');
+      if (!ident || !password) throw posError('POS_LOGIN_INVALID');
 
       const row = qUserByLogin.get(ident, ident) as DBUser | undefined;
-      if (!row || !row.password_hash) throw new Error('Invalid credentials');
+      if (!row || !row.password_hash) throw posError('POS_LOGIN_INVALID');
 
       const { branch_id: devBranch } = getBranchMeta();
       const deviceBranchId = Number(devBranch || 0);
       if (!canUseBranch(row, deviceBranchId))
-        throw new Error('Invalid credentials');
+        throw posError('POS_LOGIN_INVALID');
 
       const ok = await bcrypt.compare(
         password,
         normalizeLaravelHash(row.password_hash)
       );
-      if (!ok) throw new Error('Invalid credentials');
+      if (!ok) throw posError('POS_LOGIN_INVALID');
 
       const now = Date.now();
       const info = qCreateSession.run(row.id, now);
@@ -186,6 +235,7 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
         name: row.name,
         role: row.role,
         is_admin: isAdminRole(row.role),
+        permissions: permissionsFor(row),
       };
     }
   );
@@ -209,7 +259,7 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
   ipcMain.handle('auth:pair', async (_e, payload) => {
     const { baseUrl, pairCode, deviceName, branchId } = payload || {};
     if (!baseUrl || !pairCode) {
-      throw new Error('baseUrl and pairCode are required');
+      throw posError('POS_PAIR_INPUT_MISSING');
     }
 
     // Persist config in KV store
@@ -263,6 +313,7 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
         is_admin,
         branch_id: user.branch_id,
         is_active: user.is_active,
+        permissions: permissionsFor(user),
       };
     } catch (e) {
       // Never escalate on failure — a broken lookup is not an admin.

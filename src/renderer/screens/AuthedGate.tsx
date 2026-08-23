@@ -4,6 +4,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { Card, CardBody, Spinner } from '@heroui/react';
 import { useI18n, type StringKey } from '../i18n';
 
+import { useErrorLine } from '../utils/posError';
 type PosStatus = {
   paired: boolean;
   session_open: boolean;
@@ -23,6 +24,7 @@ const tipKeys: StringKey[] = [
 export function AuthedGate() {
   const nav = useNavigate();
   const { t } = useI18n();
+  const errLine = useErrorLine();
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<PosStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export function AuthedGate() {
       }
     } catch (e: any) {
       console.error('[AuthedGate] status error', e);
-      setError(e?.message || t('gate.statusFailed'));
+      setError(errLine(e));
     }
   }
 

@@ -31,7 +31,7 @@ export function registerAllHandlers(
   registerSyncHandlers(ipcMain, services);
   registerAuthHandlers(ipcMain, services);
   registerCustomerHandlers(ipcMain);
-  registerOperationalReportHandlers();
+  registerOperationalReportHandlers(services);
 
   // NODE_ENV is not substituted into the packaged main bundle, so the old
   // `!== 'production'` test was always true there. registerDevHandlers has its

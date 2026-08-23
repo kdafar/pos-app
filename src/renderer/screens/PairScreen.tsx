@@ -14,6 +14,7 @@ import { BrandHeader } from '../components/BrandHeader';
 import { LanguageToggle } from '../components/LanguageToggle';
 import { useI18n } from '../i18n';
 
+import { useErrorLine } from '../utils/posError';
 /**
  * Renders `*emphasised*` runs of a translated string as <b>. Keeping the
  * markers inside the string lets the Arabic translation put the emphasis where
@@ -36,6 +37,7 @@ function Rich({ text }: { text: string }) {
 export default function PairScreen() {
   const nav = useNavigate();
   const { t } = useI18n();
+  const errLine = useErrorLine();
 
   const [baseUrl, setBaseUrl] = useState('');
   const [deviceName, setDeviceName] = useState('Main Counter POS');
@@ -119,7 +121,7 @@ export default function PairScreen() {
         setErr(t('pair.notMarkedPaired'));
       }
     } catch (e: any) {
-      setErr(e?.message || t('pair.failed'));
+      setErr(errLine(e));
     } finally {
       setBusy(false);
     }
@@ -137,7 +139,7 @@ export default function PairScreen() {
       setDeviceName('Main Counter POS');
       setPrefilled(false);
     } catch (e: any) {
-      setErr(e?.message || t('pair.unpairFailed'));
+      setErr(errLine(e));
     } finally {
       setBusy(false);
     }
