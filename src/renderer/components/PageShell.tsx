@@ -244,14 +244,23 @@ export function FilterSelect({
     <Select
       label={label}
       labelPlacement='outside-left'
-      classNames={{ label: 'text-sm font-semibold text-default-700 self-center' }}
+      classNames={{
+        // `outside-left` lays the label and the control out as one flex row,
+        // and HeroUI gives the label no `shrink-0`. With the width set on the
+        // Select itself, the label wins that row and the control keeps only
+        // what is left — which is how "All sources" became "All s..." under a
+        // long label like "Filter by source". The width belongs on the control
+        // alone, so no label length can eat into it.
+        label: 'text-sm font-semibold text-default-700 self-center shrink-0 whitespace-nowrap',
+        mainWrapper: 'w-full sm:w-44',
+      }}
       selectedKeys={[value]}
       onSelectionChange={(keys) => {
         const next = Array.from(keys)[0];
         if (next != null) onChange(String(next));
       }}
       aria-label={label}
-      className={`w-full sm:w-44 ${className}`}
+      className={`w-full sm:w-auto ${className}`}
     >
       {options.map((o) => (
         <SelectItem key={o.value}>{o.label}</SelectItem>

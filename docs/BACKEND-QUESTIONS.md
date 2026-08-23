@@ -171,6 +171,88 @@ this as "wipe local data and unpair" — confirm that is the intent.
 
 ---
 
+## 7. API error contract — ANSWERED, one item outstanding
+
+Your catalogue landed and is implemented. This section is now the reply.
+
+### 7.0 Where it lives on our side
+
+| file | what it is |
+|---|---|
+| `src/shared/errorCatalog.ts` | the merged catalogue — **source of truth**, typechecked |
+| `docs/pos-errors.json` | generated from it, for diffing against yours |
+| `docs/pos-app-error-inventory.json` | **the inventory you asked for** — our 44 app-only codes |
+| `scripts/export-errors.mjs` | regenerates both (`node scripts/export-errors.mjs`) |
+
+95 codes total: your 50 plus one catch-all for an unrecognised 422, and 44 that
+are ours. Your codes, severities and Arabic wording are used verbatim — the
+`resources/lang/ar` copy is now what a cashier reads on the till, so the three
+apps say the same thing.
+
+### 7.1 Yes — please send the code. →
+
+**Yes, we will use it.** Adding `"code": "POS_PUSH_ORDER_FINALIZED"` to every
+error body is the one change we still want.
+
+It is already wired: `classifyServerError()` in `src/shared/errors.ts` checks
+`response.data.code` **first**, and a recognised code wins outright over
+everything below it. Until it arrives we disambiguate on your English
+`message`, which is the brittleness you described — today three different 401s
+are told apart by `contains('revoked')` and `contains('invalid token')`, and two
+423s by `contains('killswitch')`. Those matches break the day anyone rewords a
+string, and a cashier gets the wrong sentence rather than a visibly wrong one.
+
+Ship it additively whenever suits; nothing on our side needs to change to
+receive it, and the `contains()` branches become dead code we delete.
+
+### 7.2 What we implemented from your reply
+
+- **Severity drives the component.** `blocker` → centred modal, dimmed backdrop,
+  explicit dismissal. `toast` → bottom-centre card, auto-dismiss. `inline` →
+  message under the control, with the control in a red border. `info` → quiet.
+- **`valid:false` on HTTP 200** is branched on the field, not the status —
+  `promoRejectionCode()`.
+- **409 "already in progress"** is `info`, not an error; the caller polls
+  `/payments/status` rather than asking for a second link.
+- **423 stops the sync loop** and does not retry.
+- **429** reads `Retry-After` into `{retry_after}`.
+- **Offline is not an error.** `POS_NET_OFFLINE` is `info`, never a red dialog.
+- **Validation runs in the app first.** Every rule in your table is checked
+  while the ticket is built, tied to the field it belongs to, so the cashier
+  fixes it before Place Order is live. The main process still enforces all of
+  them — the form is UX, not authorization.
+
+### 7.3 The outbox rule — already correct, confirmed
+
+`applyPushResult()` in `src/main/utils/orderNumbers.ts` clears **only** the
+`temp_id`s present in `ack`; `retryable: true` stays queued under the same
+`temp_id`; `retryable: false` is marked permanent and stops replaying;
+`references[temp_id]` is stored and printed. No change needed — flagging it here
+so you know it is not an open risk.
+
+### 7.4 Still open
+
+7.4.1 **Retry safety per endpoint.** We now show a "Try again" button wherever
+`retry: true`. `/push` is safe (idempotent on `device_id:temp_id`). Confirm the
+same for `/promos/validate`, `/payments/link` and `/payments/status`, or tell us
+which must not be retried.
+
+7.4.2 **`Accept-Language: ar`.** Do 422 validation messages come back localised
+if we send it? If they do, `POS_SERVER_REJECTED` can show the server's own
+sentence directly instead of falling back to English.
+
+7.4.3 **Correlation id.** Is there a request id in the response (header or body)
+we can put behind the "technical details" disclosure? It turns a support call
+from "it says something went wrong" into one lookup.
+
+7.4.4 **Codes we raise that you may want to own.** Three in
+`pos-app-error-inventory.json` look like rules that should really live server-
+side: `POS_VAL_ITEM_NO_PRICE`, `POS_VAL_ADDON_GROUP_MAX` and
+`POS_VAL_DELIVERY_FEE_TOO_LARGE`. We enforce them locally today. Say if you want
+them.
+
+---
+
 ## Contact
 
 Answers can go straight back in this document — inline under each question is

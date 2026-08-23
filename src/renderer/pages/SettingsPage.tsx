@@ -5,6 +5,7 @@ import { Button, Card, CardBody, Chip } from '@heroui/react';
 import { AlertTriangle, Check, Copy, Download, Languages, Lock } from 'lucide-react';
 import { LANGS, useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
+import { errorLine as errLine } from '../utils/posError';
 import {
   DataState,
   FilterSelect,
@@ -58,7 +59,7 @@ async function probe(channel: string): Promise<Probe> {
     }
     return { rows: res, error: null };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e ?? '');
+    const msg = errLine(e);
     if (NOT_WIRED.test(msg)) return { rows: null, error: null };
     return { rows: null, error: `${channel}: ${msg}` };
   }
@@ -97,7 +98,6 @@ const SERVER_CHANNELS = ['settings:getAll', 'settings:listAll'];
 
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
-
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +155,7 @@ export function SettingsPage() {
       setPartial(faults.length ? faults.join(' · ') : null);
     } catch (e) {
       setRows([]);
-      setError(e instanceof Error ? e.message : String(e ?? ''));
+      setError(errLine(e));
     } finally {
       setLoading(false);
     }
@@ -174,7 +174,7 @@ export function SettingsPage() {
     } catch (e) {
       setLogoResult({
         kind: 'error',
-        message: e instanceof Error ? e.message : String(e ?? ''),
+        message: errLine(e),
       });
     } finally {
       setLogoBusy(false);

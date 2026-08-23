@@ -39,8 +39,8 @@ export function LanguageToggle({
         lang={other.code}
         title={other.label}
         className='flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm
-          font-medium text-muted-foreground transition-colors
-          hover:text-foreground hover:bg-slate-100/80 dark:hover:bg-slate-800/80'
+          font-medium text-default-700 transition-colors
+          hover:text-foreground hover:bg-default-100'
       >
         <Languages size={18} strokeWidth={1.9} className='shrink-0' />
         <span className='truncate'>{other.label}</span>
@@ -72,9 +72,9 @@ export function LanguageToggle({
   const shell =
     'bg-default-100 border-default-200';
   const active =
-    'bg-blue-600 text-white shadow';
+    'bg-primary text-primary-foreground shadow';
   const idle =
-    'text-default-700 hover:text-white';
+    'text-default-700 hover:text-foreground';
 
   return (
     <div className={`inline-flex items-center rounded-lg border p-1 ${shell}`}>

@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { errorLine } from '../utils/posError';
 export type DisabledReason = 'dev' | 'portable' | 'unavailable';
 
 export type UpdateState =
@@ -96,7 +97,9 @@ export function useUpdate() {
       if (alive.current) {
         setSnapshot((prev) => ({
           ...prev,
-          state: { status: 'error', message: e?.message || String(e) },
+          // electron-updater's own text ("net::ERR_INTERNET_DISCONNECTED",
+          // "Cannot find latest.yml") is for the log, not for the shop floor.
+          state: { status: 'error', message: errorLine(e) },
         }));
       }
     } finally {

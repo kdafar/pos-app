@@ -188,6 +188,10 @@ export const cartStrings = {
   'tables.covers': { en: 'Covers', ar: 'عدد الأشخاص' },
   'tables.refresh': { en: 'Refresh', ar: 'تحديث' },
   'tables.none': { en: 'No tables found.', ar: 'لا توجد طاولات.' },
+  'tables.notAssigned': {
+    en: 'No table selected',
+    ar: 'لم يتم اختيار طاولة',
+  },
   'tables.tip': {
     en: 'Tip: The blue card is the table currently assigned to this order. You can tap it to keep it and close this dialog.',
     ar: 'ملاحظة: البطاقة الزرقاء هي الطاولة المخصصة لهذا الطلب حالياً. اضغط عليها للإبقاء عليها وإغلاق النافذة.',

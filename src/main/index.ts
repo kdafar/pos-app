@@ -174,7 +174,7 @@ async function boot() {
   registerAllHandlers(ipcMain, services);
 
   // 7) Local print handlers (uses raw SQLite DB)
-  registerLocalPrintHandlers(ipcMain, db as BetterSqliteDB);
+  registerLocalPrintHandlers(ipcMain, db as BetterSqliteDB, services);
 
   // 8) Optional socket server (if you re-enable later)
   // try {

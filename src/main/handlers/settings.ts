@@ -5,6 +5,7 @@ import {
   readSettingRaw,
   readSettingBool,
   readSettingNumber,
+  isDeliveryEnabled,
 } from '../services/settings'; // still used for generic settings handlers
 import { fetchOperatorLogo } from '../print';
 
@@ -95,6 +96,10 @@ export function registerSettingsHandlers(ipcMain: IpcMain) {
     'settings:getBool',
     async (_e, key: string, fallback = false) => readSettingBool(key, fallback)
   );
+
+  // Its own channel rather than settings:getBool('enable_delivery'): the key is
+  // namespaced, and absent must not read the same as off.
+  ipcMain.handle('settings:deliveryEnabled', async () => isDeliveryEnabled());
 
   ipcMain.handle('settings:getNumber', async (_e, key: string, fallback = 0) =>
     readSettingNumber(key, fallback)

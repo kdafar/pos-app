@@ -4,6 +4,7 @@ import type {
   KVStore,
   SettingsService,
 } from '../types/common';
+import { posError } from '../../shared/errorCodes';
 
 interface SettingsDeps {
   db: DatabaseService;
@@ -100,9 +101,7 @@ export function initSettingsService(deps: SettingsDeps): SettingsService {
 
 export function getSettingsService(): SettingsService {
   if (!settingsSingleton) {
-    throw new Error(
-      'SettingsService not initialized. Call initSettingsService() first.'
-    );
+    throw posError('POS_CFG_SETTINGS_NOT_READY');
   }
   return settingsSingleton;
 }
@@ -124,4 +123,39 @@ export function readSettingNumber(key: string, fallback = 0): number {
 
 export function readAllSettings(): { key: string; value: string | null }[] {
   return getSettingsService().getAll();
+}
+
+/* ---------------------------------------------------------------
+   Delivery on/off
+   ---------------------------------------------------------------
+   The backend namespaces every setting as `category.name`, so the key is
+   `general.enable_delivery` — the bare `enable_delivery` has never existed and
+   reading it would silently return the caller's own default. For delivery that
+   default is "on", which is precisely the state a shop that turned delivery off
+   did not want, so the wrong key produces a gate that looks like it works.
+
+   Absent and empty are deliberately not the same answer:
+     - absent  → the till has not synced settings yet, and we cannot know.
+                 Fail OPEN: hiding delivery from a shop that does deliver blocks
+                 real sales, which is worse than showing one extra button.
+     - ""      → the row exists and the operator cleared it. Treat as off, per
+                 the backend contract.
+*/
+export const ENABLE_DELIVERY_KEY = 'general.enable_delivery';
+
+/** Pure so the truth table can be tested without a database. */
+export function deliveryEnabledFrom(raw: string | null | undefined): boolean {
+  if (raw == null) return true;
+  const v = String(raw).trim().toLowerCase();
+  if (v === '') return false;
+  return !(v === '0' || v === 'false' || v === 'no' || v === 'off');
+}
+
+export function isDeliveryEnabled(): boolean {
+  try {
+    return deliveryEnabledFrom(readSettingRaw(ENABLE_DELIVERY_KEY));
+  } catch {
+    // Settings service not up yet — same reasoning as an absent key.
+    return true;
+  }
 }

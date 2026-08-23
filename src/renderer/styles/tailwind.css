@@ -181,6 +181,34 @@
 }
 
 /* ---------------------------------------------------------------
+   Dropdown panels size to their options, not to the control
+   ---------------------------------------------------------------
+   HeroUI's Select measures its trigger when the menu opens and writes
+   that width onto the popover as an inline style:
+
+     popover.style.width = triggerRef.current.getBoundingClientRect().width
+
+   Every option then inherits the width of the closed control, and the
+   `truncate` that HeroUI puts on each option label does the rest —
+   "Waiting for driver" renders as "Waiting f...", "Enabled only" as
+   "Enabled o...". The one moment the full label matters is the moment
+   it disappears: when staff are choosing between options mid-order.
+
+   `min-width` outranks `width` in the cascade, so widening the panel
+   here needs no `!important` and, just as importantly, does not undo
+   the inline width — that stays the floor, so a wide select still gets
+   a panel as wide as itself rather than shrinking to its options.
+
+   Scoped with `:has()` to popovers that actually contain a listbox
+   (Select, Autocomplete), so tooltips and content popovers are left
+   alone. The viewport cap is a backstop against an absurd label.
+   --------------------------------------------------------------- */
+[data-slot='popover']:has([data-slot='listbox']) {
+  min-width: max-content;
+  max-width: calc(100vw - 2.5rem);
+}
+
+/* ---------------------------------------------------------------
    POS screen: a fluid type and spacing scale
    ---------------------------------------------------------------
    Every size on the order screen was a hard pixel value — text-[13px],

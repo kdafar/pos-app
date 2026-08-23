@@ -18,12 +18,14 @@ import { cartStrings } from './strings.cart';
 import { authStrings } from './strings.auth';
 import { navStrings } from './strings.nav';
 import { adminStrings } from './strings.admin';
+import { errorUiStrings } from './strings.errors';
 
 const coreStrings = {
   /* ---------- generic ---------- */
   'common.all': { en: 'All', ar: 'الكل' },
   'common.add': { en: 'Add', ar: 'إضافة' },
   'common.cancel': { en: 'Cancel', ar: 'إلغاء' },
+  'common.ok': { en: 'OK', ar: 'حسنًا' },
   'common.yes': { en: 'Yes', ar: 'نعم' },
   'common.no': { en: 'No', ar: 'لا' },
   'common.close': { en: 'Close', ar: 'إغلاق' },
@@ -121,6 +123,10 @@ const coreStrings = {
     en: 'Could not change order type',
     ar: 'تعذّر تغيير نوع الطلب',
   },
+  'pos.createOrderFailed': {
+    en: 'Could not start a new order',
+    ar: 'تعذّر بدء طلب جديد',
+  },
   'cart.editDeliveryFee': {
     en: 'Edit delivery fee',
     ar: 'تعديل رسوم التوصيل',
@@ -198,6 +204,7 @@ export const strings = {
   ...authStrings,
   ...navStrings,
   ...adminStrings,
+  ...errorUiStrings,
 };
 
 export type StringKey = keyof typeof strings;
