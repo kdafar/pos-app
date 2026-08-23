@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, app } from 'electron';
+import { BrowserWindow, ipcMain, app, dialog } from 'electron';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -6,7 +6,11 @@ import crypto from 'node:crypto';
 import db, { getSetting, getMeta } from './db';
 import QRCode from 'qrcode';
 import bwipjs from 'bwip-js';
+import ExcelJS from 'exceljs';
 
+import { posError } from '../shared/errorCodes';
+import type { MainServices } from './types/common';
+import { assertPermission } from './utils/permissions';
 type OrderType = 1 | 2 | 3;
 
 type OrderRow = {
@@ -351,17 +355,15 @@ export async function fetchOperatorLogo(): Promise<{
     if (!remoteUrl) {
       const local = await toDataUrl(value);
       if (local) return { ok: true, key };
-      throw new Error(`Logo setting ${key} is not a valid server URL or local file.`);
+      throw posError('POS_PRINT_LOGO_URL_INVALID', { params: { key: String(key) } });
     }
 
     const cached = await cacheRemoteLogo(remoteUrl);
-    if (!cached) throw new Error(`Could not download the logo from ${remoteUrl}`);
+    if (!cached) throw posError('POS_PRINT_LOGO_DOWNLOAD_FAILED', { params: { url: String(remoteUrl) } });
     return { ok: true, key, url: remoteUrl };
   }
 
-  throw new Error(
-    'The server did not provide a receipt logo setting (expected branding.logo_url).'
-  );
+  throw posError('POS_PRINT_LOGO_NOT_CONFIGURED');
 }
 
 /** Download a remote logo once and reuse it, so printing works offline. */
@@ -1049,9 +1051,7 @@ async function printHtmlSilently(html: string): Promise<void> {
       printers.map((p) => p.name)
     );
     if (!printers.length) {
-      throw new Error(
-        'No printer is installed on this computer. Add a printer in Windows settings, then try again.'
-      );
+      throw posError('POS_PRINT_NO_PRINTER');
     }
 
     // A till prints a receipt on every sale, so a modal dialog per sale is a
@@ -1163,8 +1163,123 @@ async function printToPdfFile(html: string): Promise<string> {
 
 // ---- IPCs ----------------------------------------------------------------
 
-export function registerLocalPrintHandlers() {
+export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, services?: MainServices) {
   console.log('[print] registering IPC handlers');
+
+  ipcMain.handle('reports:openPreview', async (event, html: string) => {
+    if (services) assertPermission(services, 'reports.view');
+    if (typeof html !== 'string' || !html.trim() || html.length > 5_000_000) {
+      throw new Error('Invalid report preview document.');
+    }
+
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const preview = new BrowserWindow({
+      parent,
+      width: 1200,
+      height: 850,
+      title: 'Closing Report - Print Preview',
+      show: false,
+      webPreferences: { javascript: true },
+    });
+    const previewFile = path.join(os.tmpdir(), `closing-report-preview-${Date.now()}.html`);
+    await fs.writeFile(previewFile, html, 'utf8');
+    preview.once('closed', () => fs.unlink(previewFile).catch(() => {}));
+    preview.webContents.on('will-navigate', (navigationEvent, url) => {
+      if (url !== 'majestic-print://print') return;
+      navigationEvent.preventDefault();
+
+      preview.webContents.print(
+        {
+          silent: true,
+          printBackground: true,
+          landscape: true,
+          usePrinterDefaultPageSize: true,
+        },
+        (success, failureReason) => {
+          const message = success
+            ? 'Report sent to the default printer.'
+            : `Printing failed: ${failureReason || 'Unknown printer error'}`;
+          if (!preview.isDestroyed()) {
+            preview.webContents
+              .executeJavaScript(`window.alert(${JSON.stringify(message)})`)
+              .catch(() => {});
+          }
+        }
+      );
+    });
+    await preview.loadFile(previewFile);
+    preview.show();
+    preview.focus();
+    return { ok: true };
+  });
+
+  ipcMain.handle('reports:saveExcel', async (event, payload: any) => {
+    if (services) assertPermission(services, 'reports.export');
+    if (!payload || !Array.isArray(payload.headers) || !Array.isArray(payload.rows)) {
+      throw new Error('Invalid Excel report.');
+    }
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = await dialog.showSaveDialog(parent, {
+      title: 'Export Excel Report',
+      defaultPath: payload?.filename || 'Sales_Report.xlsx',
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Majestic POS';
+    const sheet = workbook.addWorksheet('Report', {
+      views: [{ state: 'frozen', ySplit: 8, rightToLeft: !!payload.rtl }],
+      pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1 },
+    });
+    const lastColumn = Math.max(1, payload.headers.length);
+    const brand = String(payload.brand || '2563EB').replace('#', '').toUpperCase();
+    sheet.mergeCells(1, 1, 1, lastColumn);
+    const titleCell = sheet.getCell(1, 1);
+    titleCell.value = payload.title || 'Sales Report';
+    titleCell.font = { name: 'Calibri', size: 18, bold: true, color: { argb: `FF${brand}` } };
+    titleCell.alignment = { vertical: 'middle' };
+    sheet.getRow(1).height = 28;
+
+    (payload.metadata || []).forEach((entry: unknown[], index: number) => {
+      const r = sheet.getRow(index + 3);
+      r.getCell(1).value = entry[0] as any;
+      r.getCell(1).font = { bold: true, color: { argb: 'FF475467' } };
+      r.getCell(2).value = entry[1] as any;
+    });
+    const headerRowNumber = 8;
+    const header = sheet.getRow(headerRowNumber);
+    header.values = payload.headers;
+    header.height = 22;
+    header.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${brand}` } };
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.alignment = { vertical: 'middle', wrapText: true };
+      cell.border = { bottom: { style: 'thin', color: { argb: 'FFB8C7D1' } } };
+    });
+    payload.rows.forEach((values: unknown[], index: number) => {
+      const r = sheet.addRow(values);
+      if (index % 2) r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7F9FA' } };
+      r.eachCell((cell) => {
+        cell.alignment = { vertical: 'top', wrapText: false };
+        cell.border = { bottom: { style: 'hair', color: { argb: 'FFD0D5DD' } } };
+      });
+    });
+    (payload.totals || []).forEach((values: unknown[], index: number, all: unknown[][]) => {
+      const r = sheet.addRow(values);
+      r.font = { bold: true };
+      if (index === all.length - 1) r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF3' } };
+    });
+    sheet.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: headerRowNumber, column: lastColumn } };
+    sheet.columns.forEach((column, index) => {
+      const preferred = Number(payload.widths?.[index] || 14);
+      column.width = Math.min(32, Math.max(10, preferred));
+      if (index >= lastColumn - 3) column.numFmt = '#,##0.000';
+    });
+    await workbook.xlsx.writeFile(result.filePath);
+    return { ok: true, filePath: result.filePath };
+  });
+
   // Main printing IPC (OFFLINE-FIRST)
   ipcMain.handle(
     'orders:print',
@@ -1182,7 +1297,7 @@ export function registerLocalPrintHandlers() {
       console.log('[print] orders:print requested', { orderId, lang });
 
       const order = getOrder(orderId);
-      if (!order) throw new Error('Order not found locally');
+      if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
       const lines = getLines(orderId);
 
@@ -1190,9 +1305,7 @@ export function registerLocalPrintHandlers() {
       // but carry no local line items, so there is nothing to put on a receipt.
       // Say so rather than printing a blank docket.
       if (!lines.length) {
-        throw new Error(
-          'This order was synced from the server for lookup only — its items are not stored on this till, so it cannot be reprinted here.'
-        );
+        throw posError('POS_PRINT_ORDER_NOT_LOCAL');
       }
 
       let effectiveDelivery = Number(order.delivery_fee ?? 0);

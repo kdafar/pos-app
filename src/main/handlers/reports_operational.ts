@@ -1,5 +1,7 @@
 import { ipcMain } from 'electron';
 import db from '../db';
+import type { MainServices } from '../types/common';
+import { assertPermission } from '../utils/permissions';
 
 /* ========== meta helpers ========== */
 function getMeta(key: string): string | undefined {
@@ -167,7 +169,7 @@ function hhmmssToMs(base: Date, t: string): number {
   return d.getTime();
 }
 
-/** For a given calendar date (local), returns [startMs, endMs] of operational window. Handles cross-midnight. */
+/** Return [this opening, next open day's opening), matching the online report. */
 function getOperationalDayRange(baseDay: Date): {
   startMs: number;
   endMs: number;
@@ -191,17 +193,23 @@ function getOperationalDayRange(baseDay: Date): {
   }
 
   const startMs = hhmmssToMs(baseDay, rule.open_at || '00:00:00');
-  const closeTodayMs = hhmmssToMs(baseDay, rule.close_at || '23:59:59');
-
-  // Cross-midnight (e.g. 18:00 → 03:00 next day)
-  if (closeTodayMs <= startMs) {
+  let nextOpeningMs: number | null = null;
+  for (let offset = 1; offset <= 7; offset += 1) {
     const nextDay = new Date(baseDay);
-    nextDay.setDate(baseDay.getDate() + 1);
-    const endMs = hhmmssToMs(nextDay, rule.close_at || '23:59:59');
-    return { startMs, endMs, alwaysClose: false };
+    nextDay.setDate(baseDay.getDate() + offset);
+    const nextRule = getRuleForDay(nextDay.getDay());
+    if (nextRule?.is_open) {
+      nextOpeningMs = hhmmssToMs(nextDay, nextRule.open_at || '00:00:00');
+      break;
+    }
   }
 
-  return { startMs, endMs: closeTodayMs, alwaysClose: false };
+  // Half-open business-day boundary: closing time is intentionally not used.
+  return {
+    startMs,
+    endMs: nextOpeningMs ?? startMs + 86_400_000,
+    alwaysClose: nextOpeningMs == null,
+  };
 }
 
 /** Default range = today's operational window → now; if outside, yesterday's window → now. */
@@ -255,18 +263,98 @@ function operationalDateRange(fromDate?: string, toDate?: string): {
 
 /* ---- helpers to classify orders ---- */
 
-function isSold(row: any): boolean {
-  if (row?.paid_at) return true;
-  if (row?.completed_at) return true;
-  const gt = Number(row?.grand_total ?? 0);
-  return gt > 0;
+/**
+ * A ticket the cashier has not put through yet is not revenue.
+ *
+ * This used to be `grand_total > 0` alone — `paid_at` and `completed_at` are
+ * selected as literal NULL when the columns are absent, which they are, so the
+ * first two lines never fired. An open ticket sitting on screen with items on
+ * it was therefore counted as a completed sale, and appeared in Gross and Net.
+ */
+const NOT_YET_SOLD = new Set(['open', 'pending', 'draft', 'pending payment']);
+
+export function isSold(row: any): boolean {
+  if (Number(row?.grand_total ?? 0) <= 0) return false;
+  return !NOT_YET_SOLD.has(String(row?.status ?? '').trim().toLowerCase());
 }
 
-function isCancelled(row: any): boolean {
-  const s = String(row?.status ?? '').toLowerCase();
-  if (s === 'cancelled' || s === 'canceled' || s === 'rejected') return true;
-  if ('is_cancelled' in row) return Boolean(row.is_cancelled);
-  return false;
+/**
+ * Every shape a cancellation reaches this table in.
+ *
+ * The exact-match list missed four of them, and a missed cancellation is not a
+ * neutral error: the row falls through to isSold() and is counted as a sale.
+ *   - 'cancelled_client'        — local, ORDER_STATUS.CANCELLED_CLIENT
+ *   - 'cancelled by customer'   — server status_code 5
+ *   - 'cancelled by admin'      — server status_code 6
+ *   - 'rejected (auto)'         — server status_code 8
+ * Only the bare 'cancelled'/'rejected' forms matched, which is why the till
+ * reported cancelled-on-the-dashboard orders as revenue.
+ */
+const CANCELLED_SERVER_CODES = new Set([5, 6, 8, 9]);
+
+export function isCancelled(row: any): boolean {
+  if ('is_cancelled' in row && row.is_cancelled) return true;
+
+  const code = Number(row?.status_code);
+  if (Number.isFinite(code) && CANCELLED_SERVER_CODES.has(code)) return true;
+
+  const s = String(row?.status ?? '').trim().toLowerCase();
+  if (!s) return false;
+  return (
+    s.startsWith('cancel') || s.startsWith('canceled') || s.startsWith('rejected')
+  );
+}
+
+export type RowVerdict = {
+  counted: 'sale' | 'cancelled' | 'uncounted';
+  /** Only on `uncounted` — the two have different fixes. */
+  uncounted_reason?: 'no_total' | 'not_placed';
+};
+
+/**
+ * Which bucket a row falls in, and why if it falls in none.
+ *
+ * Extracted so the highlight in the table and the counts in the footer cannot
+ * drift apart: they are now the same decision read twice, not two conditions
+ * that happen to agree today.
+ */
+export function classifyRow(r: any): RowVerdict {
+  if (isCancelled(r)) return { counted: 'cancelled' };
+  if (isSold(r)) return { counted: 'sale' };
+  // An unpaid ticket needs putting through; a zero total needs looking at.
+  // Same highlight, different fix, so the row says which.
+  return {
+    counted: 'uncounted',
+    uncounted_reason: Number(r?.grand_total ?? 0) <= 0 ? 'no_total' : 'not_placed',
+  };
+}
+
+/**
+ * Split one order row into the four figures the report footer prints.
+ *
+ * The invariant that matters: gross - discount + delivery === net. Break it and
+ * the report stops adding up, which is how the delivery fee got counted twice.
+ *
+ * `grand_total` already contains the delivery fee (calculations.ts builds it as
+ * subtotal - discount + delivery). So when `subtotal` is missing — server-seeded
+ * lookup rows carry a total and nothing else — gross has to be *backed out* of
+ * grand_total, not substituted for it. Assigning grand_total straight to gross
+ * counted the delivery fee once inside gross and again in the delivery line.
+ */
+export function rowMoney(r: any): {
+  gross: number;
+  discount: number;
+  delivery: number;
+  net: number;
+} {
+  const discount = Number(r?.discount_total ?? r?.discount_amount ?? 0);
+  const delivery = Number(r?.delivery_fee ?? 0);
+  const net = Number(r?.grand_total ?? 0);
+
+  const subtotal = Number(r?.subtotal ?? 0);
+  const gross = subtotal !== 0 ? subtotal : net - delivery + discount;
+
+  return { gross, discount, delivery, net };
 }
 
 function insideOperational(tsMs: number): boolean {
@@ -301,16 +389,20 @@ function msExpr(col: string, alias = 'o') {
 
 /* ========== MAIN IPC HANDLER ========== */
 
-export function registerOperationalReportHandlers() {
+export function registerOperationalReportHandlers(services: MainServices) {
+  const assertReportAccess = () => assertPermission(services, 'reports.view');
   ipcMain.handle(
     'report:operationalWindow',
-    (_evt, opts?: { fromDate?: string; toDate?: string }) =>
-      operationalDateRange(opts?.fromDate, opts?.toDate)
+    (_evt, opts?: { fromDate?: string; toDate?: string }) => {
+      assertReportAccess();
+      return operationalDateRange(opts?.fromDate, opts?.toDate);
+    }
   );
 
   ipcMain.handle(
     'report:sales:preview',
     (_evt, opts?: { from?: number; to?: number }) => {
+      assertReportAccess();
       const def = defaultOperationalWindow(new Date());
 
       const fromMs = Number.isFinite(opts?.from)
@@ -323,14 +415,30 @@ export function registerOperationalReportHandlers() {
 
       const branchId = Number(getMeta('branch_id') ?? 0) || 0;
       const hasBranch = tableHasColumn('orders', 'branch_id');
+      // NULL is kept deliberately: orders seeded from the server for phone
+      // lookup carry no branch_id, and so do older local rows. Excluding them
+      // would drop real sales out of the report the day this filter started
+      // working — a separate decision from fixing the lookup itself.
       const andBranch =
-        hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : '';
+        hasBranch && branchId
+          ? ' AND (o.branch_id = @branch_id OR o.branch_id IS NULL) '
+          : '';
 
-      const orderNumberCol = tableHasColumn('orders', 'order_number')
+      // Prefer the server's running number (0057) over the local key
+      // (POS-1-8ZH57CLV). The report is what gets reconciled against the
+      // dashboard, and the dashboard only knows the reference — printing the
+      // local key made every row look like an order the office had never seen.
+      // The local key is still returned alongside, for rows with no reference
+      // yet and for support.
+      const referenceCol = tableHasColumn('orders', 'reference_no')
+        ? 'o.reference_no'
+        : 'NULL';
+      const localNumberCol = tableHasColumn('orders', 'order_number')
         ? 'o.order_number'
         : tableHasColumn('orders', 'number')
         ? 'o.number'
         : 'o.id';
+      const orderNumberCol = `COALESCE(NULLIF(${referenceCol}, ''), ${localNumberCol})`;
 
       const fullNameCol = tableHasColumn('orders', 'customer_name')
         ? 'o.customer_name'
@@ -351,9 +459,11 @@ export function registerOperationalReportHandlers() {
         payment_method_slug?: string | null;
         payment_method_id?: string | null;
         order_number?: string | null;
+        reference_no?: string | null;
         full_name?: string | null;
         paid_at?: any;
         completed_at?: any;
+        status_code?: any;
       };
 
       // ── 1) Load orders in range ───────────────────────
@@ -371,6 +481,8 @@ export function registerOperationalReportHandlers() {
           o.grand_total,
           ${tsMs} AS ts_ms,
           ${orderNumberCol} AS order_number,
+          ${referenceCol} AS reference_no,
+          ${localNumberCol} AS local_number,
           ${fullNameCol} AS full_name,
           ${
             tableHasColumn('orders', 'payment_method_slug')
@@ -387,7 +499,10 @@ export function registerOperationalReportHandlers() {
           } AS paid_at,
           ${
             tableHasColumn('orders', 'completed_at') ? 'o.completed_at' : 'NULL'
-          } AS completed_at
+          } AS completed_at,
+          ${
+            tableHasColumn('orders', 'status_code') ? 'o.status_code' : 'NULL'
+          } AS status_code
         FROM orders o
         WHERE ${tsMs} >= @fromMs AND ${tsMs} < @toMs
         ${andBranch}
@@ -400,6 +515,11 @@ export function registerOperationalReportHandlers() {
       let inside_hours_count = 0;
       let outside_hours_count = 0;
       let canceled_order_count = 0;
+      // Rows that are neither a sale nor a cancellation — an open ticket, or a
+      // row whose total never got recalculated. They were previously counted
+      // nowhere while still being printed in the table, which is why the cards
+      // (29 + 1 + 1) did not add up to the table's own row count (37).
+      let uncounted_order_count = 0;
 
       let gross_sales_total = 0;
       let discounts = 0;
@@ -409,11 +529,15 @@ export function registerOperationalReportHandlers() {
       let cancelled_total = 0;
 
       const decoratedOrders: Array<{
+        counted: 'sale' | 'cancelled' | 'uncounted';
+        uncounted_reason?: 'no_total' | 'not_placed';
         id: string;
         order_number: string;
         full_name: string;
         ts_ms: number;
         payment_method_id?: string;
+        payment_method_slug?: string;
+        reference_no?: string;
         order_type: number;
         status: string | number;
         operational_status: 'inside' | 'outside';
@@ -427,15 +551,31 @@ export function registerOperationalReportHandlers() {
         const ts = Number(r.ts_ms || 0);
         const inside = insideOperational(ts);
 
+        // Decided once, here, and carried on the row. The table used to be
+        // built before this and so could not say which rows the totals had
+        // skipped — the footer knew, the reader did not.
+        const { counted, uncounted_reason } = classifyRow(r);
+        const cancelled = counted === 'cancelled';
+        const sold = counted === 'sale';
+
         const decorated = {
+          counted,
+          uncounted_reason,
           id: String(r.id),
           order_number: String(r.order_number ?? r.id ?? ''),
           full_name: String(r.full_name ?? ''),
           ts_ms: ts,
           payment_method_id: r.payment_method_id ?? undefined,
+          payment_method_slug: r.payment_method_slug ?? undefined,
+          reference_no: r.reference_no != null ? String(r.reference_no) : undefined,
           order_type: Number(r.order_type ?? 0),
           status: r.status ?? '',
-          operational_status: inside ? 'inside' : 'outside',
+          // `as const`: without it this widens to `string` and stops matching
+          // the declared row shape — a pre-existing typecheck failure in this
+          // file, and the reason its errors were noise rather than signal.
+          operational_status: (inside ? 'inside' : 'outside') as
+            | 'inside'
+            | 'outside',
           discount_amount:
             r.discount_amount != null ? Number(r.discount_amount) : undefined,
           discount_total:
@@ -447,29 +587,26 @@ export function registerOperationalReportHandlers() {
 
         decoratedOrders.push(decorated);
 
-        if (isCancelled(r)) {
+        if (cancelled) {
           canceled_order_count += 1;
           cancelled_total += Number(r.grand_total ?? r.subtotal ?? 0);
           continue;
         }
 
-        if (isSold(r)) {
+        if (sold) {
           total_order += 1;
           if (inside) inside_hours_count += 1;
           else outside_hours_count += 1;
 
-          const preRaw = Number(r.subtotal ?? 0);
-          const pre = preRaw !== 0 ? preRaw : Number(r.grand_total ?? 0);
+          const money = rowMoney(r);
 
-          const disc = Number(r.discount_total ?? r.discount_amount ?? 0);
-          const delv = Number(r.delivery_fee ?? 0);
-          const gtot = Number(r.grand_total ?? 0);
-
-          gross_sales_total += pre;
-          discounts += disc;
-          delivery_fees += delv;
-          grand_total += gtot;
-          if (!inside) outside_hours_total += gtot;
+          gross_sales_total += money.gross;
+          discounts += money.discount;
+          delivery_fees += money.delivery;
+          grand_total += money.net;
+          if (!inside) outside_hours_total += money.net;
+        } else {
+          uncounted_order_count += 1;
         }
       }
 
@@ -800,6 +937,11 @@ export function registerOperationalReportHandlers() {
         inside_hours_count,
         outside_hours_count,
         canceled_order_count,
+        uncounted_order_count,
+        // Sales + cancelled + uncounted == the number of rows in the table
+        // below. If these two ever disagree again, the report is dropping
+        // orders on the floor and this is where it shows.
+        listed_order_count: decoratedOrders.length,
         gross_sales_total: +gross_sales_total.toFixed(3),
         grand_total: +grand_total.toFixed(3),
         discounts: +discounts.toFixed(3),

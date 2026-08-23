@@ -52,6 +52,13 @@ export type DataTableProps<T> = {
   /** Optional row click — ignored when the click originated on a control. */
   onRowClick?: (row: T) => void;
   /**
+   * Extra classes for one row, so a caller can mark rows that need attention.
+   * Applied after the stripe and before hover, so it wins over the stripe but
+   * a hover still reads. Keep to a border marker plus a faint tint — a solid
+   * fill has to stay legible in both themes and usually does not.
+   */
+  rowClassName?: (row: T, index: number) => string;
+  /**
    * Marks the current row when clicking one filters something else on the page.
    * Without it a master-detail table gives no feedback: the list below changes
    * and nothing says which row caused it.
@@ -79,6 +86,7 @@ export function DataTable<T>({
   onPageSizeChange,
   getRowId,
   onRowClick,
+  rowClassName,
   selectedRowId = null,
   renderExpanded,
   expandLabel,
@@ -218,6 +226,7 @@ export function DataTable<T>({
                         ? 'bg-default-50'
                         : ''
                     }
+                    ${rowClassName?.(row.original as T, i) ?? ''}
                     hover:bg-default-200
                     ${onRowClick ? 'cursor-pointer' : ''}`}
                 >
