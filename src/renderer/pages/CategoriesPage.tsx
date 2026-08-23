@@ -5,6 +5,7 @@ import { Button, Chip } from '@heroui/react';
 import { Check, Minus, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
+import { errorLine as errLine } from '../utils/posError';
 import {
   DataState,
   FilterSelect,
@@ -96,7 +97,7 @@ export function CategoriesPage() {
     } catch (e) {
       // Was a console.error and an empty array, which renders identically to a
       // category that genuinely has no subcategories.
-      setSubsError(e instanceof Error ? e.message : String(e ?? ''));
+      setSubsError(errLine(e));
       setSubcats([]);
     } finally {
       setLoadingSubs(false);

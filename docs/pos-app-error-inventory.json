@@ -1,0 +1,1291 @@
+{
+  "note": "Failures raised by the POS client itself — the inventory requested in the error-contract reply. The backend cannot know about these: a missing Windows printer, an item with no price, a line already sent to the kitchen. Ready to merge into the shared catalogue.",
+  "order_fate": "A validation refusal throws before any write, so the order is untouched and stays open on the till. A push failure follows the outbox rule: cleared only on ack, kept under the same temp_id when retryable, marked permanent when not.",
+  "known_when": "Every `app` row with a raised_at under src/main is enforced in the main process. The rules listed in CheckoutModal validate() are also checked in the form before the call, so the cashier sees those before pressing Place Order rather than after.",
+  "count": 45,
+  "codes": [
+    {
+      "code": "POS_PAIR_INPUT_MISSING",
+      "severity": "inline",
+      "retry": false,
+      "where": "auth:pair (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/auth.ts",
+          "line": 213,
+          "trigger": "throw posError('POS_PAIR_INPUT_MISSING');"
+        }
+      ],
+      "en": {
+        "title": "Pairing details missing",
+        "body": "Enter both the server address and the pairing code."
+      },
+      "ar": {
+        "title": "بيانات الربط ناقصة",
+        "body": "أدخل عنوان الخادم ورمز الربط معًا."
+      }
+    },
+    {
+      "code": "POS_PAIR_RESPONSE_INVALID",
+      "severity": "blocker",
+      "retry": true,
+      "where": "auth:pair (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [
+        {
+          "file": "src/main/sync.ts",
+          "line": 506,
+          "trigger": "throw posError('POS_PAIR_RESPONSE_INVALID');"
+        }
+      ],
+      "en": {
+        "title": "Pairing failed",
+        "body": "The server sent back a reply we could not read. Check the address and the pairing code."
+      },
+      "ar": {
+        "title": "تعذر ربط الجهاز",
+        "body": "رد الخادم غير مفهوم. تأكد من العنوان ورمز الربط."
+      }
+    },
+    {
+      "code": "POS_PAY_NOT_CONFIGURED",
+      "severity": "toast",
+      "retry": false,
+      "where": "payments:createLink (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/payments.ts",
+          "line": 57,
+          "trigger": "throw posError('POS_PAY_NOT_CONFIGURED');"
+        }
+      ],
+      "en": {
+        "title": "Online payment is not set up",
+        "body": "This till cannot create payment links yet. Take the payment another way, or ask the office to finish setup."
+      },
+      "ar": {
+        "title": "الدفع الإلكتروني غير مفعّل",
+        "body": "لا يمكن إنشاء روابط الدفع من هذا الجهاز. استخدم طريقة دفع أخرى أو اطلب من الإدارة إكمال الإعداد."
+      }
+    },
+    {
+      "code": "POS_VAL_ADDRESS_REQUIRED",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders.complete (delivery)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1511,
+          "trigger": "throw posError('POS_VAL_ADDRESS_REQUIRED', { field: 'address' });"
+        }
+      ],
+      "en": {
+        "title": "Address is required",
+        "body": "A delivery order needs a delivery address."
+      },
+      "ar": {
+        "title": "العنوان مطلوب",
+        "body": "طلب التوصيل يحتاج إلى عنوان."
+      }
+    },
+    {
+      "code": "POS_VAL_NAME_REQUIRED",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders.complete",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1508,
+          "trigger": "throw posError('POS_VAL_NAME_REQUIRED', { field: 'full_name' });"
+        }
+      ],
+      "en": {
+        "title": "Customer name is required",
+        "body": "Enter the customer’s name."
+      },
+      "ar": {
+        "title": "اسم العميل مطلوب",
+        "body": "أدخل اسم العميل."
+      }
+    },
+    {
+      "code": "POS_VAL_PAYMENT_METHOD_REQUIRED",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders.complete",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [],
+      "en": {
+        "title": "Payment method is required",
+        "body": "Choose how the customer is paying."
+      },
+      "ar": {
+        "title": "طريقة الدفع مطلوبة",
+        "body": "اختر طريقة دفع العميل."
+      }
+    },
+    {
+      "code": "POS_VAL_ORDER_ID_MISSING",
+      "severity": "toast",
+      "retry": false,
+      "where": "payments (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/payments.ts",
+          "line": 173,
+          "trigger": "if (!id) throw posError('POS_VAL_ORDER_ID_MISSING');"
+        }
+      ],
+      "en": {
+        "title": "No order selected",
+        "body": "Open an order first."
+      },
+      "ar": {
+        "title": "لم يتم اختيار طلب",
+        "body": "افتح طلبًا أولًا."
+      }
+    },
+    {
+      "code": "POS_VAL_TYPE_LOCKED_TABLE",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setType",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 524,
+          "trigger": "throw posError('POS_VAL_TYPE_LOCKED_TABLE');"
+        }
+      ],
+      "en": {
+        "title": "The table is still held",
+        "body": "Release the table before changing this order to another type."
+      },
+      "ar": {
+        "title": "الطاولة ما زالت محجوزة",
+        "body": "حرّر الطاولة قبل تغيير نوع الطلب."
+      }
+    },
+    {
+      "code": "POS_VAL_TYPE_LOCKED_CLOSED",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setType",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 536,
+          "trigger": "throw posError('POS_VAL_TYPE_LOCKED_CLOSED');"
+        }
+      ],
+      "en": {
+        "title": "The order is closed",
+        "body": "The order type cannot change once the order is closed."
+      },
+      "ar": {
+        "title": "الطلب مغلق",
+        "body": "لا يمكن تغيير نوع الطلب بعد إغلاقه."
+      }
+    },
+    {
+      "code": "POS_VAL_STATUS_UNKNOWN",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setStatus",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 606,
+          "trigger": "throw posError('POS_VAL_STATUS_UNKNOWN');"
+        }
+      ],
+      "en": {
+        "title": "Status not allowed",
+        "body": "The till cannot set that status."
+      },
+      "ar": {
+        "title": "حالة غير مسموحة",
+        "body": "لا يمكن للجهاز تعيين هذه الحالة."
+      }
+    },
+    {
+      "code": "POS_VAL_STATUS_TRANSITION",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setStatus",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "current",
+        "target"
+      ],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 636,
+          "trigger": "throw posError('POS_VAL_STATUS_TRANSITION', {"
+        }
+      ],
+      "en": {
+        "title": "That step is not allowed",
+        "body": "An order cannot go from {current} to {target}."
+      },
+      "ar": {
+        "title": "خطوة غير مسموحة",
+        "body": "لا يمكن نقل الطلب من {current} إلى {target}."
+      }
+    },
+    {
+      "code": "POS_VAL_CANCEL_EMPTY_DRAFT",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setStatus",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 623,
+          "trigger": "throw posError('POS_VAL_CANCEL_EMPTY_DRAFT');"
+        }
+      ],
+      "en": {
+        "title": "Nothing to cancel",
+        "body": "An empty draft was never sent, so it cannot be cancelled. Delete it instead."
+      },
+      "ar": {
+        "title": "لا يوجد ما يُلغى",
+        "body": "المسودة الفارغة لم تُرسل أصلًا فلا يمكن إلغاؤها. احذفها بدلًا من ذلك."
+      }
+    },
+    {
+      "code": "POS_VAL_LINES_UNREADABLE",
+      "severity": "toast",
+      "retry": true,
+      "where": "orders:close",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1320,
+          "trigger": "throw posError('POS_VAL_LINES_UNREADABLE');"
+        }
+      ],
+      "en": {
+        "title": "The order could not be read",
+        "body": "The order’s items could not be read just now. Try again."
+      },
+      "ar": {
+        "title": "تعذرت قراءة الطلب",
+        "body": "تعذرت قراءة أصناف الطلب الآن. حاول مرة أخرى."
+      }
+    },
+    {
+      "code": "POS_VAL_NOT_DINE_IN",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setTable",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1832,
+          "trigger": "if (Number(o.order_type) !== 3) throw posError('POS_VAL_NOT_DINE_IN');"
+        }
+      ],
+      "en": {
+        "title": "Not a dine-in order",
+        "body": "Tables are only for dine-in orders."
+      },
+      "ar": {
+        "title": "الطلب ليس داخل الصالة",
+        "body": "الطاولات مخصصة لطلبات الصالة فقط."
+      }
+    },
+    {
+      "code": "POS_VAL_TABLE_NOT_FOUND",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setTable",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1828,
+          "trigger": "if (!table) throw posError('POS_VAL_TABLE_NOT_FOUND');"
+        }
+      ],
+      "en": {
+        "title": "Table not found",
+        "body": "That table is no longer set up on this till."
+      },
+      "ar": {
+        "title": "الطاولة غير موجودة",
+        "body": "هذه الطاولة لم تعد معرّفة على هذا الجهاز."
+      }
+    },
+    {
+      "code": "POS_VAL_TABLE_HAS_ITEMS",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:clearTable",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1888,
+          "trigger": "throw posError('POS_VAL_TABLE_HAS_ITEMS');"
+        }
+      ],
+      "en": {
+        "title": "The order has items",
+        "body": "Use “Close & Release” to free this table."
+      },
+      "ar": {
+        "title": "الطلب يحتوي أصنافًا",
+        "body": "استخدم \"إغلاق وتحرير\" لتحرير الطاولة."
+      }
+    },
+    {
+      "code": "POS_VAL_TABLE_CLEAR_UNVERIFIED",
+      "severity": "toast",
+      "retry": true,
+      "where": "orders:clearTable",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1893,
+          "trigger": "throw posError('POS_VAL_TABLE_CLEAR_UNVERIFIED');"
+        }
+      ],
+      "en": {
+        "title": "The table was left as it is",
+        "body": "The order’s items could not be read, so nothing was changed."
+      },
+      "ar": {
+        "title": "لم يتم تغيير الطاولة",
+        "body": "تعذرت قراءة أصناف الطلب، فلم يتم تغيير شيء."
+      }
+    },
+    {
+      "code": "POS_VAL_ITEM_NOT_FOUND",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:addLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 850,
+          "trigger": "if (!item) throw posError('POS_VAL_ITEM_NOT_FOUND');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 952,
+          "trigger": "if (!item) throw posError('POS_VAL_ITEM_NOT_FOUND');"
+        }
+      ],
+      "en": {
+        "title": "Item not found",
+        "body": "That item is no longer on the menu. Refresh the catalogue."
+      },
+      "ar": {
+        "title": "الصنف غير موجود",
+        "body": "هذا الصنف لم يعد ضمن القائمة. حدّث قائمة الأصناف."
+      }
+    },
+    {
+      "code": "POS_VAL_ITEM_NO_PRICE",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:addLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "name"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 861,
+          "trigger": "throw posError('POS_VAL_ITEM_NO_PRICE', { params: { name: String(item.name ?? '') } });"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 996,
+          "trigger": "throw posError('POS_VAL_ITEM_NO_PRICE', { params: { name: String(item.name ?? '') } });"
+        },
+        {
+          "file": "src/shared/errorCodes.ts",
+          "line": 6,
+          "trigger": "//   throw posError('POS_VAL_ITEM_NO_PRICE', { params: { name: item.name } });"
+        }
+      ],
+      "en": {
+        "title": "No price is set",
+        "body": "“{name}” has no price, so it cannot be sold. Ask the office to set one."
+      },
+      "ar": {
+        "title": "لا يوجد سعر",
+        "body": "الصنف \"{name}\" بدون سعر ولا يمكن بيعه. اطلب من الإدارة تحديد سعر له."
+      }
+    },
+    {
+      "code": "POS_VAL_VARIATION_REQUIRED",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:addLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 858,
+          "trigger": "throw posError('POS_VAL_VARIATION_REQUIRED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 990,
+          "trigger": "throw posError('POS_VAL_VARIATION_REQUIRED');"
+        }
+      ],
+      "en": {
+        "title": "Choose an option",
+        "body": "Pick a size or option for this item."
+      },
+      "ar": {
+        "title": "اختر النوع",
+        "body": "اختر الحجم أو النوع لهذا الصنف."
+      }
+    },
+    {
+      "code": "POS_VAL_VARIATION_NO_PRICE",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:addLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "name",
+        "variation"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 982,
+          "trigger": "throw posError('POS_VAL_VARIATION_NO_PRICE', {"
+        }
+      ],
+      "en": {
+        "title": "No price is set",
+        "body": "“{name} — {variation}” has no price, so it cannot be sold."
+      },
+      "ar": {
+        "title": "لا يوجد سعر",
+        "body": "\"{name} — {variation}\" بدون سعر ولا يمكن بيعه."
+      }
+    },
+    {
+      "code": "POS_VAL_ADDON_NOT_FOUND",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:addLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1026,
+          "trigger": "if (!a) throw posError('POS_VAL_ADDON_NOT_FOUND');"
+        }
+      ],
+      "en": {
+        "title": "Add-on not found",
+        "body": "One of the selected add-ons no longer exists."
+      },
+      "ar": {
+        "title": "الإضافة غير موجودة",
+        "body": "إحدى الإضافات المختارة لم تعد موجودة."
+      }
+    },
+    {
+      "code": "POS_VAL_ADDON_UNAVAILABLE",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:addLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "name"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1030,
+          "trigger": "throw posError('POS_VAL_ADDON_UNAVAILABLE', { params: { name: String(a.name ?? '') } });"
+        }
+      ],
+      "en": {
+        "title": "Add-on unavailable",
+        "body": "“{name}” is not available for this item."
+      },
+      "ar": {
+        "title": "الإضافة غير متاحة",
+        "body": "الإضافة \"{name}\" غير متاحة لهذا الصنف."
+      }
+    },
+    {
+      "code": "POS_VAL_ADDON_GROUP_REQUIRED",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:addLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "group"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1050,
+          "trigger": "throw posError('POS_VAL_ADDON_GROUP_REQUIRED', { params: { group: String(g.name ?? '') } });"
+        }
+      ],
+      "en": {
+        "title": "A choice is needed",
+        "body": "Choose an option for “{group}”."
+      },
+      "ar": {
+        "title": "اختيار مطلوب",
+        "body": "اختر خيارًا من \"{group}\"."
+      }
+    },
+    {
+      "code": "POS_VAL_ADDON_GROUP_MAX",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:addLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "max",
+        "group"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1054,
+          "trigger": "throw posError('POS_VAL_ADDON_GROUP_MAX', {"
+        }
+      ],
+      "en": {
+        "title": "Too many options",
+        "body": "You can choose up to {max} for “{group}”."
+      },
+      "ar": {
+        "title": "خيارات أكثر من اللازم",
+        "body": "يمكنك اختيار {max} كحد أقصى من \"{group}\"."
+      }
+    },
+    {
+      "code": "POS_VAL_QTY",
+      "severity": "inline",
+      "retry": false,
+      "where": "cart:setQty",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/cart.ts",
+          "line": 180,
+          "trigger": "if (!Number.isFinite(q) || q <= 0) throw posError('POS_VAL_QTY', { field: 'qty' });"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 946,
+          "trigger": "throw posError('POS_VAL_QTY', { field: 'qty' });"
+        }
+      ],
+      "en": {
+        "title": "Check the quantity",
+        "body": "Quantity must be at least 1."
+      },
+      "ar": {
+        "title": "تأكد من الكمية",
+        "body": "يجب أن تكون الكمية 1 على الأقل."
+      }
+    },
+    {
+      "code": "POS_VAL_LINE_NOT_FOUND",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:updateLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1197,
+          "trigger": "if (!line) throw posError('POS_VAL_LINE_NOT_FOUND');"
+        }
+      ],
+      "en": {
+        "title": "Line not found",
+        "body": "That line is no longer on the order."
+      },
+      "ar": {
+        "title": "السطر غير موجود",
+        "body": "هذا السطر لم يعد ضمن الطلب."
+      }
+    },
+    {
+      "code": "POS_VAL_LINE_SENT_MODIFY",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:updateLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1201,
+          "trigger": "throw posError('POS_VAL_LINE_SENT_MODIFY');"
+        }
+      ],
+      "en": {
+        "title": "Already sent to the kitchen",
+        "body": "This item is with the kitchen and cannot be changed."
+      },
+      "ar": {
+        "title": "أُرسل إلى المطبخ",
+        "body": "هذا الصنف أُرسل إلى المطبخ ولا يمكن تعديله."
+      }
+    },
+    {
+      "code": "POS_VAL_LINE_SENT_REMOVE",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:removeLine",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1230,
+          "trigger": "throw posError('POS_VAL_LINE_SENT_REMOVE');"
+        }
+      ],
+      "en": {
+        "title": "Already sent to the kitchen",
+        "body": "This item is with the kitchen and cannot be removed."
+      },
+      "ar": {
+        "title": "أُرسل إلى المطبخ",
+        "body": "هذا الصنف أُرسل إلى المطبخ ولا يمكن حذفه."
+      }
+    },
+    {
+      "code": "POS_VAL_DELIVERY_DISABLED",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setType",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 516,
+          "trigger": "throw posError('POS_VAL_DELIVERY_DISABLED');"
+        }
+      ],
+      "en": {
+        "title": "Delivery is switched off",
+        "body": "This branch is not taking delivery orders. Choose pickup or dine-in."
+      },
+      "ar": {
+        "title": "التوصيل غير مفعّل",
+        "body": "هذا الفرع لا يستقبل طلبات توصيل. اختر استلام أو صالة."
+      }
+    },
+    {
+      "code": "POS_VAL_DELIVERY_FEE_WRONG_TYPE",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:setDeliveryFee",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 687,
+          "trigger": "throw posError('POS_VAL_DELIVERY_FEE_WRONG_TYPE');"
+        }
+      ],
+      "en": {
+        "title": "Delivery orders only",
+        "body": "Only a delivery order can carry a delivery charge."
+      },
+      "ar": {
+        "title": "لطلبات التوصيل فقط",
+        "body": "رسوم التوصيل تُضاف لطلبات التوصيل فقط."
+      }
+    },
+    {
+      "code": "POS_VAL_DELIVERY_FEE_NOT_POSITIVE",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:setDeliveryFee",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 698,
+          "trigger": "throw posError('POS_VAL_DELIVERY_FEE_NOT_POSITIVE', { field: 'delivery_fee' });"
+        }
+      ],
+      "en": {
+        "title": "Check the amount",
+        "body": "Enter a delivery charge greater than zero."
+      },
+      "ar": {
+        "title": "تأكد من المبلغ",
+        "body": "أدخل رسوم توصيل أكبر من صفر."
+      }
+    },
+    {
+      "code": "POS_VAL_DELIVERY_FEE_TOO_LARGE",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:setDeliveryFee",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 702,
+          "trigger": "throw posError('POS_VAL_DELIVERY_FEE_TOO_LARGE', { field: 'delivery_fee' });"
+        }
+      ],
+      "en": {
+        "title": "The amount looks too large",
+        "body": "Check the delivery charge before saving it."
+      },
+      "ar": {
+        "title": "المبلغ يبدو كبيرًا",
+        "body": "راجع رسوم التوصيل قبل الحفظ."
+      }
+    },
+    {
+      "code": "POS_PRINT_NO_PRINTER",
+      "severity": "toast",
+      "retry": true,
+      "where": "orders:print",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [
+        {
+          "file": "src/main/print.ts",
+          "line": 1051,
+          "trigger": "throw posError('POS_PRINT_NO_PRINTER');"
+        }
+      ],
+      "en": {
+        "title": "No printer found",
+        "body": "No printer is installed on this computer. Add one in Windows settings, then try again."
+      },
+      "ar": {
+        "title": "لا توجد طابعة",
+        "body": "لا توجد طابعة مثبتة على هذا الجهاز. أضف طابعة من إعدادات ويندوز ثم حاول مرة أخرى."
+      }
+    },
+    {
+      "code": "POS_PRINT_ORDER_NOT_LOCAL",
+      "severity": "toast",
+      "retry": false,
+      "where": "orders:print",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/print.ts",
+          "line": 1214,
+          "trigger": "throw posError('POS_PRINT_ORDER_NOT_LOCAL');"
+        }
+      ],
+      "en": {
+        "title": "Cannot reprint here",
+        "body": "This order came from the server for lookup only, so its items are not stored on this till."
+      },
+      "ar": {
+        "title": "تعذرت الطباعة هنا",
+        "body": "هذا الطلب مسحوب من الخادم للاطلاع فقط، وأصنافه غير محفوظة على هذا الجهاز."
+      }
+    },
+    {
+      "code": "POS_PRINT_LOGO_URL_INVALID",
+      "severity": "toast",
+      "retry": false,
+      "where": "print:logo",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/print.ts",
+          "line": 355,
+          "trigger": "throw posError('POS_PRINT_LOGO_URL_INVALID', { params: { key: String(key) } });"
+        }
+      ],
+      "en": {
+        "title": "Logo address is invalid",
+        "body": "The logo address from the server is not a valid link or file."
+      },
+      "ar": {
+        "title": "رابط الشعار غير صالح",
+        "body": "رابط الشعار المرسل من الخادم غير صالح."
+      }
+    },
+    {
+      "code": "POS_PRINT_LOGO_DOWNLOAD_FAILED",
+      "severity": "toast",
+      "retry": true,
+      "where": "print:logo",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [
+        {
+          "file": "src/main/print.ts",
+          "line": 359,
+          "trigger": "if (!cached) throw posError('POS_PRINT_LOGO_DOWNLOAD_FAILED', { params: { url: String(remoteUrl) } });"
+        }
+      ],
+      "en": {
+        "title": "The logo could not be downloaded",
+        "body": "Check the connection and try again."
+      },
+      "ar": {
+        "title": "تعذر تحميل الشعار",
+        "body": "تأكد من الاتصال وحاول مرة أخرى."
+      }
+    },
+    {
+      "code": "POS_PRINT_LOGO_NOT_CONFIGURED",
+      "severity": "toast",
+      "retry": false,
+      "where": "print:logo",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "nothing",
+      "raised_at": [
+        {
+          "file": "src/main/print.ts",
+          "line": 363,
+          "trigger": "throw posError('POS_PRINT_LOGO_NOT_CONFIGURED');"
+        }
+      ],
+      "en": {
+        "title": "No logo is set",
+        "body": "The office has not set a receipt logo yet."
+      },
+      "ar": {
+        "title": "لا يوجد شعار",
+        "body": "لم تقم الإدارة بتعيين شعار للفاتورة بعد."
+      }
+    },
+    {
+      "code": "POS_TILL_LOCKED",
+      "severity": "blocker",
+      "retry": false,
+      "where": "any write (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "call a manager",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 405,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 502,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 590,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 682,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 840,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 937,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1193,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1222,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1241,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1256,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1280,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1293,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1468,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1484,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        },
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1694,
+          "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
+        }
+      ],
+      "en": {
+        "title": "The till is locked",
+        "body": "Unlock the till before ringing up anything else."
+      },
+      "ar": {
+        "title": "نقطة البيع مقفلة",
+        "body": "افتح قفل نقطة البيع قبل متابعة البيع."
+      }
+    },
+    {
+      "code": "POS_LOGIN_INVALID",
+      "severity": "inline",
+      "retry": false,
+      "where": "auth:login (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/auth.ts",
+          "line": 157,
+          "trigger": "if (!ident || !password) throw posError('POS_LOGIN_INVALID');"
+        },
+        {
+          "file": "src/main/handlers/auth.ts",
+          "line": 160,
+          "trigger": "if (!row || !row.password_hash) throw posError('POS_LOGIN_INVALID');"
+        },
+        {
+          "file": "src/main/handlers/auth.ts",
+          "line": 165,
+          "trigger": "throw posError('POS_LOGIN_INVALID');"
+        },
+        {
+          "file": "src/main/handlers/auth.ts",
+          "line": 171,
+          "trigger": "if (!ok) throw posError('POS_LOGIN_INVALID');"
+        }
+      ],
+      "en": {
+        "title": "Sign-in failed",
+        "body": "That username or password is not correct."
+      },
+      "ar": {
+        "title": "تعذر تسجيل الدخول",
+        "body": "اسم المستخدم أو كلمة المرور غير صحيحة."
+      }
+    },
+    {
+      "code": "POS_CFG_BASE_URL_MISSING",
+      "severity": "blocker",
+      "retry": false,
+      "where": "sync (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "call a manager",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/sync.ts",
+          "line": 419,
+          "trigger": "if (!url) throw posError('POS_CFG_BASE_URL_MISSING');"
+        }
+      ],
+      "en": {
+        "title": "Server address is missing",
+        "body": "No server address is saved on this till. Add it in Settings."
+      },
+      "ar": {
+        "title": "عنوان الخادم غير موجود",
+        "body": "لا يوجد عنوان خادم محفوظ على هذا الجهاز. أضفه من الإعدادات."
+      }
+    },
+    {
+      "code": "POS_CFG_API_NOT_READY",
+      "severity": "info",
+      "retry": true,
+      "where": "sync (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [
+        {
+          "file": "src/main/sync.ts",
+          "line": 436,
+          "trigger": "throw posError('POS_CFG_API_NOT_READY');"
+        }
+      ],
+      "en": {
+        "title": "Not connected yet",
+        "body": "The till is still connecting to the server. Try again in a moment."
+      },
+      "ar": {
+        "title": "لم يكتمل الاتصال",
+        "body": "الجهاز ما زال يتصل بالخادم. حاول بعد لحظات."
+      }
+    },
+    {
+      "code": "POS_CFG_SETTINGS_NOT_READY",
+      "severity": "info",
+      "retry": true,
+      "where": "settings (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [
+        {
+          "file": "src/main/services/settings.ts",
+          "line": 104,
+          "trigger": "throw posError('POS_CFG_SETTINGS_NOT_READY');"
+        }
+      ],
+      "en": {
+        "title": "Still loading",
+        "body": "Settings are still loading. Try again in a moment."
+      },
+      "ar": {
+        "title": "جارٍ التحميل",
+        "body": "الإعدادات ما زالت قيد التحميل. حاول بعد لحظات."
+      }
+    },
+    {
+      "code": "POS_DB_WRITE_FAILED",
+      "severity": "toast",
+      "retry": true,
+      "where": "local database (app)",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [
+        {
+          "file": "src/main/handlers/orders.ts",
+          "line": 1612,
+          "trigger": "throw posError('POS_DB_WRITE_FAILED', { cause: err });"
+        }
+      ],
+      "en": {
+        "title": "Could not save",
+        "body": "This till could not save the change. Try again."
+      },
+      "ar": {
+        "title": "تعذر الحفظ",
+        "body": "تعذر حفظ التغيير على هذا الجهاز. حاول مرة أخرى."
+      }
+    },
+    {
+      "code": "POS_UNKNOWN",
+      "severity": "toast",
+      "retry": true,
+      "where": "*",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [],
+      "user_action": "retry",
+      "raised_at": [],
+      "en": {
+        "title": "Something went wrong",
+        "body": "The action did not go through. Try again."
+      },
+      "ar": {
+        "title": "حدث خطأ ما",
+        "body": "لم تكتمل العملية. حاول مرة أخرى."
+      }
+    }
+  ]
+}

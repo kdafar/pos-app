@@ -6,6 +6,7 @@ import { useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import { DataState, PageShell, SearchField } from '../components/PageShell';
 
+import { errorLine as errLine } from '../utils/posError';
 type StateRow = {
   id?: string | number;
   name: string;
@@ -141,7 +142,7 @@ export default function LocationsPage() {
     } catch (e) {
       // Was swallowed: three empty tables look like a branch with no delivery
       // areas configured, which is a very different problem to report.
-      setError(e instanceof Error ? e.message : String(e ?? ''));
+      setError(errLine(e));
     } finally {
       setLoading(false);
     }

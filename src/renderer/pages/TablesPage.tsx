@@ -8,6 +8,7 @@ import { useToast } from '../components/ToastProvider';
 import { useI18n } from '../i18n';
 import type { StringKey } from '../i18n';
 import { DataTable } from '../components/DataTable';
+import { errorLine as errLine } from '../utils/posError';
 import {
   DataState,
   FilterSelect,
@@ -107,7 +108,7 @@ export default function TablesPage() {
     } catch (e) {
       // Was a console.error plus an empty list, which reads as "this branch has
       // no tables" — a very different thing from "the list failed to load".
-      setError(e instanceof Error ? e.message : String(e ?? ''));
+      setError(errLine(e));
       setRows([]);
     } finally {
       setLoading(false);
@@ -177,16 +178,9 @@ export default function TablesPage() {
           order_id: row.current_order_id ?? null,
         });
       } catch (e) {
-        console.error('orders:clearTable failed', e);
-        toast({
-          tone: 'danger',
-          title: t('admin.tables.clearFailed'),
-          // The actual reason, rather than a generic "contact support" — the
-          // person reading this is usually the one who can fix it.
-          message:
-            (e instanceof Error ? e.message : String(e ?? '')) ||
-            t('admin.supportHint'),
-        });
+        // The actual reason, rather than a generic "contact support" — the
+        // person reading this is usually the one who can fix it.
+        toast.error(e, { title: t('admin.tables.clearFailed') });
         return;
       }
       await load();

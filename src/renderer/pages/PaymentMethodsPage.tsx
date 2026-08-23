@@ -3,6 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Chip } from '@heroui/react';
 import { useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
+import { errorLine as errLine } from '../utils/posError';
 import {
   DataState,
   FilterSelect,
@@ -95,7 +96,7 @@ export default function PaymentMethodsPage() {
     } catch (e) {
       // Previously this failed silently and left an empty table, which looks
       // exactly like a shop with no payment methods configured.
-      setError(e instanceof Error ? e.message : String(e ?? ''));
+      setError(errLine(e));
     } finally {
       setLoading(false);
     }

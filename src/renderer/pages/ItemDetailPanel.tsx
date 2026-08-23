@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Chip, Spinner } from '@heroui/react';
 import { useI18n } from '../i18n';
 
+import { errorLine as errLine } from '../utils/posError';
 /**
  * What an item actually sells as: its sizes and its add-on groups.
  *
@@ -51,7 +52,6 @@ export function ItemDetailPanel({
   hasAddons?: boolean;
 }) {
   const { t, name: localName, money } = useI18n();
-
   const [variations, setVariations] = useState<Variation[]>([]);
   const [groups, setGroups] = useState<AddonGroup[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
@@ -75,7 +75,7 @@ export function ItemDetailPanel({
         setAddons(a || []);
       } catch (e) {
         if (!cancelled)
-          setError(e instanceof Error ? e.message : String(e ?? ''));
+          setError(errLine(e));
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -8,6 +8,7 @@ import { ThemeProvider } from '../context/ThemeContext';
 import { I18nProvider } from './i18n';
 import { ConfirmDialogProvider } from './../renderer/components/ConfirmDialogProvider';
 import { ToastProvider } from './../renderer/components/ToastProvider';
+import { ErrorBoundary } from './../renderer/components/ErrorBoundary';
 declare global {
   interface Window {
     electronAPI?: { invoke: (channel: string, ...args: any[]) => Promise<any> };
@@ -69,7 +70,11 @@ try {
             <HeroUIProvider>
               <ToastProvider>
                 <ConfirmDialogProvider>
-                  <App />
+                  {/* Inside the providers, so a crashed screen still renders in
+                      the right language and can still raise a toast. */}
+                  <ErrorBoundary>
+                    <App />
+                  </ErrorBoundary>
                 </ConfirmDialogProvider>
               </ToastProvider>
             </HeroUIProvider>
