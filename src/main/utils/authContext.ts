@@ -25,15 +25,9 @@ export function allowAnonymousAdmin(): boolean {
   }
 }
 
-/** Roles that may bypass order locks and see other operators' orders. */
-export const ADMIN_ROLES = [
-  'admin',
-  'owner',
-  'manager',
-  'super_admin',
-  'superadmin',
-];
-
-export function isAdminRole(role: string | null | undefined): boolean {
-  return ADMIN_ROLES.includes(String(role || '').toLowerCase());
-}
+/**
+ * Roles that may bypass order locks and see other operators' orders.
+ * Defined alongside ROLE_DEFAULTS so the admin list and the permission table
+ * can never disagree about what a role like `owner` is allowed to do.
+ */
+export { ADMIN_ROLES, isAdminRole } from '../../shared/permissions';

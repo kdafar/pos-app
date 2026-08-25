@@ -127,16 +127,11 @@ export default function ClosingReport() {
   const [toStr, setToStr] = useState('');
   const [data, setData] = useState<ReportData | null>(null);
 
-  const ALLOWED_ROLES = [
-    'admin',
-    'manager',
-    'owner',
-    'superadmin',
-    'super admin',
-  ];
-  const canEditRange =
-    !!user &&
-    ALLOWED_ROLES.includes(String(user?.role || '').toLowerCase().trim());
+  // Was a hardcoded admin-tier role list. Choosing which day a closing
+  // report covers is a reporting action, so it asks for the reporting
+  // permission — which also makes it configurable per role instead of
+  // needing a code change to let a bookkeeper look at last Tuesday.
+  const canEditRange = !!user?.permissions?.includes('reports.export');
 
   const loadReport = useCallback(
     async (opts?: { from?: number; to?: number }) => {

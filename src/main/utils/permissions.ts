@@ -3,7 +3,7 @@ import type { MainServices } from '../types/common';
 import { allowAnonymousAdmin, isAdminRole } from './authContext';
 
 import { posError } from '../../shared/errorCodes';
-import { rolePermissions, type Permission } from '../../shared/permissions';
+import { PERMISSIONS, rolePermissions, type Permission } from '../../shared/permissions';
 export type PosUserContext = {
   id: string | null;
   isAdmin: boolean;
@@ -71,15 +71,47 @@ export function getCurrentPosUser(services: MainServices): PosUserContext {
   }
 }
 
+/**
+ * Resolve what a ROLE may do: the compiled-in defaults, then whatever an
+ * admin has changed in pos_role_permissions.
+ *
+ * This is the single implementation. It used to be written twice — once here
+ * against the meta-stored user, once in the auth handler against the session
+ * user — and two copies of a permission rule is how a cashier ends up being
+ * shown a button the main process then refuses.
+ */
+export function permissionsForRole(
+  db: MainServices["rawDb"],
+  role: string | null | undefined
+): Permission[] {
+  const effective = new Set(rolePermissions(role));
+  try {
+    const rows = db
+      .prepare(
+        'SELECT permission, allowed FROM pos_role_permissions WHERE role = ?'
+      )
+      .all(String(role ?? '').toLowerCase()) as Array<{
+      permission: Permission;
+      allowed: number;
+    }>;
+    for (const row of rows)
+      row.allowed
+        ? effective.add(row.permission)
+        : effective.delete(row.permission);
+  } catch {
+    // Table missing on a half-migrated install: fall back to the compiled
+    // defaults rather than to nothing, so a till is degraded, not bricked.
+  }
+  return [...effective];
+}
+
 export function getEffectivePermissions(services: MainServices): Permission[] {
   const user = getCurrentPosUser(services);
-  if (!user.id) return [];
-  const effective = new Set(rolePermissions(user.role));
-  try {
-    const rows = services.rawDb.prepare('SELECT permission, allowed FROM pos_user_permissions WHERE user_id = ?').all(user.id) as Array<{ permission: Permission; allowed: number }>;
-    for (const row of rows) row.allowed ? effective.add(row.permission) : effective.delete(row.permission);
-  } catch {}
-  return [...effective];
+  // Nobody signed in. getCurrentPosUser still reports isAdmin in unpackaged
+  // builds, so returning [] here made the two disagree: dev looked like an
+  // admin everywhere yet was denied by every assertPermission call.
+  if (!user.id) return user.isAdmin ? [...PERMISSIONS] : [];
+  return permissionsForRole(services.rawDb, user.role);
 }
 
 export function assertPermission(services: MainServices, permission: Permission): void {
@@ -122,8 +154,15 @@ export function buildUserFilter(
     return { sql: '', params: {} };
   }
 
+  // An order with no operator stamped on it at all is NOT someone else's
+  // order — it is the branch's. Orders seeded from the server (online-store
+  // tickets, and rows pushed by another till) carry no local pos_users id, so
+  // `COALESCE(created, completed) = @user_id` was NULL for every one of them
+  // and never true: a cashier holding 'orders.view_own' saw an empty Today's
+  // Orders while the same tickets were live on the website. Same rule the
+  // closing report already applies to a NULL branch_id.
   return {
-    sql: ` AND ${expr} = @user_id `,
+    sql: ` AND (${expr} = @user_id OR ${expr} IS NULL) `,
     params: { user_id: id },
   };
 }

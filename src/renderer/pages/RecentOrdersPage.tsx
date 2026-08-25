@@ -10,6 +10,7 @@ import { OrderDetailModal } from './OrderDetailModal';
 import { DataTable } from '../components/DataTable';
 import { PaymentLinkModal } from './pos/components/PaymentLinkModal';
 import { useRootTheme } from './pos/useRootTheme';
+import { usePermissions } from '../hooks/usePermissions';
 import { useI18n, useOrderTypeLabel, useStatusLabel } from '../i18n';
 import type { StringKey } from '../i18n';
 
@@ -34,15 +35,6 @@ type Order = {
   updated_at?: number | null; // ms
   opened_at?: number | null; // ms
   created_at?: string | null; // ISO
-};
-
-// 👇 same flexible user type as Layout (covers is_admin, role, type)
-type PosUser = {
-  id: string | number;
-  name?: string;
-  role?: string;
-  type?: string;
-  is_admin?: boolean | number;
 };
 
 /**
@@ -202,31 +194,15 @@ export default function TodayOrdersReport() {
     'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-default-200 ' +
     'text-xs hover:bg-default-200 disabled:opacity-50 disabled:cursor-not-allowed';
 
-  /* ---------------- Auth: who am I? (mirror Layout logic) ---------------- */
-  const [user, setUser] = useState<PosUser | null>(null);
+  /* ---------------- Auth: what may this operator do? ---------------- */
+  // Gates ask for the permission the main process asserts. They used to ask
+  // whether the role was 'admin' | 'manager' | 'owner', which no grant could
+  // ever satisfy — the handler checks permissions and nothing else.
+  const { can } = usePermissions();
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const u = await window.api.invoke('auth:whoami');
-        setUser(u || null);
-      } catch {
-        // dev/unpaired: same behavior as Layout – default to admin
-        setUser(null);
-      }
-    })();
-  }, []);
-
-  const isAdmin = useMemo(() => {
-    // same as Layout: if unknown → treat as admin (safe for dev)
-    if (!user) return true;
-    if (user.is_admin === true || user.is_admin === 1) return true;
-
-    const role = String(user.role ?? user.type ?? '').toLowerCase();
-    if (role === 'admin' || role === 'manager' || role === 'owner') return true;
-
-    return false;
-  }, [user]);
+  const canChangeStatus = can('orders.change_status');
+  const canViewDetail = can('orders.view_all') || can('orders.view_own');
+  const canPrint = can('orders.print');
 
   const refresh = async () => {
     setLoading(true);
@@ -252,6 +228,12 @@ export default function TodayOrdersReport() {
         });
       }
       setRows(list || []);
+    } catch (e) {
+      // Was try/finally with no catch: a rejected invoke escaped as an
+      // unhandled rejection and left the table empty with nothing on screen,
+      // which read as "there are no orders today" rather than as a failure.
+      setRows([]);
+      toast.error(e, { title: t('admin.loadFailed') });
     } finally {
       setLoading(false);
     }
@@ -278,7 +260,7 @@ export default function TodayOrdersReport() {
   const handlePrint = useCallback(
     async (orderId?: string) => {
       try {
-        if (!isAdmin) {
+        if (!canPrint) {
           toast({
             tone: 'warning',
             title: t('admin.orders.printAdminOnly'),
@@ -305,7 +287,7 @@ export default function TodayOrdersReport() {
         });
       }
     },
-    [isAdmin, t]
+    [canPrint, t]
   );
 
   const columns = useMemo<ColumnDef<Order>[]>(
@@ -336,7 +318,7 @@ export default function TodayOrdersReport() {
             orderId={String((row.original as any).id)}
             status={row.original.status}
             statusCode={row.original.status_code}
-            disabled={!isAdmin}
+            disabled={!canChangeStatus}
             onChanged={refresh}
           />
         ),
@@ -414,7 +396,7 @@ export default function TodayOrdersReport() {
         // column does not clip — it overflows and overlaps its neighbour.
         size: 110,
         cell: ({ row }) =>
-          isAdmin ? (
+          canViewDetail ? (
             <div className='flex items-center gap-1.5 overflow-hidden'>
               {row.original.id && (
                 <button
@@ -510,7 +492,17 @@ export default function TodayOrdersReport() {
         meta: { nowrap: true },
       },
     ],
-    [handlePrint, showPaymentQr, isAdmin, t, money, lang, typeLabel, theme]
+    [
+      handlePrint,
+      showPaymentQr,
+      canViewDetail,
+      canChangeStatus,
+      t,
+      money,
+      lang,
+      typeLabel,
+      theme,
+    ]
   ); // keep in sync with admin state
 
 

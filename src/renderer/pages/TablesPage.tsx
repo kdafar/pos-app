@@ -124,14 +124,12 @@ export default function TablesPage() {
     (async () => {
       try {
         const status = await window.api.invoke('auth:status');
-        const role =
-          status?.current_user?.role ??
-          status?.user?.role ??
-          status?.role ??
-          status?.current_user?.user_type;
-        const slug = String(role || '').toLowerCase();
-        if (['admin', 'owner', 'super_admin', 'superadmin', 's'].includes(slug))
-          setIsAdmin(true);
+        // Was a hardcoded role list that guessed at four spellings of
+        // "admin" plus a bare 's'. Clearing a table is what tables.manage
+        // means, and it is the permission the main process checks.
+        const granted: string[] =
+          status?.current_user?.permissions ?? status?.user?.permissions ?? [];
+        setIsAdmin(granted.includes('tables.manage'));
       } catch (e) {
         console.warn('auth:status failed, tables stay read-only', e);
       }

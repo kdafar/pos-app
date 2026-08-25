@@ -12,6 +12,7 @@ import {
 } from '../utils/calculations';
 import { logAction } from '../utils/logging';
 import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
+import { reconcileOrderFromServer } from '../sync';
 import {
   ORDER_STATUS,
   ACTIVE_STATUSES,
@@ -113,8 +114,15 @@ export function registerOrdersHandlers(
       expr = `${alias}.completed_by_user_id`;
     }
 
+    // An order with no operator stamped on it at all is NOT someone else's
+    // order — it is the branch's. Orders seeded from the server (online-store
+    // tickets, and rows pushed by another till) carry no local pos_users id, so
+    // `COALESCE(created, completed) = @user_id` was NULL for every one of them
+    // and never true: a cashier holding 'orders.view_own' saw an empty Today's
+    // Orders while the same tickets were live on the website. Same rule the
+    // closing report already applies to a NULL branch_id.
     return {
-      sql: ` AND ${expr} = @user_id `,
+      sql: ` AND (${expr} = @user_id OR ${expr} IS NULL) `,
       params: { user_id: id },
     };
   };
@@ -790,13 +798,38 @@ export function registerOrdersHandlers(
              FROM orders WHERE id = ?`
         )
         .get(id) as { user_id?: string | number | null } | undefined;
-      if (!actorId || String(owner?.user_id ?? '') !== String(actorId)) {
+      // Same rule buildUserFilter applies to the list: an order with nobody
+      // stamped on it belongs to the branch, not to another operator. A strict
+      // equality check read the NULL owner of a server-seeded ticket as "not
+      // yours" and denied the cashier the detail of a row the list had just
+      // shown them.
+      const ownerId = String(owner?.user_id ?? '');
+      if (!actorId || (ownerId !== '' && ownerId !== String(actorId))) {
         throw new Error('Permission denied.');
       }
     }
 
-    const base = getOrderWithLines(id);
+    let base = getOrderWithLines(id);
     if (!base?.order) return null;
+
+    // A server-sourced order can legitimately arrive as a header with no lines:
+    // the feed gives a header and its lines separate change-log ids and does not
+    // promise them in the same page. Heal it from the single-order endpoint on
+    // first open, and fail soft — an offline till must still show the header it
+    // has rather than an error where the ticket should be.
+    if (!base.lines?.length) {
+      const serverId = String(base.order.server_id ?? base.order.id ?? '');
+      // Server ids are integers; a locally-rung order has a UUID and an empty
+      // line list there is a real empty order, not a gap to go fetch.
+      if (/^\d+$/.test(serverId)) {
+        try {
+          const written = await reconcileOrderFromServer(serverId);
+          if (written > 0) base = getOrderWithLines(id) ?? base;
+        } catch (e) {
+          console.error('[orders:getDetail] line reconcile failed', serverId, e);
+        }
+      }
+    }
 
     let timeline: any[] = [];
     try {

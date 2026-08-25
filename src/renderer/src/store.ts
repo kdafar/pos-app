@@ -86,14 +86,23 @@ type CurrentUser = {
   name?: string;
   role?: Role;
   branch_id?: string | number;
+  permissions?: string[];
 } | null;
 
 /* ========= Helpers ========= */
 const api = (channel: string, ...args: any[]) =>
   window.api!.invoke(channel, ...args);
 
-const isAdminRole = (r?: Role) =>
-  !!r && ['admin', 'Admin', 'superadmin', 'Super Admin'].includes(String(r));
+/**
+ * Whether this operator sees other people's orders.
+ *
+ * Was a hardcoded role list — and a drifted one: it knew 'superadmin' but
+ * not 'super_admin', and omitted 'manager' and 'owner' altogether, so a
+ * manager silently got the cashier view. The main process decides this from
+ * 'orders.view_all' in buildUserFilter(), so ask the same question it does.
+ */
+const canSeeAllOrders = (user: CurrentUser) =>
+  !!user?.permissions?.includes('orders.view_all');
 
 const toStr = (v: any) => (v == null ? '' : String(v));
 
@@ -212,6 +221,8 @@ export const useStore = create<AppState>((set, get) => ({
               name: user.name,
               role: user.role,
               branch_id: user.branch_id,
+              // Dropping this left every gate below reading undefined.
+              permissions: user.permissions ?? [],
             }
           : null,
       });
@@ -268,7 +279,7 @@ export const useStore = create<AppState>((set, get) => ({
     /* ----- orders visibility: admin=all, others=mine ----- */
     refreshTabs: async () => {
       const { currentUser } = get();
-      const mineOnly = !isAdminRole(currentUser?.role);
+      const mineOnly = !canSeeAllOrders(currentUser);
 
       // Try server-side filtering; if not supported, filter client-side.
       let t: ActiveTab[] = await tryInvoke(
@@ -305,7 +316,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     refreshPrepared: async () => {
       const { currentUser } = get();
-      const mineOnly = !isAdminRole(currentUser?.role);
+      const mineOnly = !canSeeAllOrders(currentUser);
 
       let p: any[] = await tryInvoke(
         () =>
@@ -361,7 +372,7 @@ export const useStore = create<AppState>((set, get) => ({
         (order as any)?.created_by_user_id ?? (order as any)?.user_id ?? ''
       );
       if (
-        !isAdminRole(currentUser?.role) &&
+        !canSeeAllOrders(currentUser) &&
         ownerId &&
         String(currentUser?.id ?? '') !== ownerId
       ) {
@@ -382,7 +393,7 @@ export const useStore = create<AppState>((set, get) => ({
         (order as any)?.created_by_user_id ?? (order as any)?.user_id ?? ''
       );
       if (
-        !isAdminRole(currentUser?.role) &&
+        !canSeeAllOrders(currentUser) &&
         ownerId &&
         String(currentUser?.id ?? '') !== ownerId
       ) {
@@ -403,7 +414,7 @@ export const useStore = create<AppState>((set, get) => ({
         (order as any)?.created_by_user_id ?? (order as any)?.user_id ?? ''
       );
       if (
-        !isAdminRole(currentUser?.role) &&
+        !canSeeAllOrders(currentUser) &&
         ownerId &&
         String(currentUser?.id ?? '') !== ownerId
       ) {

@@ -391,10 +391,14 @@ function msExpr(col: string, alias = 'o') {
 
 export function registerOperationalReportHandlers(services: MainServices) {
   const assertReportAccess = () => assertPermission(services, 'reports.view');
+  // Deliberately ungated. This returns only { fromMs, toMs } derived from the
+  // branch opening hours in `time` — no sales, no totals, no order rows. It is
+  // the first call Today's Orders makes, and gating it on 'reports.view' meant
+  // a `pos` / `branch` operator (who holds 'orders.view_own' and passes the
+  // route guard) was denied here and saw an empty order list all day.
   ipcMain.handle(
     'report:operationalWindow',
     (_evt, opts?: { fromDate?: string; toDate?: string }) => {
-      assertReportAccess();
       return operationalDateRange(opts?.fromDate, opts?.toDate);
     }
   );

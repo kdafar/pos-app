@@ -402,6 +402,128 @@ function mapServerStatus(v: any): string {
   return SERVER_STATUS_LABELS[code] ?? `status ${code}`;
 }
 
+/**
+ * Statuses a sale cannot come back out of: DONE, CANCELLED_CLIENT,
+ * CANCELLED_ADMIN, REJECTED_AUTO, REJECTED.
+ *
+ * The server enforces this same list device→server: applyPushedUpdate() refuses
+ * to move an order out of it and answers PUSH_ORDER_FINALIZED. We enforce the
+ * mirror image server→device so both ends run one rule instead of two that can
+ * drift. Without it an offline till that completed a ticket at 14:00 has it
+ * reopened by an office edit made at 14:10 and pulled at 14:35 — the same
+ * resurrection the bootstrap seed already guards against.
+ */
+const TERMINAL_STATUS_CODES = new Set([4, 5, 6, 8, 9]);
+const TERMINAL_STATUS_WORDS = new Set([
+  'done',
+  'completed',
+  'closed',
+  'cancelled',
+  'canceled',
+  'rejected',
+]);
+
+export function isTerminalLocalOrder(row: any): boolean {
+  if (!row) return false;
+  const code = row.status_code == null ? null : Number(row.status_code);
+  if (code != null && Number.isFinite(code) && TERMINAL_STATUS_CODES.has(code))
+    return true;
+  const label = String(row.status ?? '').toLowerCase();
+  if (!label) return false;
+  return [...TERMINAL_STATUS_WORDS].some((w) => label.includes(w));
+}
+
+/**
+ * Add-ons arrive from /pull already parsed into [{id,name,price,qty}], but the
+ * local order_lines columns — and the renderer that reads them — hold the same
+ * five parallel CSV strings the server stores. Fold them back so a pulled line
+ * is indistinguishable from a line this till rang up.
+ *
+ * A comma inside an add-on name corrupts the row, exactly as it does in the
+ * server's own column. That is the format's flaw, not this function's, and
+ * round-tripping it keeps the two ends consistent rather than inventing a
+ * third encoding.
+ */
+export function addonsToCsv(addons: any): {
+  addons_id: string | null;
+  addons_name: string | null;
+  addons_price: string | null;
+  addons_qty: string | null;
+} {
+  const list = Array.isArray(addons) ? addons : [];
+  if (!list.length)
+    return {
+      addons_id: null,
+      addons_name: null,
+      addons_price: null,
+      addons_qty: null,
+    };
+  const col = (key: string) =>
+    list.map((a) => (a?.[key] == null ? '' : String(a[key]))).join(',');
+  return {
+    addons_id: col('id'),
+    addons_name: col('name'),
+    addons_price: col('price'),
+    addons_qty: col('qty'),
+  };
+}
+
+/**
+ * The pull feed sends created_at as a bare MySQL datetime while orders_seed
+ * sends ISO-8601 for the same field, and locally-rung orders write epoch ms
+ * as text. Normalising the two server shapes to ISO keeps the local column
+ * at two formats rather than three.
+ */
+function normalizeServerCreatedAt(createdAt: any, createdAtMs: any) {
+  const ms = parseServerTime(createdAtMs ?? createdAt);
+  return ms == null ? S(createdAt) : new Date(ms).toISOString();
+}
+
+export function normPullOrder(o: any) {
+  const cust = o?.customer ?? {};
+  const tot = o?.totals ?? {};
+  return {
+    id: S(o.id)!,
+    number: S(o.number) || '',
+    reference_no: S(o.reference_no ?? o.reference_number),
+    branch_id: N(o.branch_id),
+    order_type: N(o.order_type),
+    status: mapServerStatus(o.status),
+    status_code: serverStatusCode(o.status),
+    full_name: S(cust.full_name) || '',
+    mobile: S(cust.mobile) || '',
+    email: S(cust.email),
+    payment_type: N(o.payment_type),
+    subtotal: N(tot.subtotal),
+    discount_amount: N(tot.discount),
+    discount_pr: N(tot.discount_pr),
+    delivery_fee: N(tot.delivery_fee),
+    grand_total: N(tot.grand_total),
+    promocode: S(tot.promocode),
+    created_at: normalizeServerCreatedAt(o.created_at, o.created_at_ms),
+    opened_at: parseServerTime(o.created_at_ms ?? o.created_at),
+  };
+}
+
+export function normPullLine(l: any, localOrderId: string) {
+  return {
+    id: S(l.id)!,
+    order_id: localOrderId,
+    item_id: S(l.item_id),
+    name: S(l.name),
+    name_ar: S(l.name_ar),
+    qty: N(l.qty),
+    unit_price: N(l.unit_price),
+    line_total: N(l.line_total),
+    variation_id: S(l.variation_id),
+    variation: S(l.variation),
+    variation_price: N(l.variation_price),
+    notes: S(l.item_notes ?? l.notes),
+    updated_at: parseServerTime(l.created_at_ms ?? l.created_at),
+    ...addonsToCsv(l.addons),
+  };
+}
+
 function normOrderSeed(o: any) {
   return {
     id: S(o.id)!,
@@ -1056,6 +1178,236 @@ export async function bootstrap(baseUrl: string) {
 }
 
 /* ---------- Pull (incremental) ---------- */
+/**
+ * Statements and guards shared by the /pull change feed and the on-demand
+ * single-order fetch. Both write the same two tables under the same rules, so
+ * they share one implementation rather than two that drift.
+ *
+ * Prepared lazily: the tables exist only after migrate() has run.
+ */
+let orderSyncOpsCache: ReturnType<typeof buildOrderSyncOps> | null = null;
+function buildOrderSyncOps() {
+  const upPullOrder = db.prepare(`
+    INSERT INTO orders (
+      id, number, reference_no, branch_id, order_type, status, status_code,
+      full_name, mobile, email, payment_type, subtotal, discount_amount,
+      discount_pr, delivery_fee, grand_total, promocode, created_at,
+      opened_at, updated_at, server_id
+    ) VALUES (
+      @id, @number, @reference_no, @branch_id, @order_type, @status,
+      @status_code, @full_name, @mobile, @email, @payment_type, @subtotal,
+      @discount_amount, @discount_pr, @delivery_fee, @grand_total,
+      @promocode, @created_at, @opened_at, @updated_at, @server_id
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      number          = excluded.number,
+      reference_no    = COALESCE(excluded.reference_no, reference_no),
+      branch_id       = COALESCE(excluded.branch_id, branch_id),
+      order_type      = excluded.order_type,
+      status          = excluded.status,
+      status_code     = excluded.status_code,
+      full_name       = excluded.full_name,
+      mobile          = excluded.mobile,
+      email           = COALESCE(excluded.email, email),
+      payment_type    = excluded.payment_type,
+      subtotal        = excluded.subtotal,
+      discount_amount = excluded.discount_amount,
+      discount_pr     = excluded.discount_pr,
+      delivery_fee    = excluded.delivery_fee,
+      grand_total     = excluded.grand_total,
+      promocode       = COALESCE(excluded.promocode, promocode),
+      opened_at       = COALESCE(excluded.opened_at, opened_at),
+      updated_at      = excluded.updated_at,
+      server_id       = excluded.server_id
+  `);
+
+  const upPullLine = db.prepare(`
+    INSERT INTO order_lines (
+      id, order_id, item_id, name, name_ar, qty, unit_price, line_total,
+      variation_id, variation, variation_price,
+      addons_id, addons_name, addons_price, addons_qty, notes, updated_at
+    ) VALUES (
+      @id, @order_id, @item_id, @name, @name_ar, @qty, @unit_price,
+      @line_total, @variation_id, @variation, @variation_price,
+      @addons_id, @addons_name, @addons_price, @addons_qty, @notes,
+      @updated_at
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      order_id        = excluded.order_id,
+      item_id         = excluded.item_id,
+      name            = excluded.name,
+      name_ar         = excluded.name_ar,
+      qty             = excluded.qty,
+      unit_price      = excluded.unit_price,
+      line_total      = excluded.line_total,
+      variation_id    = excluded.variation_id,
+      variation       = excluded.variation,
+      variation_price = excluded.variation_price,
+      addons_id       = excluded.addons_id,
+      addons_name     = excluded.addons_name,
+      addons_price    = excluded.addons_price,
+      addons_qty      = excluded.addons_qty,
+      notes           = excluded.notes,
+      updated_at      = excluded.updated_at
+  `);
+
+  const parkLine = db.prepare(`
+    INSERT INTO order_lines_pending (id, order_id, payload, received_at)
+    VALUES (@id, @order_id, @payload, @received_at)
+    ON CONFLICT(id) DO UPDATE SET
+      order_id    = excluded.order_id,
+      payload     = excluded.payload,
+      received_at = excluded.received_at
+  `);
+
+  const qOrderById = db.prepare(
+    'SELECT id, status, status_code FROM orders WHERE id = ?'
+  );
+  const qOrderByNumber = db.prepare(
+    'SELECT id, status, status_code FROM orders WHERE number = ? LIMIT 1'
+  );
+
+  /**
+   * Find the local row a server order maps to.
+   *
+   * An order this till rang up was pushed with a local UUID and comes back
+   * under the SERVER's integer id, so matching on id alone misses it and we
+   * insert a second row for the same sale. That does not throw — the
+   * tr_orders_num_dedupe_ins trigger resolves the UNIQUE(number) clash by
+   * renaming OUR row to 'L-<number>-<hex>' and letting the insert through, so
+   * the failure is silent: the till's own order loses its number and the
+   * duplicate takes its place. Verified against a copy of a live db.
+   *
+   * Fall back to number, and report whether the match was ours so the caller
+   * can leave our own lines alone.
+   */
+  const resolveLocalOrder = (serverId: string, number: string | null) => {
+    const byId = qOrderById.get(serverId) as any;
+    if (byId) return { row: byId, localId: serverId, isLocalOrigin: false };
+    if (!number) return { row: null, localId: null, isLocalOrigin: false };
+    const byNumber = qOrderByNumber.get(number) as any;
+    if (!byNumber) return { row: null, localId: null, isLocalOrigin: false };
+    return {
+      row: byNumber,
+      localId: String(byNumber.id),
+      isLocalOrigin: true,
+    };
+  };
+
+  const drainPendingLines = (localOrderId: string) => {
+    const parked = db
+      .prepare('SELECT id, payload FROM order_lines_pending WHERE order_id = ?')
+      .all(localOrderId) as Array<{ id: string; payload: string }>;
+    if (!parked.length) return;
+    const drop = db.prepare('DELETE FROM order_lines_pending WHERE id = ?');
+    for (const p of parked) {
+      try {
+        upPullLine.run(normPullLine(JSON.parse(p.payload), localOrderId));
+        drop.run(p.id);
+      } catch (e) {
+        // Never rethrow inside the page transaction: see order_lines_pending.
+        console.error('[sync] parked line failed to apply', p.id, e);
+      }
+    }
+    console.log('[sync] drained parked lines', {
+      order_id: localOrderId,
+      count: parked.length,
+    });
+  };
+
+  return {
+    upPullOrder,
+    upPullLine,
+    parkLine,
+    resolveLocalOrder,
+    drainPendingLines,
+  };
+}
+function orderSyncOps() {
+  if (!orderSyncOpsCache) orderSyncOpsCache = buildOrderSyncOps();
+  return orderSyncOpsCache;
+}
+
+/**
+ * Fetch one order and its lines straight from the server.
+ *
+ * A header and its lines get separate change-log ids and are not guaranteed to
+ * land in the same /pull page, so a till can legitimately hold a header whose
+ * lines are still parked in order_lines_pending — or a parked line whose header
+ * never comes. Nothing on the feed alone ever resolves that, which is why this
+ * escape hatch is a requirement rather than a convenience.
+ */
+export async function fetchOrderFromServer(serverOrderId: string) {
+  if (!api) throw posError('POS_CFG_API_NOT_READY');
+  try {
+    const { data } = await api.get(
+      `/orders/${encodeURIComponent(serverOrderId)}`
+    );
+    // Envelope confirmed against a live response: plainly { order, lines },
+    // both keys always present, lines always an array, no order.lines.
+    return { order: data?.order ?? null, lines: data?.lines ?? [] };
+  } catch (e: any) {
+    // The server answers POS_ORDER_NOT_FOUND here. The POS deliberately does
+    // not mirror that code: it already has POS_VAL_ORDER_NOT_FOUND for this
+    // exact condition, and one code per condition beats one per origin.
+    if (e?.response?.status === 404) throw posError('POS_VAL_ORDER_NOT_FOUND');
+    throw e;
+  }
+}
+
+/**
+ * Apply a server-fetched order locally. Returns how many lines were written.
+ *
+ * Runs the same statements and the same guards as the change feed — see
+ * orderSyncOps(). The terminal guard covers the header only: a finalized order
+ * must not have its status regressed, but its lines are a record of what was
+ * sold and are exactly what we came here for.
+ */
+export async function reconcileOrderFromServer(
+  serverOrderId: string
+): Promise<number> {
+  const payload = await fetchOrderFromServer(serverOrderId);
+  if (!payload.order) return 0;
+
+  const ops = orderSyncOps();
+  const orderRow = normPullOrder(payload.order);
+  const found = ops.resolveLocalOrder(orderRow.id, orderRow.number || null);
+
+  // This till rang the order up; its own lines are authoritative.
+  if (found.isLocalOrigin) return 0;
+
+  const target = found.localId ?? orderRow.id;
+  const write = db.transaction(() => {
+    if (!isTerminalLocalOrder(found.row)) {
+      ops.upPullOrder.run({
+        ...orderRow,
+        id: target,
+        updated_at: Date.now(),
+        server_id: orderRow.id,
+      });
+    }
+    let written = 0;
+    for (const l of payload.lines) {
+      try {
+        ops.upPullLine.run(normPullLine(l, target));
+        written++;
+      } catch (e) {
+        console.error('[sync] line from order fetch failed', l?.id, e);
+      }
+    }
+    ops.drainPendingLines(target);
+    return written;
+  });
+
+  const written = write();
+  console.log('[sync] reconciled order from server', {
+    server_id: serverOrderId,
+    local_id: target,
+    lines: written,
+  });
+  return written;
+}
+
 export async function pullChanges() {
   const cursorRow = db
     .prepare('SELECT value FROM sync_state WHERE key = ?')
@@ -1217,6 +1569,14 @@ export async function pullChanges() {
         updated_at    = excluded.updated_at
     `);
 
+    const {
+      upPullOrder,
+      upPullLine,
+      parkLine,
+      resolveLocalOrder,
+      drainPendingLines,
+    } = orderSyncOps();
+
     const delBy = (table: string, pk: any) =>
       db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(S(pk));
 
@@ -1355,6 +1715,72 @@ export async function pullChanges() {
               r.value == null ? '' : String(r.value),
               r.updated_at ? String(r.updated_at) : String(Date.now())
             );
+          }
+        }
+      } else if (tbl === 'order' || tbl === 'orders') {
+        // A sale is never deleted locally off the feed: the till's own record
+        // of what it sold outlives an admin removing the row upstream.
+        if (op === 'delete') {
+          console.warn('[sync] ignoring order delete from feed', { pk: c.pk });
+        } else if (c.data) {
+          const row = normPullOrder(c.data);
+          const found = resolveLocalOrder(row.id, row.number || null);
+
+          if (isTerminalLocalOrder(found.row)) {
+            // See TERMINAL_STATUS_CODES. An office edit made while this till
+            // was offline must not reopen a ticket the till already finished.
+            console.log('[sync] skipping update to finalized order', {
+              number: row.number,
+              local_status: found.row.status,
+              incoming_status: row.status,
+            });
+          } else {
+            const target = found.localId ?? row.id;
+            upPullOrder.run({
+              ...row,
+              id: target,
+              updated_at: Date.now(),
+              server_id: row.id,
+            });
+            drainPendingLines(target);
+          }
+        }
+      } else if (
+        tbl === 'order_line' ||
+        tbl === 'order_lines' ||
+        tbl === 'order_detail' ||
+        tbl === 'order_details'
+      ) {
+        // Both names are handled on purpose: the server emits `order_details`
+        // today and may rewrite it to `order_lines` on the wire, the way it
+        // already rewrites pos_user_permissions to users. Accepting both means
+        // the rename can land on either side, in either order, with no gap.
+        if (op === 'delete') {
+          delBy('order_lines', c.pk);
+          db.prepare('DELETE FROM order_lines_pending WHERE id = ?').run(S(c.pk));
+        } else if (c.data) {
+          const serverOrderId = S(c.data.order_id);
+          const number = S(c.data.order_number) || null;
+          const found = serverOrderId
+            ? resolveLocalOrder(serverOrderId, number)
+            : { row: null, localId: null, isLocalOrigin: false };
+
+          if (found.isLocalOrigin) {
+            // This till rang the order up; its own lines are authoritative and
+            // the echo would duplicate them under the server's line ids.
+            console.log('[sync] ignoring line for locally-created order', {
+              number,
+            });
+          } else if (found.localId) {
+            upPullLine.run(normPullLine(c.data, found.localId));
+          } else if (serverOrderId) {
+            // Header not here yet — park it rather than insert and trip the FK.
+            parkLine.run({
+              id: S(c.data.id),
+              order_id: serverOrderId,
+              payload: JSON.stringify(c.data),
+              received_at: Date.now(),
+            });
           }
         }
       } else if (tbl === 'payment_method' || tbl === 'payment_methods') {

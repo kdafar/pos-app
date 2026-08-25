@@ -9,7 +9,8 @@ import type { MainServices } from '../types/common';
 import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
 
 import { posError } from '../../shared/errorCodes';
-import { PERMISSIONS, rolePermissions, type Permission } from '../../shared/permissions';
+import { PERMISSIONS, ROLE_DEFAULTS, rolePermissions, type Permission } from '../../shared/permissions';
+import { permissionsForRole } from '../utils/permissions';
 type DBUser = {
   id: number;
   name: string;
@@ -51,14 +52,10 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
       ended_at INTEGER,
       FOREIGN KEY(user_id) REFERENCES pos_users(id)
     );
-    CREATE TABLE IF NOT EXISTS pos_user_permissions (
-      user_id INTEGER NOT NULL,
-      permission TEXT NOT NULL,
-      allowed INTEGER NOT NULL CHECK (allowed IN (0, 1)),
-      updated_by INTEGER,
-      updated_at INTEGER NOT NULL,
-      PRIMARY KEY (user_id, permission)
-    );
+    -- Permissions hang off the role, not the person: see
+    -- pos_role_permissions in db.ts, which owns this table and retires the
+    -- per-user one. Recreating pos_user_permissions here would resurrect an
+    -- empty copy on every boot, immediately after migrate() renamed it away.
   `);
 
   const qActiveSession = db.prepare(`
@@ -113,12 +110,11 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     return u || null;
   }
 
+  // Permissions belong to the role, not the person. Delegated so this and
+  // assertPermission() can never answer differently for the same operator.
   function permissionsFor(user: any): Permission[] {
     if (!user) return [];
-    const effective = new Set(rolePermissions(user.role));
-    const overrides = db.prepare('SELECT permission, allowed FROM pos_user_permissions WHERE user_id = ?').all(user.id) as Array<{ permission: Permission; allowed: number }>;
-    for (const item of overrides) item.allowed ? effective.add(item.permission) : effective.delete(item.permission);
-    return [...effective];
+    return permissionsForRole(db, user.role);
   }
 
   function canUseBranch(
@@ -165,36 +161,94 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
 
   ipcMain.handle('auth:listUsers', () => qListUsers.all());
 
-  ipcMain.handle('permissions:listUsers', () => {
+  const assertCanEditPermissions = () => {
     const actor = getCurrentUser();
-    if (!actor || !permissionsFor(actor).includes('users.permissions')) throw new Error('Permission denied.');
-    return (qListUsers.all() as any[])
-      .map((user) => ({
-        ...user,
-        is_self: Number(user.id) === Number(actor.id),
-        permissions: permissionsFor(user),
-      }));
+    if (!actor || !permissionsFor(actor).includes('users.permissions'))
+      throw new Error('Permission denied.');
+    return actor;
+  };
+
+  /**
+   * Every role worth showing: the ones compiled into ROLE_DEFAULTS plus any
+   * role a real user actually holds, so a role the backend invented still
+   * appears and can be configured rather than silently having no rights.
+   */
+  const listRoles = () => {
+    const held = db
+      .prepare(
+        `SELECT DISTINCT LOWER(COALESCE(role, '')) AS role FROM pos_users
+          WHERE role IS NOT NULL AND role <> ''`
+      )
+      .all() as Array<{ role: string }>;
+    const names = new Set<string>([
+      ...Object.keys(ROLE_DEFAULTS),
+      ...held.map((r) => r.role),
+    ]);
+    const members = db.prepare(
+      `SELECT id, name FROM pos_users
+        WHERE LOWER(COALESCE(role, '')) = ? AND is_active = 1
+        ORDER BY name COLLATE NOCASE`
+    );
+    const actor = getCurrentUser();
+    return [...names].sort().map((role) => ({
+      role,
+      permissions: permissionsForRole(db, role),
+      defaults: rolePermissions(role),
+      users: members.all(role) as Array<{ id: number; name: string }>,
+      is_own_role: String(actor?.role ?? '').toLowerCase() === role,
+    }));
+  };
+
+  ipcMain.handle('permissions:listRoles', () => {
+    assertCanEditPermissions();
+    return listRoles();
   });
 
-  ipcMain.handle('permissions:setUser', (_event, userId: number, permissions: string[]) => {
-    const actor = getCurrentUser();
-    if (!actor || !permissionsFor(actor).includes('users.permissions')) throw new Error('Permission denied.');
-    if (Number(actor.id) === Number(userId)) throw new Error('You cannot change your own permissions.');
-    const target = db.prepare('SELECT id, role FROM pos_users WHERE id = ?').get(userId) as any;
-    if (!target) throw new Error('User not found.');
-    const chosen = new Set(permissions.filter((p): p is Permission => (PERMISSIONS as readonly string[]).includes(p)));
-    const defaults = new Set(rolePermissions(target.role));
-    const remove = db.prepare('DELETE FROM pos_user_permissions WHERE user_id = ?');
-    const insert = db.prepare('INSERT INTO pos_user_permissions (user_id, permission, allowed, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)');
-    db.transaction(() => {
-      remove.run(userId);
-      for (const permission of PERMISSIONS) {
-        if (chosen.has(permission) !== defaults.has(permission)) insert.run(userId, permission, chosen.has(permission) ? 1 : 0, actor.id, Date.now());
-      }
-    })();
-    return { ok: true, permissions: permissionsFor(target) };
-  });
+  ipcMain.handle(
+    'permissions:setRole',
+    (_event, role: string, permissions: string[]) => {
+      const actor = assertCanEditPermissions();
+      const key = String(role ?? '').trim().toLowerCase();
+      if (!key) throw new Error('Role is required.');
 
+      // Editing your own role is how an admin drops their own
+      // 'users.permissions' and locks every operator out of this screen
+      // permanently — there is no second way back in.
+      if (String(actor.role ?? '').toLowerCase() === key)
+        throw new Error('You cannot change the permissions of your own role.');
+
+      const chosen = new Set(
+        permissions.filter((p): p is Permission =>
+          (PERMISSIONS as readonly string[]).includes(p)
+        )
+      );
+      const defaults = new Set(rolePermissions(key));
+      const remove = db.prepare(
+        'DELETE FROM pos_role_permissions WHERE role = ?'
+      );
+      const insert = db.prepare(
+        `INSERT INTO pos_role_permissions
+           (role, permission, allowed, updated_by, updated_at)
+         VALUES (?, ?, ?, ?, ?)`
+      );
+      db.transaction(() => {
+        remove.run(key);
+        // Only genuine departures from the compiled defaults are stored, so a
+        // later change to ROLE_DEFAULTS still reaches roles nobody edited.
+        for (const permission of PERMISSIONS) {
+          if (chosen.has(permission) !== defaults.has(permission))
+            insert.run(
+              key,
+              permission,
+              chosen.has(permission) ? 1 : 0,
+              actor.id,
+              Date.now()
+            );
+        }
+      })();
+      return { ok: true, permissions: permissionsForRole(db, key) };
+    }
+  );
   /* ---------- Login with Email/Username + Password (no PIN) ---------- */
   ipcMain.handle(
     'auth:loginWithPassword',
@@ -300,6 +354,10 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
           is_admin: devAdmin,
           branch_id: store.get('branch_id') ?? null,
           is_active: devAdmin ? 1 : 0,
+          // The renderer gates controls on this list. Omitting it left an
+          // unpackaged dev build reporting is_admin: true with nothing
+          // clickable, which reads as a broken app rather than as no login.
+          permissions: devAdmin ? [...PERMISSIONS] : [],
         };
       }
 
@@ -326,6 +384,7 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
         is_admin: false,
         branch_id: store.get('branch_id') ?? null,
         is_active: 0,
+        permissions: [],
       };
     }
   });

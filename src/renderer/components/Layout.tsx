@@ -113,8 +113,24 @@ export function Layout() {
   // per-user grants/denials applied). Role-based bypasses here previously made
   // every unchecked permission ineffective for users whose role was admin.
   const canReport = !!user?.permissions?.includes('reports.view');
-  const canManageAny = !!user?.permissions?.some((permission) => ['catalog.manage', 'payments.manage', 'locations.manage', 'tables.manage', 'settings.manage', 'updates.manage', 'users.permissions'].includes(permission));
   const can = (permission: string) => !!user?.permissions?.includes(permission);
+
+  // Each link is gated on the permission its ROUTE is gated on, so the two
+  // agree. This was one any-of-seven flag wrapping all eight links: a till
+  // holding nothing but 'tables.manage' was shown Categories, Items, Promos,
+  // Payment methods, Locations, Settings and Updates, every one of which
+  // bounced straight back off its PermissionRoute.
+  const canCatalog = can('catalog.manage');
+  const SYSTEM_LINKS = [
+    'payments.manage',
+    'locations.manage',
+    'tables.manage',
+    'settings.manage',
+    'updates.manage',
+    'users.permissions',
+  ];
+  // The heading only earns its place if something sits under it.
+  const canSystemAny = SYSTEM_LINKS.some(can);
 
   /* ---------------- Software update ---------------- */
   // A downloaded update is worth surfacing on every screen — it only applies
@@ -491,7 +507,7 @@ export function Layout() {
           {can('orders.kitchen_view') && <NavLink to='/kitchen' text={t('nav.kitchen')} icon={ChefHat} collapsed={collapsed} active={location.pathname === '/kitchen'} />}
           {/* Closing Report → admin only */}{' '}
           {canReport && <NavLink to='/reports/closing' text={t('nav.closingReport')} icon={BarChart3} collapsed={collapsed} active={location.pathname === '/reports/closing'} />}
-          {canManageAny && (
+          {canCatalog && (
             <>
               <SectionLabel hidden={collapsed}>
                 {t('nav.section.catalog')}
@@ -517,47 +533,69 @@ export function Layout() {
                 collapsed={collapsed}
                 active={location.pathname === '/promos'}
               />
+            </>
+          )}
 
+          {canSystemAny && (
+            <>
               <SectionLabel hidden={collapsed}>
                 {t('nav.section.system')}
               </SectionLabel>
-              <NavLink
-                to='/payment-methods'
-                text={t('nav.paymentMethods')}
-                icon={CreditCard}
-                collapsed={collapsed}
-                active={location.pathname === '/payment-methods'}
-              />
-              <NavLink
-                to='/locations'
-                text={t('nav.locations')}
-                icon={MapPin}
-                collapsed={collapsed}
-                active={location.pathname === '/locations'}
-              />
-              <NavLink
-                to='/tables'
-                text={t('nav.tables')}
-                icon={Armchair}
-                collapsed={collapsed}
-                active={location.pathname === '/tables'}
-              />
-              <NavLink
-                to='/settings'
-                text={t('nav.settings')}
-                icon={Settings}
-                collapsed={collapsed}
-                active={location.pathname === '/settings'}
-              />
-              <NavLink
-                to='/updates'
-                text={t('nav.updates')}
-                icon={ArrowUpCircle}
-                collapsed={collapsed}
-                active={location.pathname === '/updates'}
-                dot={updateReady}
-              />
-              {can('users.permissions') && <NavLink to='/permissions' text={t('nav.permissions')} icon={ShieldCheck} collapsed={collapsed} active={location.pathname === '/permissions'} />}
+              {can('payments.manage') && (
+                <NavLink
+                  to='/payment-methods'
+                  text={t('nav.paymentMethods')}
+                  icon={CreditCard}
+                  collapsed={collapsed}
+                  active={location.pathname === '/payment-methods'}
+                />
+              )}
+              {can('locations.manage') && (
+                <NavLink
+                  to='/locations'
+                  text={t('nav.locations')}
+                  icon={MapPin}
+                  collapsed={collapsed}
+                  active={location.pathname === '/locations'}
+                />
+              )}
+              {can('tables.manage') && (
+                <NavLink
+                  to='/tables'
+                  text={t('nav.tables')}
+                  icon={Armchair}
+                  collapsed={collapsed}
+                  active={location.pathname === '/tables'}
+                />
+              )}
+              {can('settings.manage') && (
+                <NavLink
+                  to='/settings'
+                  text={t('nav.settings')}
+                  icon={Settings}
+                  collapsed={collapsed}
+                  active={location.pathname === '/settings'}
+                />
+              )}
+              {can('updates.manage') && (
+                <NavLink
+                  to='/updates'
+                  text={t('nav.updates')}
+                  icon={ArrowUpCircle}
+                  collapsed={collapsed}
+                  active={location.pathname === '/updates'}
+                  dot={updateReady}
+                />
+              )}
+              {can('users.permissions') && (
+                <NavLink
+                  to='/permissions'
+                  text={t('nav.permissions')}
+                  icon={ShieldCheck}
+                  collapsed={collapsed}
+                  active={location.pathname === '/permissions'}
+                />
+              )}
             </>
           )}
         </nav>

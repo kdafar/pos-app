@@ -346,7 +346,58 @@ export function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_actionlog_order ON pos_action_log(order_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_actionlog_action ON pos_action_log(action, created_at);
+
+    -- Order lines that reached the change feed before their header did.
+    --
+    -- order_lines has a FOREIGN KEY to orders(id) and foreign_keys is ON, so an
+    -- orphan line throws. The whole pull page applies inside ONE transaction
+    -- that also writes the cursor, so that throw rolls the page back INCLUDING
+    -- the cursor — the next pull refetches the same poisoned page and throws
+    -- again, forever. A header and its lines get separate change-log ids and
+    -- are not guaranteed to land in the same page, so this is routine, not an
+    -- edge case. Park unparented lines here (no FK) and drain them when the
+    -- header arrives.
+    -- Permissions are granted to a ROLE, and every user holding that role
+    -- inherits them. The per-user table this replaces made it possible to
+    -- grant a permission to one operator and have another with the same job
+    -- silently lack it — which is exactly how it was mis-set in the field.
+    CREATE TABLE IF NOT EXISTS pos_role_permissions (
+      role       TEXT NOT NULL,
+      permission TEXT NOT NULL,
+      allowed    INTEGER NOT NULL CHECK (allowed IN (0, 1)),
+      updated_by INTEGER,
+      updated_at INTEGER,
+      PRIMARY KEY (role, permission)
+    );
+
+    CREATE TABLE IF NOT EXISTS order_lines_pending (
+      id          TEXT PRIMARY KEY,
+      order_id    TEXT NOT NULL,
+      payload     TEXT NOT NULL,
+      received_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_lines_pending_order
+      ON order_lines_pending(order_id);
   `);
+
+  // Per-user permission overrides are retired: permissions live on the role.
+  // Renamed rather than dropped so hand-entered settings stay recoverable —
+  // nothing reads this table any more.
+  try {
+    const hasUserPerms = db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='pos_user_permissions'`
+      )
+      .get();
+    if (hasUserPerms) {
+      db.exec(
+        'ALTER TABLE pos_user_permissions RENAME TO pos_user_permissions_retired'
+      );
+      console.log('[db] retired pos_user_permissions; permissions are per-role now');
+    }
+  } catch (e) {
+    console.error('[db] could not retire pos_user_permissions', e);
+  }
 
   // Phase 2: ensure columns exist on legacy installs (safe ALTER TABLE order matters)
   ensureColumn('items', 'branch_id INTEGER', 'branch_id');
