@@ -1552,6 +1552,14 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
   ipcMain.handle(
     'orders:print',
     async (_e, orderId: string, opts?: { savePdf?: boolean }) => {
+      // 'orders.print' existed as a slug, was offered on the permissions
+      // screen, and was checked on the Recent Orders screen — but never here.
+      // The POS cart called this channel with no check at all, so revoking the
+      // permission hid one button and changed nothing about what the till
+      // would actually print. A permission the back office can grant and the
+      // main process ignores is worse than not offering it.
+      if (services) assertPermission(services, 'orders.print');
+
       // The language toggle persists ui.lang through store:set, which writes to
       // the `meta` table — getSetting only reads `app_settings`, so the receipt
       // silently printed English no matter what the cashier had selected.
