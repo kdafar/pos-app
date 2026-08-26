@@ -813,9 +813,10 @@ function renderReceiptHTML(opts: {
          On a 78mm roll that 2cm right margin pushed the totals column off the
          edge. */
       body { margin: 0; padding: 0; }
-      /* A receipt is one continuous roll page. Keep rows and the totals block
-         together if a printer driver applies its own pagination rules. */
-      tr, table { break-inside: avoid; page-break-inside: avoid; }
+      /* Keep individual rows intact. Do not mark whole tables as unbreakable:
+         Chromium can move the complete QR/barcode table to another page when
+         a driver reports a slightly smaller printable area. */
+      tr { break-inside: avoid; page-break-inside: avoid; }
     }
   </style>
 </head>
@@ -1210,10 +1211,11 @@ async function printHtmlSilently(html: string): Promise<void> {
     );
     // Chromium lays out at a 96dpi CSS inch, and an inch is 25400 microns.
     const MICRONS_PER_PX = 25400 / 96;
-    // A configured height wins outright. Measuring content is right for a roll
-    // that can be any length, but on fixed stock the page must match the label
-    // the driver expects, whatever the receipt happens to measure.
-    const heightMm = getPaperHeightMm();
+    // Customer receipts always use a continuous roll. A previously saved fixed
+    // height caused long orders to paginate and moved the QR/barcode to a new
+    // page, so it must not override the measured invoice length.
+    const configuredHeightMm = getPaperHeightMm();
+    const heightMm = 0;
     // Drivers round custom thermal sizes differently. Add a small trailing
     // feed to the auto-length page so that rounding and cutter margins cannot
     // move the final line onto another page. This is blank roll after content,
@@ -1233,6 +1235,7 @@ async function printHtmlSilently(html: string): Promise<void> {
     console.log('[print] page size', {
       widthMm,
       heightMm: heightMm || 'auto',
+      configuredHeightMm,
       contentPx,
       pageSize,
     });
