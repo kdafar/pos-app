@@ -3,7 +3,7 @@ import os from 'node:os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import db, { getSetting, getMeta } from './db';
+import db, { getSetting, getMeta, setMeta } from './db';
 import QRCode from 'qrcode';
 import bwipjs from 'bwip-js';
 import ExcelJS from 'exceljs';
@@ -805,8 +805,14 @@ function renderReceiptHTML(opts: {
     table { border-collapse: collapse; }
     hr { border:none; border-top:1px solid #000; }
     @media print {
+      /* No page size here on purpose: the roll dimensions are passed to
+         webContents.print() as pageSize, and a CSS size would override that
+         page box and put the two back out of step. */
       @page { margin: 0; }
-      body { margin: 1cm 2cm 1cm 0cm; }
+      /* The old body margin was 1cm 2cm 1cm 0cm, sized for a sheet of paper.
+         On a 78mm roll that 2cm right margin pushed the totals column off the
+         edge. */
+      body { margin: 0; padding: 0; }
     }
   </style>
 </head>
@@ -1003,6 +1009,44 @@ function renderReceiptHTML(opts: {
 </html>`;
 }
 
+// ---- printer configuration ------------------------------------------------
+
+/**
+ * Which printer a till uses is a property of that till, not of the operator's
+ * account — two branches sharing one server have different hardware, and the
+ * back office cannot know either. So it lives in `meta` (local, never synced)
+ * and `app_settings` is only a fallback for a chain that wants to push a
+ * house default down.
+ *
+ * Before this existed both keys were read from `app_settings` alone and
+ * nothing in the app ever wrote them, so `deviceName` was permanently
+ * undefined: every receipt went silently to the Windows default printer,
+ * which on a till that has ever installed a PDF writer is not the thermal
+ * printer.
+ */
+export function getPrintConfig(): {
+  printerName: string;
+  showDialog: boolean;
+  paperWidthMm: number;
+} {
+  const printerName = String(
+    getMeta('print.printer_name') ?? getSetting('print.printer_name') ?? ''
+  ).trim();
+  const showDialog =
+    String(
+      getMeta('print.show_dialog') ?? getSetting('print.show_dialog') ?? ''
+    ).trim() === '1';
+  return { printerName, showDialog, paperWidthMm: getPaperWidthMm() };
+}
+
+/** 80mm is the common till roll; 58mm is the other one that exists. */
+function getPaperWidthMm(): number {
+  const raw = Number(
+    getMeta('print.paper_width_mm') ?? getSetting('print.paper_width_mm') ?? 80
+  );
+  return Number.isFinite(raw) && raw >= 40 && raw <= 120 ? raw : 80;
+}
+
 // ---- print flow -----------------------------------------------------------
 
 async function printHtmlSilently(html: string): Promise<void> {
@@ -1056,14 +1100,14 @@ async function printHtmlSilently(html: string): Promise<void> {
 
     // A till prints a receipt on every sale, so a modal dialog per sale is a
     // keystroke the cashier has to spend with a customer waiting. Print
-    // straight to the printer by default; `print.show_dialog = 1` restores the
-    // dialog for a shop that wants to choose per receipt.
-    const wantDialog = String(getSetting('print.show_dialog') ?? '').trim() === '1';
+    // straight to the printer by default; the Settings toggle (or
+    // `print.show_dialog = 1`) restores the dialog for a shop that wants to
+    // choose per receipt, and is the fallback when silent printing misbehaves.
+    const { printerName: configured, showDialog: wantDialog } = getPrintConfig();
 
     // A named printer wins if one is configured and actually present. Falling
     // back rather than failing matters: a printer renamed in Windows would
     // otherwise stop the till printing entirely.
-    const configured = String(getSetting('print.printer_name') ?? '').trim();
     const deviceName =
       configured && printers.some((p) => p.name === configured)
         ? configured
@@ -1073,6 +1117,54 @@ async function printHtmlSilently(html: string): Promise<void> {
         `[print] configured printer "${configured}" not found; using the system default`
       );
     }
+
+    // Chromium formats a job as Letter unless told otherwise. A thermal
+    // driver has no Letter paper, and rather than failing it accepts the job
+    // into the spooler and discards it — print() still calls back with
+    // success=true. That is the "printer is active but nothing comes out"
+    // report: the till believed every receipt printed.
+    //
+    // Electron 30 has no `usePrinterDefaultPageSize` (it only exists in the
+    // typings of later majors), so the roll has to be stated outright. A roll
+    // has a width but no page length, so the length is measured off the
+    // rendered receipt: a fixed height would feed blank paper after every
+    // short order.
+    const widthMm = getPaperWidthMm();
+    // scrollHeight is not usable here: the root element stretches to the
+    // window, so a short receipt measures as the full 800px window and would
+    // feed ~20cm of blank paper after every small order. Measure where the
+    // content actually ends instead.
+    //
+    // The roll width is applied before measuring, because the stylesheet is
+    // written for 78mm — on a 58mm roll an unadjusted body prints the totals
+    // column off the edge, which is the same class of fault as the Letter page
+    // size this whole change is about.
+    const contentPx = Number(
+      await win.webContents
+        .executeJavaScript(
+          `(() => {
+             const printable = Math.max(${widthMm} - 2, 40);
+             document.body.style.width = printable + 'mm';
+             document.body.style.margin = '0';
+             const kids = Array.from(document.body.children);
+             const bottom = kids.length
+               ? Math.max(...kids.map((el) => el.getBoundingClientRect().bottom))
+               : document.body.scrollHeight;
+             // A few px of tail so the last line is never clipped by rounding.
+             return Math.ceil(bottom + 8);
+           })()`
+        )
+        .catch(() => 0)
+    );
+    // Chromium lays out at a 96dpi CSS inch, and an inch is 25400 microns.
+    const MICRONS_PER_PX = 25400 / 96;
+    const pageSize = {
+      width: Math.round(widthMm * 1000),
+      // The floor keeps a failed measurement from producing a zero-height page
+      // that the driver would reject outright.
+      height: Math.max(Math.round(contentPx * MICRONS_PER_PX), 50_000),
+    };
+    console.log('[print] page size', { widthMm, contentPx, pageSize });
 
     // Silent printing needs no window on screen, and showing one mid-service
     // steals focus from the order the cashier is ringing up.
@@ -1110,6 +1202,8 @@ async function printHtmlSilently(html: string): Promise<void> {
         {
           silent: !wantDialog,
           printBackground: true,
+          pageSize,
+          margins: { marginType: 'none' },
           ...(deviceName ? { deviceName } : {}),
         },
         (ok, reason) =>
@@ -1166,6 +1260,103 @@ async function printToPdfFile(html: string): Promise<string> {
 export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, services?: MainServices) {
   console.log('[print] registering IPC handlers');
 
+  /**
+   * The receipt printer is chosen here rather than inherited from Windows.
+   * "The printer is switched on but nothing prints" is almost always the till
+   * printing to a default that is not the thermal unit, and until this existed
+   * there was no way for anyone on site to see that, let alone change it.
+   */
+  const listPrinters = async (event: Electron.IpcMainInvokeEvent) => {
+    const win =
+      BrowserWindow.fromWebContents(event.sender) ??
+      BrowserWindow.getAllWindows()[0];
+    if (!win) return [];
+    const printers = await win.webContents.getPrintersAsync();
+    return printers.map((p) => ({
+      name: p.name,
+      displayName: p.displayName || p.name,
+      isDefault: !!p.isDefault,
+      status: p.status,
+    }));
+  };
+
+  ipcMain.handle('print:getConfig', async (event) => {
+    const { printerName, showDialog } = getPrintConfig();
+    const printers = await listPrinters(event);
+    return {
+      printerName,
+      showDialog,
+      printers,
+      // A name that no longer resolves is the other half of the same fault: the
+      // printer was renamed or replaced and the till has been quietly falling
+      // back to the system default ever since. Say so on the settings screen.
+      missing: !!printerName && !printers.some((p) => p.name === printerName),
+    };
+  });
+
+  ipcMain.handle(
+    'print:setConfig',
+    async (
+      _e,
+      payload?: {
+        printerName?: string | null;
+        showDialog?: boolean;
+        paperWidthMm?: number;
+      }
+    ) => {
+      if (services) assertPermission(services, 'settings.manage');
+      if (payload && 'printerName' in payload) {
+        // '' means "use the Windows default" — a real choice, so it is stored
+        // as an empty string rather than left unset.
+        setMeta('print.printer_name', String(payload.printerName ?? '').trim());
+      }
+      if (payload && 'showDialog' in payload) {
+        setMeta('print.show_dialog', payload.showDialog ? '1' : '0');
+      }
+      if (payload && 'paperWidthMm' in payload) {
+        const w = Number(payload.paperWidthMm);
+        // A nonsense width would silently produce jobs the driver drops, which
+        // is the very fault this screen exists to fix. Reject rather than store.
+        if (!Number.isFinite(w) || w < 40 || w > 120) {
+          throw new Error('Paper width must be between 40mm and 120mm.');
+        }
+        setMeta('print.paper_width_mm', String(Math.round(w)));
+      }
+      return getPrintConfig();
+    }
+  );
+
+  /**
+   * A test page that goes through the exact same path as a real receipt —
+   * same window, same page size, same printer selection. A test that took a
+   * shortcut would pass on a till whose receipts still do not come out.
+   */
+  ipcMain.handle('print:test', async () => {
+    if (services) assertPermission(services, 'settings.manage');
+    const { printerName } = getPrintConfig();
+    const when = new Date().toLocaleString();
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8" /><title>Printer test</title><style>
+  @media print { @page { margin: 0; } body { margin: 0; padding: 0; } }
+  body { width: 78mm; margin: 0; padding: 0; background: #fff;
+         font-family: 'Open Sans', Arial, sans-serif; color: #000; }
+  .wrap { padding: 6mm 3mm; text-align: center; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  p { font-size: 13px; margin: 3px 0; }
+  hr { border: none; border-top: 1px solid #000; margin: 8px 0; }
+</style></head><body><div class="wrap">
+  <h1>Printer test</h1>
+  <hr />
+  <p>Majestic POS</p>
+  <p>${printerName ? `Printer: ${printerName}` : 'System default printer'}</p>
+  <p>${when}</p>
+  <hr />
+  <p>If you can read this, receipts will print.</p>
+</div></body></html>`;
+    await printHtmlSilently(html);
+    return { ok: true, printerName: printerName || null };
+  });
+
   ipcMain.handle('reports:openPreview', async (event, html: string) => {
     if (services) assertPermission(services, 'reports.view');
     if (typeof html !== 'string' || !html.trim() || html.length > 5_000_000) {
@@ -1193,7 +1384,11 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
           silent: true,
           printBackground: true,
           landscape: true,
-          usePrinterDefaultPageSize: true,
+          // `usePrinterDefaultPageSize` was passed here, but that option does
+          // not exist in Electron 30 — it was silently dropped, leaving the job
+          // at Chromium's Letter default while the stylesheet below lays the
+          // report out on A4 landscape. State the size the CSS actually uses.
+          pageSize: 'A4',
         },
         (success, failureReason) => {
           const message = success

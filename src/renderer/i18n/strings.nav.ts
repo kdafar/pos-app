@@ -115,6 +115,41 @@ export const navStrings = {
     ar: 'تم تنزيل الشعار وهو جاهز للفواتير.',
   },
 
+  /* ---------- receipt printer ----------
+     Which printer a till prints to is per-device: it is stored locally and
+     never synced, because two branches on one account have different hardware
+     and the back office cannot know either. */
+  'settings.printer': { en: 'Receipt printer', ar: 'طابعة الإيصالات' },
+  'settings.printerHint': {
+    en: 'Choose the printer receipts are sent to and the width of the paper roll. Saved on this device only.',
+    ar: 'اختر الطابعة التي تُرسل إليها الإيصالات وعرض بكرة الورق. يُحفظ على هذا الجهاز فقط.',
+  },
+  'settings.printerSelect': { en: 'Printer', ar: 'الطابعة' },
+  'settings.printerSystemDefault': {
+    en: 'Windows default printer',
+    ar: 'الطابعة الافتراضية للنظام',
+  },
+  'settings.printerNone': {
+    en: 'No printers are installed on this device.',
+    ar: 'لا توجد طابعات مثبتة على هذا الجهاز.',
+  },
+  'settings.printerMissing': {
+    en: 'The selected printer is no longer installed, so receipts are going to the Windows default. Pick the printer again.',
+    ar: 'الطابعة المختارة لم تعد مثبتة، لذلك تُرسل الإيصالات إلى الطابعة الافتراضية. أعد اختيار الطابعة.',
+  },
+  'settings.paperWidth': { en: 'Paper width', ar: 'عرض الورق' },
+  'settings.printDialog': { en: 'Show the print dialog', ar: 'إظهار نافذة الطباعة' },
+  'settings.printDialogHint': {
+    en: 'Off by default so a sale does not need an extra confirmation. Turn it on if receipts still do not come out.',
+    ar: 'مغلق افتراضيًا حتى لا تحتاج كل عملية بيع إلى تأكيد إضافي. فعّله إذا كانت الإيصالات لا تخرج.',
+  },
+  'settings.printTest': { en: 'Print a test receipt', ar: 'طباعة إيصال تجريبي' },
+  'settings.printTestSent': {
+    en: 'Test receipt sent. If nothing comes out, try another printer or turn on the print dialog.',
+    ar: 'تم إرسال الإيصال التجريبي. إذا لم يخرج شيء، جرّب طابعة أخرى أو فعّل نافذة الطباعة.',
+  },
+  'settings.printerSaved': { en: 'Printer settings saved.', ar: 'تم حفظ إعدادات الطابعة.' },
+
   /* ---------- updates screen ----------
      Versions stay Latin and LTR, like every other identifier. */
   'nav.updates': { en: 'Updates', ar: 'التحديثات' },

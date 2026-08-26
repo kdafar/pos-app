@@ -1,8 +1,8 @@
 // src/renderer/pages/SettingsPage.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, Card, CardBody, Chip } from '@heroui/react';
-import { AlertTriangle, Check, Copy, Download, Languages, Lock } from 'lucide-react';
+import { Button, Card, CardBody, Chip, Switch } from '@heroui/react';
+import { AlertTriangle, Check, Copy, Download, Languages, Lock, Printer } from 'lucide-react';
 import { LANGS, useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import { errorLine as errLine } from '../utils/posError';
@@ -96,6 +96,18 @@ async function loadSource(
 const META_CHANNELS = ['meta:list', 'store:metaList', 'dev:dumpMeta'];
 const SERVER_CHANNELS = ['settings:getAll', 'settings:listAll'];
 
+type PrinterInfo = { name: string; displayName: string; isDefault: boolean };
+type PrinterConfig = {
+  printerName: string;
+  showDialog: boolean;
+  paperWidthMm: number;
+  printers: PrinterInfo[];
+  missing: boolean;
+};
+
+// 58mm and 80mm are the two roll widths thermal tills actually ship with.
+const PAPER_WIDTHS = [80, 58];
+
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
   const [rows, setRows] = useState<Row[]>([]);
@@ -105,6 +117,16 @@ export function SettingsPage() {
   const [partial, setPartial] = useState<string | null>(null);
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoResult, setLogoResult] = useState<
+    { kind: 'success' | 'error'; message: string } | null
+  >(null);
+
+  /* ---------- receipt printer ----------
+     A till that prints to the wrong device looks identical to a till that
+     does not print at all, and until this existed nothing on screen showed
+     which printer receipts were being sent to. */
+  const [printerCfg, setPrinterCfg] = useState<PrinterConfig | null>(null);
+  const [printerBusy, setPrinterBusy] = useState(false);
+  const [printerResult, setPrinterResult] = useState<
     { kind: 'success' | 'error'; message: string } | null
   >(null);
 
@@ -178,6 +200,63 @@ export function SettingsPage() {
       });
     } finally {
       setLogoBusy(false);
+    }
+  }, [t]);
+
+  const loadPrinters = useCallback(async () => {
+    try {
+      const cfg = (await window.api.invoke('print:getConfig')) as PrinterConfig;
+      setPrinterCfg(cfg);
+    } catch (e) {
+      // A printer list that cannot be read is not the same as no printers, and
+      // saying "no printers installed" here would send the shop looking at the
+      // hardware instead of the app.
+      setPrinterResult({ kind: 'error', message: errLine(e) });
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPrinters();
+  }, [loadPrinters]);
+
+  const savePrinter = useCallback(
+    async (patch: Partial<Pick<PrinterConfig, 'printerName' | 'showDialog' | 'paperWidthMm'>>) => {
+      setPrinterBusy(true);
+      setPrinterResult(null);
+      try {
+        const cfg = (await window.api.invoke(
+          'print:setConfig',
+          patch
+        )) as PrinterConfig;
+        // The handler answers with what was actually stored, so the screen
+        // shows the saved state rather than the requested one.
+        setPrinterCfg((prev) => (prev ? { ...prev, ...cfg, missing: false } : prev));
+        setPrinterResult({ kind: 'success', message: t('settings.printerSaved') });
+      } catch (e) {
+        setPrinterResult({ kind: 'error', message: errLine(e) });
+        // Put the control back on the stored value rather than leaving it
+        // showing a choice that was refused.
+        loadPrinters();
+      } finally {
+        setPrinterBusy(false);
+      }
+    },
+    [t, loadPrinters]
+  );
+
+  const testPrint = useCallback(async () => {
+    setPrinterBusy(true);
+    setPrinterResult(null);
+    try {
+      await window.api.invoke('print:test');
+      setPrinterResult({
+        kind: 'success',
+        message: t('settings.printTestSent'),
+      });
+    } catch (e) {
+      setPrinterResult({ kind: 'error', message: errLine(e) });
+    } finally {
+      setPrinterBusy(false);
     }
   }, [t]);
 
@@ -360,6 +439,107 @@ export function SettingsPage() {
               );
             })}
           </div>
+        </CardBody>
+      </Card>
+
+      {/* Receipt printer. This is the one setting on the page that is written
+          rather than displayed: everything below comes from the server or from
+          device provisioning, but which printer a till uses is only knowable
+          on the till. */}
+      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
+        <CardBody className='gap-3'>
+          <div>
+            <h2 className='flex items-center gap-2 text-base font-bold text-foreground'>
+              <Printer size={18} />
+              {t('settings.printer')}
+            </h2>
+            <p className='mt-0.5 text-sm font-medium text-default-700'>
+              {t('settings.printerHint')}
+            </p>
+          </div>
+
+          {printerCfg && printerCfg.printers.length === 0 ? (
+            <div className='flex items-center gap-2 text-sm font-semibold text-warning'>
+              <AlertTriangle size={18} className='shrink-0' />
+              {t('settings.printerNone')}
+            </div>
+          ) : (
+            <>
+              {printerCfg?.missing && (
+                <div className='flex items-start gap-2 rounded-lg border border-warning bg-content1 p-3 text-sm font-semibold text-warning'>
+                  <AlertTriangle size={18} className='mt-0.5 shrink-0' />
+                  <span>{t('settings.printerMissing')}</span>
+                </div>
+              )}
+
+              <div className='flex flex-wrap items-end gap-4'>
+                <FilterSelect
+                  label={t('settings.printerSelect')}
+                  value={printerCfg?.printerName ?? ''}
+                  onChange={(v) => void savePrinter({ printerName: v })}
+                  className='min-w-[18rem]'
+                  options={[
+                    // Keeping the default as an explicit option matters: a shop
+                    // whose only printer is the till printer should not be made
+                    // to pin a device name that Windows may rename.
+                    { value: '', label: t('settings.printerSystemDefault') },
+                    ...(printerCfg?.printers ?? []).map((pr) => ({
+                      value: pr.name,
+                      label: pr.isDefault
+                        ? `${pr.displayName} ★`
+                        : pr.displayName,
+                    })),
+                  ]}
+                />
+                <FilterSelect
+                  label={t('settings.paperWidth')}
+                  value={String(printerCfg?.paperWidthMm ?? 80)}
+                  onChange={(v) =>
+                    void savePrinter({ paperWidthMm: Number(v) })
+                  }
+                  options={PAPER_WIDTHS.map((w) => ({
+                    value: String(w),
+                    label: `${w} mm`,
+                  }))}
+                />
+              </div>
+
+              <div className='flex flex-wrap items-center gap-4'>
+                <Switch
+                  isSelected={!!printerCfg?.showDialog}
+                  onValueChange={(v) => void savePrinter({ showDialog: v })}
+                  isDisabled={printerBusy}
+                >
+                  <span className='text-sm font-semibold'>
+                    {t('settings.printDialog')}
+                  </span>
+                </Switch>
+                <Button
+                  color='primary'
+                  variant='flat'
+                  onPress={testPrint}
+                  isLoading={printerBusy}
+                  startContent={!printerBusy ? <Printer size={18} /> : undefined}
+                  className='font-semibold'
+                >
+                  {t('settings.printTest')}
+                </Button>
+              </div>
+              <p className='text-sm font-medium text-default-700'>
+                {t('settings.printDialogHint')}
+              </p>
+            </>
+          )}
+
+          {printerResult && (
+            <span
+              className={`text-sm font-semibold ${
+                printerResult.kind === 'success' ? 'text-success' : 'text-danger'
+              }`}
+            >
+              {printerResult.message}
+            </span>
+          )}
         </CardBody>
       </Card>
 
