@@ -7,6 +7,7 @@ import db, { getSetting, getMeta, setMeta } from './db';
 import QRCode from 'qrcode';
 import bwipjs from 'bwip-js';
 import ExcelJS from 'exceljs';
+import { getReceiptPageLayout } from './receiptPageLayout';
 
 import { posError } from '../shared/errorCodes';
 import type { MainServices } from './types/common';
@@ -1197,7 +1198,7 @@ async function printHtmlSilently(html: string): Promise<void> {
              // A 2mm breathing margin is right for a till roll and absurd on a
              // 10mm label, where it would eat a fifth of the printable area.
              const w = ${widthMm};
-             const printable = w > 30 ? w - 2 : w;
+             const printable = ${getReceiptPageLayout(widthMm, 0, 0).bodyWidthMm};
              document.body.style.width = printable + 'mm';
              document.body.style.margin = '0';
              const kids = Array.from(document.body.children);
@@ -1209,29 +1210,15 @@ async function printHtmlSilently(html: string): Promise<void> {
         )
         .catch(() => 0)
     );
-    // Chromium lays out at a 96dpi CSS inch, and an inch is 25400 microns.
-    const MICRONS_PER_PX = 25400 / 96;
-    // Customer receipts always use a continuous roll. A previously saved fixed
-    // height caused long orders to paginate and moved the QR/barcode to a new
-    // page, so it must not override the measured invoice length.
+    // Thermal receipts use one continuous auto-length roll. Sheet printers need
+    // their real full page; sending an 80mm custom page to an A4 driver can make
+    // Windows align the small page at the bottom of the physical sheet.
     const configuredHeightMm = getPaperHeightMm();
-    const heightMm = 0;
-    // Drivers round custom thermal sizes differently. Add a small trailing
-    // feed to the auto-length page so that rounding and cutter margins cannot
-    // move the final line onto another page. This is blank roll after content,
-    // not a visible document margin.
-    const AUTO_HEIGHT_TAIL_MICRONS = 5_000;
-    const pageSize = {
-      width: Math.round(widthMm * 1000),
-      height: heightMm
-        ? Math.round(heightMm * 1000)
-        : // The floor keeps a failed measurement from producing a zero-height
-          // page that the driver would reject outright.
-          Math.max(
-            Math.ceil(contentPx * MICRONS_PER_PX) + AUTO_HEIGHT_TAIL_MICRONS,
-            50_000
-          ),
-    };
+    const { heightMm, pageSize } = getReceiptPageLayout(
+      widthMm,
+      configuredHeightMm,
+      contentPx
+    );
     console.log('[print] page size', {
       widthMm,
       heightMm: heightMm || 'auto',

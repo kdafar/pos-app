@@ -111,8 +111,12 @@ type PrinterConfig = {
 // takes any size: some sites print receipts on a label printer whose stock is
 // whatever the driver was set up for, and a preset list cannot cover that.
 const PAPER_PRESETS = [
-  { w: 80, h: 0 },
-  { w: 58, h: 0 },
+  { label: '80 mm', w: 80, h: 0 },
+  { label: '58 mm', w: 58, h: 0 },
+  { label: '76 mm', w: 76, h: 0 },
+  { label: 'A5', w: 148, h: 210 },
+  { label: 'A4', w: 210, h: 297 },
+  { label: 'Letter', w: 216, h: 279 },
 ];
 
 export function SettingsPage() {
@@ -548,7 +552,7 @@ export function SettingsPage() {
                 <div className='flex flex-wrap gap-1 pb-1'>
                   {PAPER_PRESETS.map((preset) => (
                     <Button
-                      key={preset.w}
+                      key={preset.label}
                       size='sm'
                       variant='bordered'
                       onPress={() => {
@@ -560,7 +564,7 @@ export function SettingsPage() {
                         });
                       }}
                     >
-                      {preset.w} mm
+                      {preset.label}
                     </Button>
                   ))}
                 </div>
