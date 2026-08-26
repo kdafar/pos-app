@@ -813,6 +813,9 @@ function renderReceiptHTML(opts: {
          On a 78mm roll that 2cm right margin pushed the totals column off the
          edge. */
       body { margin: 0; padding: 0; }
+      /* A receipt is one continuous roll page. Keep rows and the totals block
+         together if a printer driver applies its own pagination rules. */
+      tr, table { break-inside: avoid; page-break-inside: avoid; }
     }
   </style>
 </head>
@@ -1115,8 +1118,23 @@ async function printHtmlSilently(html: string): Promise<void> {
     ]);
     console.log('[print] receipt page loaded');
 
-    // tiny settle
-    await sleep(150);
+    // Wait for fonts and embedded images before measuring. Measuring while a
+    // logo or barcode is still decoding produces a page shorter than the final
+    // receipt, which makes the bottom print on a second page or get cut off.
+    await win.webContents
+      .executeJavaScript(
+        `Promise.all([
+           document.fonts?.ready || Promise.resolve(),
+           ...Array.from(document.images).map((img) =>
+             img.complete ? Promise.resolve() : new Promise((resolve) => {
+               img.addEventListener('load', resolve, { once: true });
+               img.addEventListener('error', resolve, { once: true });
+             })
+           )
+         ]).then(() => true)`
+      )
+      .catch(() => false);
+    await sleep(50);
 
     // No printer at all makes webContents.print() fail in ways that vary by
     // platform — sometimes an error, sometimes a callback that never fires.
@@ -1185,8 +1203,7 @@ async function printHtmlSilently(html: string): Promise<void> {
              const bottom = kids.length
                ? Math.max(...kids.map((el) => el.getBoundingClientRect().bottom))
                : document.body.scrollHeight;
-             // A few px of tail so the last line is never clipped by rounding.
-             return Math.ceil(bottom + 8);
+             return Math.ceil(bottom);
            })()`
         )
         .catch(() => 0)
@@ -1197,13 +1214,21 @@ async function printHtmlSilently(html: string): Promise<void> {
     // that can be any length, but on fixed stock the page must match the label
     // the driver expects, whatever the receipt happens to measure.
     const heightMm = getPaperHeightMm();
+    // Drivers round custom thermal sizes differently. Add a small trailing
+    // feed to the auto-length page so that rounding and cutter margins cannot
+    // move the final line onto another page. This is blank roll after content,
+    // not a visible document margin.
+    const AUTO_HEIGHT_TAIL_MICRONS = 5_000;
     const pageSize = {
       width: Math.round(widthMm * 1000),
       height: heightMm
         ? Math.round(heightMm * 1000)
         : // The floor keeps a failed measurement from producing a zero-height
           // page that the driver would reject outright.
-          Math.max(Math.round(contentPx * MICRONS_PER_PX), 50_000),
+          Math.max(
+            Math.ceil(contentPx * MICRONS_PER_PX) + AUTO_HEIGHT_TAIL_MICRONS,
+            50_000
+          ),
     };
     console.log('[print] page size', {
       widthMm,
@@ -1327,11 +1352,11 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
   };
 
   ipcMain.handle('print:getConfig', async (event) => {
-    const { printerName, showDialog } = getPrintConfig();
+    const config = getPrintConfig();
+    const { printerName } = config;
     const printers = await listPrinters(event);
     return {
-      printerName,
-      showDialog,
+      ...config,
       printers,
       // A name that no longer resolves is the other half of the same fault: the
       // printer was renamed or replaced and the till has been quietly falling
@@ -1552,13 +1577,9 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
   ipcMain.handle(
     'orders:print',
     async (_e, orderId: string, opts?: { savePdf?: boolean }) => {
-      // 'orders.print' existed as a slug, was offered on the permissions
-      // screen, and was checked on the Recent Orders screen — but never here.
-      // The POS cart called this channel with no check at all, so revoking the
-      // permission hid one button and changed nothing about what the till
-      // would actually print. A permission the back office can grant and the
-      // main process ignores is worse than not offering it.
-      if (services) assertPermission(services, 'orders.print');
+      // Printing a customer receipt is part of completing an order and must
+      // remain available to every cashier. It is intentionally not part of
+      // the permission system.
 
       // The language toggle persists ui.lang through store:set, which writes to
       // the `meta` table — getSetting only reads `app_settings`, so the receipt

@@ -57,16 +57,3 @@ describe('the till roles', () => {
   });
 });
 
-describe('the orders.print permission', () => {
-  // Printing was the last control gated on a hardcoded role test. Giving it a
-  // permission removed the hardcode; this pins that it did not also widen
-  // access, because the old test admitted exactly admin / manager / owner.
-  it('starts on exactly the roles the old hardcoded test admitted', () => {
-    for (const role of ['admin', 'manager', 'owner']) {
-      expect(rolePermissions(role), role).toContain('orders.print');
-    }
-    for (const role of ['pos', 'branch', 'kitchen', 'accountant']) {
-      expect(rolePermissions(role), role).not.toContain('orders.print');
-    }
-  });
-});

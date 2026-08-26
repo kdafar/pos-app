@@ -384,16 +384,38 @@ export function migrate() {
   // Renamed rather than dropped so hand-entered settings stay recoverable —
   // nothing reads this table any more.
   try {
-    const hasUserPerms = db
-      .prepare(
-        `SELECT name FROM sqlite_master WHERE type='table' AND name='pos_user_permissions'`
-      )
-      .get();
-    if (hasUserPerms) {
-      db.exec(
-        'ALTER TABLE pos_user_permissions RENAME TO pos_user_permissions_retired'
-      );
-      console.log('[db] retired pos_user_permissions; permissions are per-role now');
+    const tableExists = (name: string) =>
+      !!db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`)
+        .get(name);
+
+    if (tableExists('pos_user_permissions')) {
+      if (!tableExists('pos_user_permissions_retired')) {
+        db.exec(
+          'ALTER TABLE pos_user_permissions RENAME TO pos_user_permissions_retired'
+        );
+        console.log('[db] retired pos_user_permissions; permissions are per-role now');
+      } else {
+        // Builds before the per-role switch recreated pos_user_permissions on
+        // every boot, moments after this migration had renamed it away. The
+        // retired copy holds the real grants; this one is that empty recreate,
+        // so drop it — otherwise the rename fails and logs on every boot from
+        // here on. If it somehow holds rows, park it under the next free
+        // suffix rather than throw hand-entered settings away.
+        const { c = 0 } = db
+          .prepare('SELECT COUNT(*) AS c FROM pos_user_permissions')
+          .get() as { c?: number };
+        if (c === 0) {
+          db.exec('DROP TABLE pos_user_permissions');
+          console.log('[db] dropped empty leftover pos_user_permissions');
+        } else {
+          let n = 2;
+          while (tableExists(`pos_user_permissions_retired_${n}`)) n++;
+          const parked = `pos_user_permissions_retired_${n}`;
+          db.exec(`ALTER TABLE pos_user_permissions RENAME TO ${parked}`);
+          console.log('[db] retired pos_user_permissions', { as: parked, rows: c });
+        }
+      }
     }
   } catch (e) {
     console.error('[db] could not retire pos_user_permissions', e);

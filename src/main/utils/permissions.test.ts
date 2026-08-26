@@ -35,7 +35,7 @@ describe('permissionsForRole under server management', () => {
   it('grants nothing when every row is allowed:false', () => {
     const rows = [
       { permission: 'orders.create', allowed: 0 },
-      { permission: 'orders.print', allowed: 0 },
+      { permission: 'orders.refund', allowed: 0 },
       { permission: 'tables.manage', allowed: 0 },
     ];
     expect(permissionsForRole(fakeDb(rows, 'server'), 'pos')).toEqual([]);
@@ -80,11 +80,11 @@ describe('permissionsForRole under server management', () => {
 describe('permissionsForRole with local edits only', () => {
   it('applies rows as a delta against the defaults', () => {
     const rows = [
-      { permission: 'orders.print', allowed: 1 }, // add
+      { permission: 'orders.refund', allowed: 1 }, // add
       { permission: 'tables.manage', allowed: 0 }, // remove
     ];
     const result = permissionsForRole(fakeDb(rows, null), 'pos');
-    expect(result).toContain('orders.print');
+    expect(result).toContain('orders.refund');
     expect(result).not.toContain('tables.manage');
     // Untouched defaults survive.
     expect(result).toContain('orders.create');
@@ -93,6 +93,6 @@ describe('permissionsForRole with local edits only', () => {
   it('keeps the defaults when the table is empty', () => {
     const result = permissionsForRole(fakeDb([], null), 'pos');
     expect(result).toContain('orders.create');
-    expect(result).not.toContain('orders.print');
+    expect(result).not.toContain('orders.refund');
   });
 });

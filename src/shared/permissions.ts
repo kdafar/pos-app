@@ -1,7 +1,6 @@
 export const PERMISSIONS = [
   'orders.create', 'orders.view_own', 'orders.view_all', 'orders.kitchen_view', 'orders.edit_unpaid',
   'orders.change_status', 'orders.cancel', 'orders.reopen', 'orders.refund',
-  'orders.print',
   'reports.view', 'reports.export', 'catalog.manage', 'payments.manage',
   'locations.manage', 'tables.manage', 'settings.manage', 'updates.manage',
   'users.permissions',

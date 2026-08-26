@@ -202,7 +202,6 @@ export default function TodayOrdersReport() {
 
   const canChangeStatus = can('orders.change_status');
   const canViewDetail = can('orders.view_all') || can('orders.view_own');
-  const canPrint = can('orders.print');
 
   const refresh = async () => {
     setLoading(true);
@@ -260,15 +259,6 @@ export default function TodayOrdersReport() {
   const handlePrint = useCallback(
     async (orderId?: string) => {
       try {
-        if (!canPrint) {
-          toast({
-            tone: 'warning',
-            title: t('admin.orders.printAdminOnly'),
-            message: t('admin.supportHint'),
-          });
-          return;
-        }
-
         if (!orderId) {
           toast({
             tone: 'warning',
@@ -287,7 +277,7 @@ export default function TodayOrdersReport() {
         });
       }
     },
-    [canPrint, t]
+    [t]
   );
 
   const columns = useMemo<ColumnDef<Order>[]>(
