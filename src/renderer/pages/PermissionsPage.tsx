@@ -33,9 +33,14 @@ export default function PermissionsPage() {
   const [allowed, setAllowed] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(true);
   const [saved, setSaved] = useState(false);
+  /** The back office owns permissions for this estate; the till only shows them. */
+  const [serverManaged, setServerManaged] = useState(false);
 
   const role = roles.find((item) => item.role === selected);
-  const locked = !!role?.is_own_role;
+  // Two separate reasons a role cannot be edited here, and the notice below
+  // distinguishes them: your own role (you would lock yourself out) and
+  // server-managed (there is nothing to change on this machine).
+  const locked = !!role?.is_own_role || serverManaged;
   const defaults = useMemo(() => new Set(role?.defaults || []), [role?.defaults]);
   const changed =
     !!role &&
@@ -53,7 +58,14 @@ export default function PermissionsPage() {
   const load = async () => {
     setBusy(true);
     try {
-      const next = (await window.api.invoke('permissions:listRoles')) as Role[];
+      // The handler used to answer with a bare array and now answers with
+      // { roles, serverManaged }. Both shapes are accepted so a renderer and a
+      // main process from different builds cannot leave the page empty.
+      const resp = (await window.api.invoke('permissions:listRoles')) as
+        | Role[]
+        | { roles: Role[]; serverManaged?: boolean };
+      const next = Array.isArray(resp) ? resp : resp?.roles ?? [];
+      setServerManaged(!Array.isArray(resp) && !!resp?.serverManaged);
       setRoles(next);
       const key = next.some((item) => item.role === selected)
         ? selected
@@ -161,10 +173,24 @@ export default function PermissionsPage() {
         ) : (
           role && (
             <>
-              {locked && (
+              {serverManaged ? (
                 <div className='rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-medium text-default-700'>
-                  {t('permissions.ownRoleReadOnly')}
+                  {t('permissions.serverManaged')}
                 </div>
+              ) : (
+                <>
+                  {/* Stated plainly, because the opposite assumption — that
+                      this reaches every till — is the one shops actually
+                      make, and it is wrong until the back office owns them. */}
+                  <div className='rounded-lg border border-warning/40 bg-warning/5 px-4 py-3 text-sm font-medium text-default-700'>
+                    {t('permissions.localOnly')}
+                  </div>
+                  {role?.is_own_role && (
+                    <div className='rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-medium text-default-700'>
+                      {t('permissions.ownRoleReadOnly')}
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Who this actually changes. The point of moving off per-user

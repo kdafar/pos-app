@@ -199,15 +199,51 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     }));
   };
 
+  /**
+   * Whether the back office owns role permissions for this estate.
+   *
+   * Set by the sync layer the first time the server sends them. Until then a
+   * shop on an older backend keeps editing locally, so upgrading the POS ahead
+   * of the server cannot take the screen away from them.
+   */
+  const permissionsAreServerManaged = (): boolean => {
+    try {
+      return (
+        db
+          .prepare(`SELECT value FROM sync_state WHERE key = 'permissions.source'`)
+          .pluck()
+          .get() === 'server'
+      );
+    } catch {
+      return false;
+    }
+  };
+
   ipcMain.handle('permissions:listRoles', () => {
     assertCanEditPermissions();
-    return listRoles();
+    return {
+      roles: listRoles(),
+      // The screen has to be able to say *why* it is read-only. "Managed in
+      // the back office" and "you lack the permission" are different problems
+      // with different fixes, and a disabled control that explains neither
+      // sends the shop to support.
+      serverManaged: permissionsAreServerManaged(),
+    };
   });
 
   ipcMain.handle(
     'permissions:setRole',
     (_event, role: string, permissions: string[]) => {
       const actor = assertCanEditPermissions();
+      if (permissionsAreServerManaged()) {
+        // Allowing the edit would be worse than refusing it: the write would
+        // succeed, look applied, and then be silently reverted by the next
+        // bootstrap — which is the same "I set it and it did not stick"
+        // report that started all this.
+        throw new Error(
+          'Role permissions are managed in the back office and apply to every till. Change them there.'
+        );
+      }
       const key = String(role ?? '').trim().toLowerCase();
       if (!key) throw new Error('Role is required.');
 

@@ -25,7 +25,20 @@ export const adminStrings = {
 
   /* ---------- user permissions ---------- */
   'permissions.title': { en: 'Role permissions', ar: 'صلاحيات الأدوار' },
-  'permissions.subtitle': { en: 'Grant access by job role — every user with that role inherits it', ar: 'امنح الصلاحيات حسب الدور الوظيفي — يرثها كل مستخدم بهذا الدور' },
+  // The old subtitle promised more than the app delivers: role permissions are
+  // stored in the local pos_role_permissions table and, until the server owns
+  // them, do not reach any other till. Saying "every user with that role"
+  // without saying "on this device" is how a shop sets a permission once and
+  // assumes the whole estate has it.
+  'permissions.subtitle': { en: 'Grant access by job role on this till — every user with that role inherits it here', ar: 'امنح الصلاحيات حسب الدور الوظيفي على هذا الجهاز — يرثها كل مستخدم بهذا الدور هنا' },
+  'permissions.localOnly': {
+    en: 'These permissions apply to this till only. Set them on each device, or ask the back office to manage them centrally.',
+    ar: 'تنطبق هذه الصلاحيات على هذا الجهاز فقط. اضبطها على كل جهاز، أو اطلب من الإدارة ضبطها مركزيًا.',
+  },
+  'permissions.serverManaged': {
+    en: 'Permissions are managed in the back office and apply to every till. They cannot be changed here.',
+    ar: 'تُدار الصلاحيات من لوحة التحكم وتنطبق على جميع الأجهزة. لا يمكن تغييرها من هنا.',
+  },
   'permissions.selectRole': { en: 'Select role', ar: 'اختر الدور' },
   'permissions.chooseRole': { en: 'Choose a role', ar: 'اختر دوراً' },
   'permissions.appliesTo': { en: 'Applies to {n} user(s)', ar: 'تنطبق على {n} مستخدم' },
@@ -432,6 +445,10 @@ export const adminStrings = {
 
   /* ---------- Closing / sales report ---------- */
   'admin.rep.title': { en: 'Sales Reports', ar: 'تقارير المبيعات' },
+  // Shown in place of the date pickers to an operator who may only see the
+  // shift they are working. The range still has to be stated: a filter bar
+  // with nothing in it reads as "all time".
+  'admin.rep.currentShift': { en: 'Current working day', ar: 'يوم العمل الحالي' },
   'admin.rep.startDate': { en: 'Start Date', ar: 'من تاريخ' },
   'admin.rep.endDate': { en: 'End Date', ar: 'إلى تاريخ' },
   'admin.rep.tabDaily': { en: 'Daily Report', ar: 'التقرير اليومي' },

@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import db from '../db';
 import type { MainServices } from '../types/common';
-import { assertPermission } from '../utils/permissions';
+import { assertPermission, getCurrentPosUser } from '../utils/permissions';
 
 /* ========== meta helpers ========== */
 function getMeta(key: string): string | undefined {
@@ -261,6 +261,29 @@ function operationalDateRange(fromDate?: string, toDate?: string): {
   return { fromMs: fromRange.startMs, toMs: toRange.endMs };
 }
 
+/**
+ * Hold a requested range inside the window an operator is allowed to see.
+ *
+ * Narrowing is preserved: asking for one hour of the current shift is a
+ * legitimate question and stays exactly as asked. Only a range that reaches
+ * outside the window is pulled back to its edge.
+ */
+export function clampRangeToWindow(
+  requestedFrom: number,
+  requestedTo: number,
+  window: { fromMs: number; toMs: number }
+): { fromMs: number; toMs: number; clamped: boolean } {
+  const pin = (v: number) =>
+    Math.min(Math.max(v, window.fromMs), window.toMs);
+  const fromMs = pin(requestedFrom);
+  const toMs = pin(requestedTo);
+  return {
+    fromMs,
+    toMs,
+    clamped: fromMs !== requestedFrom || toMs !== requestedTo,
+  };
+}
+
 /* ---- helpers to classify orders ---- */
 
 /**
@@ -409,10 +432,48 @@ export function registerOperationalReportHandlers(services: MainServices) {
       assertReportAccess();
       const def = defaultOperationalWindow(new Date());
 
-      const fromMs = Number.isFinite(opts?.from)
+      // Reaching back into previous days is a separate right from reading the
+      // current one. A cashier closing the till needs the shift they are
+      // standing in; last month's takings are a back-office question.
+      //
+      // This was gated on 'reports.export' and that conflated two unrelated
+      // things. A shop that wants its cashiers to export today's takings to
+      // Excel grants reports.export — and thereby handed them the whole date
+      // picker and every previous day's revenue. Exporting the current shift
+      // and reading history are different rights, and only one of them is a
+      // till-operator concern.
+      //
+      // Admin-tier is the rule now: admin, owner, manager, super_admin,
+      // superadmin. Everyone else gets the operational window, which is what
+      // the branch opening hours in `time` already define.
+      //
+      // It is enforced here rather than in the screen because the range
+      // arrives over IPC, and the renderer is not a trusted source of it — any
+      // caller could ask for a year.
+      const canPickRange = getCurrentPosUser(services).isAdmin;
+
+      const requestedFrom = Number.isFinite(opts?.from)
         ? Number(opts!.from)
         : def.fromMs;
-      const toMs = Number.isFinite(opts?.to) ? Number(opts!.to) : def.toMs;
+      const requestedTo = Number.isFinite(opts?.to) ? Number(opts!.to) : def.toMs;
+
+      // Clamped rather than rejected: a stale date sitting in the picker when
+      // a manager hands the till to a cashier would otherwise turn the report
+      // into an error message mid-shift. Narrowing inside the current window
+      // is still allowed — that is a legitimate look at part of the shift.
+      const limited = canPickRange
+        ? { fromMs: requestedFrom, toMs: requestedTo, clamped: false }
+        : clampRangeToWindow(requestedFrom, requestedTo, def);
+      const { fromMs, toMs, clamped } = limited;
+
+      if (clamped) {
+        console.log('[report] range clamped to the current operational day', {
+          requestedFrom,
+          requestedTo,
+          fromMs,
+          toMs,
+        });
+      }
 
       const tsCol = pickOrderTsColumn();
       const tsMs = msExpr(tsCol, 'o');
@@ -957,6 +1018,10 @@ export function registerOperationalReportHandlers(services: MainServices) {
       return {
         fromMs,
         toMs,
+        // The screen needs to know the range is fixed, so it can say so rather
+        // than show a date picker that silently does nothing.
+        canPickRange,
+        clamped,
         footer,
         payments,
         orderTypes,

@@ -138,6 +138,11 @@ export const navStrings = {
     ar: 'الطابعة المختارة لم تعد مثبتة، لذلك تُرسل الإيصالات إلى الطابعة الافتراضية. أعد اختيار الطابعة.',
   },
   'settings.paperWidth': { en: 'Paper width', ar: 'عرض الورق' },
+  'settings.paperHeight': { en: 'Paper height', ar: 'ارتفاع الورق' },
+  'settings.paperHeightHint': {
+    en: '0 = as long as the receipt. Set a height only for fixed stock, such as labels.',
+    ar: '0 = بطول الإيصال. حدد ارتفاعًا فقط للورق ثابت المقاس، مثل الملصقات.',
+  },
   'settings.printDialog': { en: 'Show the print dialog', ar: 'إظهار نافذة الطباعة' },
   'settings.printDialogHint': {
     en: 'Off by default so a sale does not need an extra confirmation. Turn it on if receipts still do not come out.',

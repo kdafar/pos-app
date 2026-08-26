@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 
 import { useStore } from '../../src/store';
+import { isAdminRole } from '../../../shared/permissions';
 import { useI18n, useOrderTypeLabel } from '../../i18n';
 import type { StringKey } from '../../i18n';
 import { DataTable } from '../../components/DataTable';
@@ -75,6 +76,10 @@ type ReportData = {
   footer: FooterStats;
   fromMs: number;
   toMs: number;
+  /** Whether this operator may look outside the current operational day. */
+  canPickRange?: boolean;
+  /** The requested range reached outside that day and was pulled back in. */
+  clamped?: boolean;
 };
 
 /** The closing report's own status vocabulary (not the server enum). */
@@ -127,11 +132,17 @@ export default function ClosingReport() {
   const [toStr, setToStr] = useState('');
   const [data, setData] = useState<ReportData | null>(null);
 
-  // Was a hardcoded admin-tier role list. Choosing which day a closing
-  // report covers is a reporting action, so it asks for the reporting
-  // permission — which also makes it configurable per role instead of
-  // needing a code change to let a bookkeeper look at last Tuesday.
-  const canEditRange = !!user?.permissions?.includes('reports.export');
+  // Who may look outside the current operational day.
+  //
+  // The main process decides this now and says so in the response; the local
+  // check is only the opening guess, used before the first reply lands. Two
+  // copies of the rule is how a screen ends up offering a date picker that the
+  // handler then quietly ignores.
+  //
+  // The guess is admin-tier, matching the handler. It used to be
+  // 'reports.export', which a shop grants so cashiers can export the current
+  // shift — and which therefore also handed them every previous day.
+  const canEditRange = data?.canPickRange ?? isAdminRole(user?.role);
 
   const loadReport = useCallback(
     async (opts?: { from?: number; to?: number }) => {
@@ -578,6 +589,33 @@ export default function ClosingReport() {
               className='w-56'
             />
             <Button color='primary' onPress={handleRefresh} isLoading={loading}>
+              {t('admin.refresh')}
+            </Button>
+          </div>
+        ) : data ? (
+          // Not simply hidden. A cashier who cannot change the range still has
+          // to know what the figures cover before writing them down, and a
+          // blank filter bar reads as "everything".
+          <div className='flex flex-wrap items-center gap-2 no-print'>
+            <Chip
+              size='sm'
+              variant='flat'
+              color='primary'
+              startContent={<Clock size={14} className='ms-1' />}
+              className='font-semibold'
+            >
+              {t('admin.rep.currentShift')}
+            </Chip>
+            <span className='text-sm font-medium text-default-700' dir='ltr'>
+              {fmtDateTime(data.fromMs)} — {fmtDateTime(data.toMs)}
+            </span>
+            <Button
+              size='sm'
+              color='primary'
+              variant='flat'
+              onPress={() => loadReport()}
+              isLoading={loading}
+            >
               {t('admin.refresh')}
             </Button>
           </div>

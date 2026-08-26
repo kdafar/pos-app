@@ -1,7 +1,7 @@
 // src/renderer/pages/SettingsPage.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, Card, CardBody, Chip, Switch } from '@heroui/react';
+import { Button, Card, CardBody, Chip, Input, Switch } from '@heroui/react';
 import { AlertTriangle, Check, Copy, Download, Languages, Lock, Printer } from 'lucide-react';
 import { LANGS, useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
@@ -101,12 +101,19 @@ type PrinterConfig = {
   printerName: string;
   showDialog: boolean;
   paperWidthMm: number;
+  /** 0 = as long as the receipt (roll). Non-zero = fixed stock, e.g. a label. */
+  paperHeightMm: number;
   printers: PrinterInfo[];
   missing: boolean;
 };
 
-// 58mm and 80mm are the two roll widths thermal tills actually ship with.
-const PAPER_WIDTHS = [80, 58];
+// 58mm and 80mm are the two roll widths thermal tills ship with, but the field
+// takes any size: some sites print receipts on a label printer whose stock is
+// whatever the driver was set up for, and a preset list cannot cover that.
+const PAPER_PRESETS = [
+  { w: 80, h: 0 },
+  { w: 58, h: 0 },
+];
 
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
@@ -129,6 +136,10 @@ export function SettingsPage() {
   const [printerResult, setPrinterResult] = useState<
     { kind: 'success' | 'error'; message: string } | null
   >(null);
+  // Held as text while being typed. Saving on every keystroke would write
+  // "1" on the way to "105" and reject it, so the value is committed on blur.
+  const [widthDraft, setWidthDraft] = useState('80');
+  const [heightDraft, setHeightDraft] = useState('0');
 
   const [q, setQ] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'meta' | 'server'>(
@@ -207,6 +218,8 @@ export function SettingsPage() {
     try {
       const cfg = (await window.api.invoke('print:getConfig')) as PrinterConfig;
       setPrinterCfg(cfg);
+      setWidthDraft(String(cfg.paperWidthMm ?? 80));
+      setHeightDraft(String(cfg.paperHeightMm ?? 0));
     } catch (e) {
       // A printer list that cannot be read is not the same as no printers, and
       // saying "no printers installed" here would send the shop looking at the
@@ -220,7 +233,7 @@ export function SettingsPage() {
   }, [loadPrinters]);
 
   const savePrinter = useCallback(
-    async (patch: Partial<Pick<PrinterConfig, 'printerName' | 'showDialog' | 'paperWidthMm'>>) => {
+    async (patch: Partial<Pick<PrinterConfig, 'printerName' | 'showDialog' | 'paperWidthMm' | 'paperHeightMm'>>) => {
       setPrinterBusy(true);
       setPrinterResult(null);
       try {
@@ -243,6 +256,19 @@ export function SettingsPage() {
     },
     [t, loadPrinters]
   );
+
+  const commitPaper = useCallback(() => {
+    const w = Number(widthDraft);
+    const h = Number(heightDraft);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+    if (
+      w === printerCfg?.paperWidthMm &&
+      h === (printerCfg?.paperHeightMm ?? 0)
+    ) {
+      return; // nothing changed — do not write, do not flash a toast
+    }
+    void savePrinter({ paperWidthMm: w, paperHeightMm: h });
+  }, [widthDraft, heightDraft, printerCfg, savePrinter]);
 
   const testPrint = useCallback(async () => {
     setPrinterBusy(true);
@@ -491,17 +517,53 @@ export function SettingsPage() {
                     })),
                   ]}
                 />
-                <FilterSelect
+              </div>
+
+              <div className='flex flex-wrap items-end gap-3'>
+                <Input
+                  type='number'
                   label={t('settings.paperWidth')}
-                  value={String(printerCfg?.paperWidthMm ?? 80)}
-                  onChange={(v) =>
-                    void savePrinter({ paperWidthMm: Number(v) })
-                  }
-                  options={PAPER_WIDTHS.map((w) => ({
-                    value: String(w),
-                    label: `${w} mm`,
-                  }))}
+                  labelPlacement='outside'
+                  value={widthDraft}
+                  onValueChange={setWidthDraft}
+                  onBlur={commitPaper}
+                  endContent={<span className='text-sm text-default-500'>mm</span>}
+                  className='w-40'
+                  min={10}
+                  max={210}
                 />
+                <Input
+                  type='number'
+                  label={t('settings.paperHeight')}
+                  labelPlacement='outside'
+                  value={heightDraft}
+                  onValueChange={setHeightDraft}
+                  onBlur={commitPaper}
+                  endContent={<span className='text-sm text-default-500'>mm</span>}
+                  className='w-40'
+                  min={0}
+                  max={2000}
+                  description={t('settings.paperHeightHint')}
+                />
+                <div className='flex flex-wrap gap-1 pb-1'>
+                  {PAPER_PRESETS.map((preset) => (
+                    <Button
+                      key={preset.w}
+                      size='sm'
+                      variant='bordered'
+                      onPress={() => {
+                        setWidthDraft(String(preset.w));
+                        setHeightDraft(String(preset.h));
+                        void savePrinter({
+                          paperWidthMm: preset.w,
+                          paperHeightMm: preset.h,
+                        });
+                      }}
+                    >
+                      {preset.w} mm
+                    </Button>
+                  ))}
+                </div>
               </div>
 
               <div className='flex flex-wrap items-center gap-4'>

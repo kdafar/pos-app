@@ -4,9 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 // under test are pure and touch none of it.
 vi.mock('../db', () => ({ default: {} }));
 
-const { isSold, isCancelled, rowMoney, classifyRow } = await import(
-  './reports_operational'
-);
+const { isSold, isCancelled, rowMoney, classifyRow, clampRangeToWindow } =
+  await import('./reports_operational');
 
 /**
  * These two functions decide what a shop's daily takings are. Every case below
@@ -192,5 +191,48 @@ describe('classifyRow', () => {
     ]) {
       expect(classifyRow(r).uncounted_reason).toBeUndefined();
     }
+  });
+});
+
+/**
+ * A cashier without 'reports.export' sees the shift they are standing in and
+ * nothing else. The closing report hid the date controls from them, but the
+ * range arrives over IPC — the renderer is not where that rule can live.
+ */
+describe('clampRangeToWindow', () => {
+  const shift = { fromMs: 1_000, toMs: 2_000 };
+
+  it('leaves a range that is already inside the shift exactly as asked', () => {
+    expect(clampRangeToWindow(1_200, 1_800, shift)).toEqual({
+      fromMs: 1_200,
+      toMs: 1_800,
+      clamped: false,
+    });
+  });
+
+  it('pulls a range reaching into previous days back to the shift start', () => {
+    expect(clampRangeToWindow(0, 1_500, shift)).toEqual({
+      fromMs: 1_000,
+      toMs: 1_500,
+      clamped: true,
+    });
+  });
+
+  it('refuses a range that lies entirely outside the shift', () => {
+    // Last month collapses to a zero-width window at the shift edge rather
+    // than quietly returning last month's takings.
+    expect(clampRangeToWindow(-9_000, -8_000, shift)).toEqual({
+      fromMs: 1_000,
+      toMs: 1_000,
+      clamped: true,
+    });
+  });
+
+  it('clamps a range that swallows the shift on both sides', () => {
+    expect(clampRangeToWindow(0, 9_999, shift)).toEqual({
+      fromMs: 1_000,
+      toMs: 2_000,
+      clamped: true,
+    });
   });
 });

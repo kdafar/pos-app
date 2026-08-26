@@ -727,6 +727,19 @@ export async function bootstrap(baseUrl: string) {
   const tables = asArray(catalog.tables ?? catalog.table_list ?? []);
   const users = asArray(data.users ?? catalog.users ?? []);
 
+  // Role permissions are server-owned. Absent and empty mean different things
+  // here and must not be collapsed: a server that has not been updated sends
+  // no key at all, and wiping the till's table on that would strip every
+  // permission a shop had set. An explicit empty list is the back office
+  // saying "no overrides — use the built-in defaults", which is a real
+  // instruction and is applied.
+  const rolePermsRaw =
+    data.role_permissions ??
+    catalog.role_permissions ??
+    catalog.pos_role_permissions;
+  const rolePerms =
+    rolePermsRaw === undefined ? null : asArray(rolePermsRaw ?? []);
+
   const tx = db.transaction(() => {
     // items
     const upItem = db.prepare(`
@@ -1159,6 +1172,41 @@ export async function bootstrap(baseUrl: string) {
     `);
 
     for (const u of users) upUser.run(normUser(u));
+
+    if (rolePerms) {
+      // Replaced wholesale rather than upserted. A permission the back office
+      // revoked disappears from the payload entirely, so merging would leave
+      // the revoked grant in place on the till forever — the failure mode is
+      // silent and it fails open.
+      db.prepare('DELETE FROM pos_role_permissions').run();
+      const upRolePerm = db.prepare(
+        `INSERT OR REPLACE INTO pos_role_permissions
+           (role, permission, allowed, updated_by, updated_at)
+         VALUES (@role, @permission, @allowed, @updated_by, @updated_at)`
+      );
+      for (const r of rolePerms) {
+        const role = String(r?.role ?? '').trim().toLowerCase();
+        const permission = String(r?.permission ?? '').trim();
+        if (!role || !permission) continue;
+        upRolePerm.run({
+          role,
+          permission,
+          allowed: r?.allowed ? 1 : 0,
+          updated_by: r?.updated_by ?? null,
+          updated_at: Number(r?.updated_at) || Date.now(),
+        });
+      }
+      // Marks the till as server-governed, which is what turns the local
+      // permissions editor read-only. Set only when the server actually sent
+      // the key, so a shop on an older backend keeps editing locally.
+      db.prepare(
+        `INSERT INTO sync_state(key,value) VALUES('permissions.source','server')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+      ).run();
+      console.log('[sync] role permissions applied from server', {
+        rows: rolePerms.length,
+      });
+    }
 
     // cursor
     db.prepare(
@@ -1652,6 +1700,44 @@ export async function pullChanges() {
       } else if (tbl === 'pos_user' || tbl === 'pos_users') {
         if (op === 'delete') delBy('pos_users', c.pk);
         else if (c.data) upUser.run(normUser(c.data));
+      } else if (
+        tbl === 'role_permission' ||
+        tbl === 'role_permissions' ||
+        tbl === 'pos_role_permissions'
+      ) {
+        // The row is keyed on (role, permission), not on a single id, so both
+        // halves have to come off `data`. A delete carrying only a scalar pk
+        // cannot be resolved to a row here — it is logged rather than guessed
+        // at, because deleting the wrong permission fails open.
+        const role = String(c.data?.role ?? '').trim().toLowerCase();
+        const permission = String(c.data?.permission ?? '').trim();
+        if (!role || !permission) {
+          console.warn('[sync] role permission change without role/permission', {
+            op,
+            pk: c.pk,
+          });
+        } else if (op === 'delete') {
+          db.prepare(
+            'DELETE FROM pos_role_permissions WHERE role = ? AND permission = ?'
+          ).run(role, permission);
+        } else {
+          db.prepare(
+            `INSERT OR REPLACE INTO pos_role_permissions
+               (role, permission, allowed, updated_by, updated_at)
+             VALUES (?, ?, ?, ?, ?)`
+          ).run(
+            role,
+            permission,
+            c.data?.allowed ? 1 : 0,
+            c.data?.updated_by ?? null,
+            Number(c.data?.updated_at) || Date.now()
+          );
+        }
+        // Any role-permission traffic at all means the back office owns them.
+        db.prepare(
+          `INSERT INTO sync_state(key,value) VALUES('permissions.source','server')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        ).run();
       } else if (tbl === 'category' || tbl === 'categories') {
         if (op === 'delete') {
           // Subcategories and items hang off the category; drop them too so

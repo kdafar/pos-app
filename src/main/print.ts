@@ -1028,6 +1028,7 @@ export function getPrintConfig(): {
   printerName: string;
   showDialog: boolean;
   paperWidthMm: number;
+  paperHeightMm: number;
 } {
   const printerName = String(
     getMeta('print.printer_name') ?? getSetting('print.printer_name') ?? ''
@@ -1036,15 +1037,46 @@ export function getPrintConfig(): {
     String(
       getMeta('print.show_dialog') ?? getSetting('print.show_dialog') ?? ''
     ).trim() === '1';
-  return { printerName, showDialog, paperWidthMm: getPaperWidthMm() };
+  return {
+    printerName,
+    showDialog,
+    paperWidthMm: getPaperWidthMm(),
+    paperHeightMm: getPaperHeightMm(),
+  };
 }
 
-/** 80mm is the common till roll; 58mm is the other one that exists. */
+/**
+ * 80mm is the common till roll and 58mm the other one, but the range is left
+ * wide open on purpose. Some sites print receipts on a TSPL label printer,
+ * where the stock can be any size the driver was set up for — and a validator
+ * that only believed in till rolls would reject the real answer.
+ */
+export const PAPER_MIN_MM = 10;
+export const PAPER_MAX_MM = 210;
+/** A fixed page can be far longer than it is wide; a roll is capped by neither. */
+export const PAPER_MAX_HEIGHT_MM = 2000;
+
 function getPaperWidthMm(): number {
   const raw = Number(
     getMeta('print.paper_width_mm') ?? getSetting('print.paper_width_mm') ?? 80
   );
-  return Number.isFinite(raw) && raw >= 40 && raw <= 120 ? raw : 80;
+  return Number.isFinite(raw) && raw >= PAPER_MIN_MM && raw <= PAPER_MAX_MM
+    ? raw
+    : 80;
+}
+
+/**
+ * 0 means "as long as the receipt" — the roll case, where the length is
+ * measured off the rendered content. A label printer has fixed stock and needs
+ * the real height, or the driver gets a page that does not match any label it
+ * knows and drops the job.
+ */
+function getPaperHeightMm(): number {
+  const raw = Number(
+    getMeta('print.paper_height_mm') ?? getSetting('print.paper_height_mm') ?? 0
+  );
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return raw >= PAPER_MIN_MM && raw <= PAPER_MAX_HEIGHT_MM ? raw : 0;
 }
 
 // ---- print flow -----------------------------------------------------------
@@ -1143,7 +1175,10 @@ async function printHtmlSilently(html: string): Promise<void> {
       await win.webContents
         .executeJavaScript(
           `(() => {
-             const printable = Math.max(${widthMm} - 2, 40);
+             // A 2mm breathing margin is right for a till roll and absurd on a
+             // 10mm label, where it would eat a fifth of the printable area.
+             const w = ${widthMm};
+             const printable = w > 30 ? w - 2 : w;
              document.body.style.width = printable + 'mm';
              document.body.style.margin = '0';
              const kids = Array.from(document.body.children);
@@ -1158,13 +1193,24 @@ async function printHtmlSilently(html: string): Promise<void> {
     );
     // Chromium lays out at a 96dpi CSS inch, and an inch is 25400 microns.
     const MICRONS_PER_PX = 25400 / 96;
+    // A configured height wins outright. Measuring content is right for a roll
+    // that can be any length, but on fixed stock the page must match the label
+    // the driver expects, whatever the receipt happens to measure.
+    const heightMm = getPaperHeightMm();
     const pageSize = {
       width: Math.round(widthMm * 1000),
-      // The floor keeps a failed measurement from producing a zero-height page
-      // that the driver would reject outright.
-      height: Math.max(Math.round(contentPx * MICRONS_PER_PX), 50_000),
+      height: heightMm
+        ? Math.round(heightMm * 1000)
+        : // The floor keeps a failed measurement from producing a zero-height
+          // page that the driver would reject outright.
+          Math.max(Math.round(contentPx * MICRONS_PER_PX), 50_000),
     };
-    console.log('[print] page size', { widthMm, contentPx, pageSize });
+    console.log('[print] page size', {
+      widthMm,
+      heightMm: heightMm || 'auto',
+      contentPx,
+      pageSize,
+    });
 
     // Silent printing needs no window on screen, and showing one mid-service
     // steals focus from the order the cashier is ringing up.
@@ -1302,6 +1348,7 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
         printerName?: string | null;
         showDialog?: boolean;
         paperWidthMm?: number;
+        paperHeightMm?: number;
       }
     ) => {
       if (services) assertPermission(services, 'settings.manage');
@@ -1315,12 +1362,27 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
       }
       if (payload && 'paperWidthMm' in payload) {
         const w = Number(payload.paperWidthMm);
-        // A nonsense width would silently produce jobs the driver drops, which
+        // A nonsense size would silently produce jobs the driver drops, which
         // is the very fault this screen exists to fix. Reject rather than store.
-        if (!Number.isFinite(w) || w < 40 || w > 120) {
-          throw new Error('Paper width must be between 40mm and 120mm.');
+        if (!Number.isFinite(w) || w < PAPER_MIN_MM || w > PAPER_MAX_MM) {
+          throw new Error(
+            `Paper width must be between ${PAPER_MIN_MM}mm and ${PAPER_MAX_MM}mm.`
+          );
         }
         setMeta('print.paper_width_mm', String(Math.round(w)));
+      }
+      if (payload && 'paperHeightMm' in payload) {
+        const h = Number(payload.paperHeightMm);
+        // 0 is a real choice — "as long as the receipt" — not a missing value.
+        if (!Number.isFinite(h) || h < 0) {
+          throw new Error('Paper height must be 0 (auto) or a length in mm.');
+        }
+        if (h > 0 && (h < PAPER_MIN_MM || h > PAPER_MAX_HEIGHT_MM)) {
+          throw new Error(
+            `Paper height must be 0 (auto) or between ${PAPER_MIN_MM}mm and ${PAPER_MAX_HEIGHT_MM}mm.`
+          );
+        }
+        setMeta('print.paper_height_mm', String(Math.round(h)));
       }
       return getPrintConfig();
     }
@@ -1333,25 +1395,36 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
    */
   ipcMain.handle('print:test', async () => {
     if (services) assertPermission(services, 'settings.manage');
-    const { printerName } = getPrintConfig();
+    const { printerName, paperWidthMm } = getPrintConfig();
+    // The point of the test is to prove the configured stock prints. Laying it
+    // out at a fixed 78mm would pass on a till whose real paper is a 10mm
+    // label and whose receipts still come out blank.
+    const bodyMm = paperWidthMm > 30 ? paperWidthMm - 2 : paperWidthMm;
+    const tiny = paperWidthMm < 40;
     const when = new Date().toLocaleString();
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8" /><title>Printer test</title><style>
   @media print { @page { margin: 0; } body { margin: 0; padding: 0; } }
-  body { width: 78mm; margin: 0; padding: 0; background: #fff;
+  body { width: ${bodyMm}mm; margin: 0; padding: 0; background: #fff;
          font-family: 'Open Sans', Arial, sans-serif; color: #000; }
-  .wrap { padding: 6mm 3mm; text-align: center; }
-  h1 { font-size: 18px; margin: 0 0 6px; }
-  p { font-size: 13px; margin: 3px 0; }
-  hr { border: none; border-top: 1px solid #000; margin: 8px 0; }
+  .wrap { padding: ${tiny ? '1mm 1mm' : '6mm 3mm'}; text-align: center; }
+  h1 { font-size: ${tiny ? 9 : 18}px; margin: 0 0 ${tiny ? 2 : 6}px; }
+  p { font-size: ${tiny ? 7 : 13}px; margin: ${tiny ? 1 : 3}px 0; }
+  hr { border: none; border-top: 1px solid #000; margin: ${tiny ? 3 : 8}px 0; }
 </style></head><body><div class="wrap">
-  <h1>Printer test</h1>
+  <h1>Test</h1>
   <hr />
-  <p>Majestic POS</p>
-  <p>${printerName ? `Printer: ${printerName}` : 'System default printer'}</p>
-  <p>${when}</p>
-  <hr />
-  <p>If you can read this, receipts will print.</p>
+  ${
+    tiny
+      ? // Nothing else fits on a label this size, and a test page that
+        // overflows its stock proves the opposite of what it set out to.
+        `<p>${paperWidthMm}mm</p><p>OK</p>`
+      : `<p>Majestic POS</p>
+         <p>${printerName ? `Printer: ${printerName}` : 'System default printer'}</p>
+         <p>${when}</p>
+         <hr />
+         <p>If you can read this, receipts will print.</p>`
+  }
 </div></body></html>`;
     await printHtmlSilently(html);
     return { ok: true, printerName: printerName || null };

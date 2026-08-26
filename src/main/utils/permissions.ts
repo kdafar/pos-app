@@ -71,14 +71,42 @@ export function getCurrentPosUser(services: MainServices): PosUserContext {
   }
 }
 
+/** Has the back office taken ownership of role permissions for this estate? */
+function permissionsAreServerManaged(db: MainServices['rawDb']): boolean {
+  try {
+    return (
+      db
+        .prepare(`SELECT value FROM sync_state WHERE key = 'permissions.source'`)
+        .pluck()
+        .get() === 'server'
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Resolve what a ROLE may do: the compiled-in defaults, then whatever an
- * admin has changed in pos_role_permissions.
+ * Resolve what a ROLE may do.
  *
  * This is the single implementation. It used to be written twice — once here
  * against the meta-stored user, once in the auth handler against the session
  * user — and two copies of a permission rule is how a cashier ends up being
  * shown a button the main process then refuses.
+ *
+ * The rows in pos_role_permissions mean one of two things, and the difference
+ * is not cosmetic:
+ *
+ *   - Locally edited (no server ownership): a DELTA against the compiled-in
+ *     ROLE_DEFAULTS. Only genuine departures are stored, so a later change to
+ *     the defaults still reaches roles nobody has touched.
+ *   - Sent by the server: the COMPLETE list for that role. Merging these into
+ *     the defaults would hand every role the union of the two — a back office
+ *     revoking a permission would not revoke it, and the till would fail open.
+ *     Server ownership means the compiled defaults stop applying.
+ *
+ * A server-managed role the back office sent no rows for keeps the defaults
+ * rather than collapsing to nothing, so a backend that only publishes the
+ * roles it has customised cannot lock every operator out of a till.
  */
 export function permissionsForRole(
   db: MainServices["rawDb"],
@@ -94,6 +122,16 @@ export function permissionsForRole(
       permission: Permission;
       allowed: number;
     }>;
+
+    if (rows.length && permissionsAreServerManaged(db)) {
+      return rows
+        .filter((row) => row.allowed)
+        .map((row) => row.permission)
+        .filter((p): p is Permission =>
+          (PERMISSIONS as readonly string[]).includes(p)
+        );
+    }
+
     for (const row of rows)
       row.allowed
         ? effective.add(row.permission)
