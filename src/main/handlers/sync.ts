@@ -59,6 +59,33 @@ function hasColumn(table: string, column: string): boolean {
   }
 }
 
+/**
+ * The staff id as the server wants it: a positive integer, or null.
+ *
+ * Anything unparseable becomes null rather than being passed through — an
+ * unresolvable claim is nulled by the server anyway, and sending it garbage
+ * only makes its audit log harder to read.
+ */
+function toServerUserId(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null;
+
+  // Digits only, matching the server's own rule character for character.
+  //
+  // Not Number()/isInteger: that accepts "16.0" as 16, which the server
+  // nulls. The divergence cannot arise from our own data — the column only
+  // ever holds a pos_users.id — but two ends disagreeing on a documented
+  // input is how you get an unexplainable null a year from now.
+  //
+  // Not a strict integer parse either, because zero-padding is a live
+  // convention here: reference_no prints zero-padded two inches away on the
+  // same receipt, so "016" has to resolve to 16 rather than be refused.
+  const s = String(raw).trim();
+  if (!/^\d+$/.test(s)) return null;
+
+  const n = Number(s);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
 function safeBuildOrderPayload(orderId: string) {
   const o = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(orderId) as any;
   if (!o) return null;
@@ -86,6 +113,23 @@ function safeBuildOrderPayload(orderId: string) {
     number: o.number,
     device_id: o.device_id,
     branch_id: o.branch_id,
+    // Who rang the sale. The till has always recorded this locally but never
+    // put it on the wire, so every order reached the back office with no
+    // staff attribution at all. Completed-by is the truer answer where both
+    // exist — it is the operator who actually took the money — which is the
+    // same COALESCE the reports use.
+    //
+    // Sent as a NUMBER, deliberately. Both columns are TEXT (db.ts:494-495)
+    // because they are written from a store value, so the raw read would put
+    // the string "16" on the wire. The server resolves this id against the
+    // branch's login snapshot before trusting it, and a strict comparison
+    // there would never match "16" to 16 — the claim would null out and we
+    // would be back to no attribution, with everything looking correct at
+    // both ends. Coerced here rather than relying on the far side comparing
+    // loosely.
+    server_user_id: toServerUserId(
+      o.completed_by_user_id ?? o.created_by_user_id
+    ),
     // Sent as a whitelisted code (1,2,3,4,7). The server is the truth for
     // status, so this may only ever move an order forward: several ordinary
     // till actions re-queue a push (close, payment-method change, delivery-fee

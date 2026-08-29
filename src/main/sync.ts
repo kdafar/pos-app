@@ -5,6 +5,11 @@ import { prefetchItemImages } from './imageCache';
 import { app } from 'electron';
 
 import { posError } from '../shared/errorCodes';
+import {
+  BRANCH_PROFILE_META_KEY,
+  normalizeBranchProfile,
+  serializeBranchProfile,
+} from './branchProfile';
 type Device = { id: string; branch_id: number };
 
 // ---------- Auth error ----------
@@ -642,6 +647,27 @@ export async function pairDevice(
   };
 }
 
+/**
+ * Cache the branch identity that /bootstrap and the /pull feed both send.
+ *
+ * The two payloads are byte-identical by design, so they share this one
+ * writer — the alternative was two parsers drifting apart and a receipt whose
+ * footer depended on whether the till had re-bootstrapped or merely pulled.
+ *
+ * The legacy `branch.id` / `branch.name` meta keys are kept in step because
+ * the pairing and UI code still read them.
+ */
+function persistBranchProfile(raw: any): boolean {
+  const profile = normalizeBranchProfile(raw);
+  if (!profile) return false;
+
+  setMeta(BRANCH_PROFILE_META_KEY, serializeBranchProfile(profile));
+  setMeta('branch_id', profile.id);
+  setMeta('branch.id', profile.id);
+  if (profile.name) setMeta('branch.name', profile.name);
+  return true;
+}
+
 /* ---------- Bootstrap (full catalog seed) ---------- */
 export async function bootstrap(baseUrl: string) {
   console.log('[SYNC] bootstrap() called with', baseUrl);
@@ -661,14 +687,11 @@ export async function bootstrap(baseUrl: string) {
 
   const { data } = await api.get('/bootstrap');
 
-  // persist branch meta for UI
-  if (data?.branch?.id != null) {
-    setMeta('branch_id', String(data.branch.id));
-    setMeta('branch.id', String(data.branch.id));
-  }
-  if (data?.branch?.name) {
-    setMeta('branch.name', String(data.branch.name));
-  }
+  // Persist branch identity for the UI and, since 0.4.22, for the receipt.
+  // `id` and `name` are unchanged from the shape older builds read; the rest
+  // of the row (address, hours, invoice note) is what stops the counter and
+  // the back office printing two different footers for one order.
+  persistBranchProfile(data?.branch);
 
   if (data?.device) {
     if (data.device.killswitch_after_days != null) {
@@ -1868,6 +1891,43 @@ export async function pullChanges() {
               received_at: Date.now(),
             });
           }
+        }
+      } else if (tbl === 'branch' || tbl === 'branches') {
+        // The feed is already scoped — a device only ever receives its own
+        // branch — but a row for some other branch would silently rewrite this
+        // till's receipt footer, so the id is checked rather than assumed.
+        const ownBranchId = String(getMeta('branch.id') ?? getMeta('branch_id') ?? '');
+        const rowBranchId = S(c.data?.id ?? c.pk) ?? '';
+
+        if (ownBranchId && rowBranchId && ownBranchId !== rowBranchId) {
+          console.warn('[sync] ignoring branch row for another branch', {
+            own: ownBranchId,
+            row: rowBranchId,
+          });
+        } else if (op === 'delete') {
+          // The branch this till sells for is gone upstream. Lock rather than
+          // unpair or wipe: the outbox may still hold sales nobody has banked,
+          // and those have to survive for an operator to recover. A locked
+          // till stops selling, which is the point — it must not keep printing
+          // a footer for a shop that no longer exists.
+          setMeta('pos.locked', '1');
+          setMeta('pos.lock_reason', 'branch_removed');
+          setMeta(BRANCH_PROFILE_META_KEY, '');
+          console.warn('[sync] branch deleted upstream → locking till', {
+            pk: c.pk,
+          });
+        } else if (persistBranchProfile(c.data)) {
+          // The branch is back (restored upstream, or this till reassigned).
+          // The feed that locked the till is the only thing that can lift it:
+          // the device-state check in clearPosLock() deliberately will not.
+          if (getMeta('pos.lock_reason') === 'branch_removed') {
+            setMeta('pos.locked', '0');
+            setMeta('pos.lock_reason', '');
+            setMeta('pos.locked_at', '');
+            console.log('[sync] branch restored → till unlocked');
+          }
+        } else {
+          console.warn('[sync] branch change with no usable row', { pk: c.pk });
         }
       } else if (tbl === 'payment_method' || tbl === 'payment_methods') {
         if (op === 'delete') delBy('payment_methods', c.pk);

@@ -8,6 +8,14 @@ import QRCode from 'qrcode';
 import bwipjs from 'bwip-js';
 import ExcelJS from 'exceljs';
 import { getReceiptPageLayout } from './receiptPageLayout';
+import {
+  BRANCH_PROFILE_META_KEY,
+  buildBranchFooterLines,
+  buildBranchHeaderLines,
+  parseBranchProfile,
+  type BranchProfile,
+  type IdentityLine,
+} from './branchProfile';
 
 import { posError } from '../shared/errorCodes';
 import type { MainServices } from './types/common';
@@ -498,10 +506,50 @@ async function makeCode128PngDataUrl(text: string) {
 
 // ---- receipt HTML (self-contained, Blade-like) ----------------------------
 
+/**
+ * The branch fields go straight into the receipt markup, and unlike the rest
+ * of this template they are free text an office user types. An address with
+ * an `&` in it would otherwise render as a broken entity, and a stray `<`
+ * would eat the rest of the footer.
+ */
+function esc(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Renders the ordered lines from branchProfile into centred rows.
+ *
+ * Arabic lines are marked rtl and isolated: dropped raw into an English
+ * receipt, bidi would reorder an Arabic address around any Latin digits it
+ * contains. The phone line keeps its bilingual label in the paragraph
+ * direction while pinning the number itself LTR, for the same reason the
+ * customer's mobile is pinned above.
+ */
+function renderIdentityLines(lines: IdentityLine[]): string {
+  return lines
+    .map((line) =>
+      line.kind === 'phone'
+        ? `${esc(line.label)} - <span class="ltr">${esc(line.value)}</span>`
+        : `<span${line.rtl ? ' dir="rtl" style="unicode-bidi:isolate;"' : ''}>${esc(
+            line.text
+          )}</span>`
+    )
+    // Centred explicitly: the Arabic stylesheet right-aligns every div inside
+    // #printDiv, which would otherwise pull these lines off centre on an
+    // Arabic receipt while leaving the English one correct.
+    .map((html) => `<div style="text-align:center;">${html}</div>`)
+    .join('\n          ');
+}
+
 function renderReceiptHTML(opts: {
   aboutLogo?: string | null;
   branchName?: string | null;
   branchPhone?: string | null;
+  branch?: BranchProfile | null;
   lang: 'ar' | 'en';
   order: OrderRow;
   lines: LineRow[];
@@ -514,6 +562,7 @@ function renderReceiptHTML(opts: {
     aboutLogo,
     branchName,
     branchPhone,
+    branch,
     lang,
     order,
     lines,
@@ -522,6 +571,16 @@ function renderReceiptHTML(opts: {
     currency,
     orderNotes,
   } = opts;
+
+  // With a cached branch the till prints the identity the back office prints.
+  // Without one — a first run that has not bootstrapped yet — it falls back to
+  // the operator name/phone it has always used, so a receipt is never blank.
+  const branchHeaderHtml = branch
+    ? renderIdentityLines(buildBranchHeaderLines(branch))
+    : '';
+  const branchFooterHtml = branch
+    ? renderIdentityLines(buildBranchFooterLines(branch))
+    : '';
 
   const fmt = (n?: number | null) => Number(n || 0).toFixed(3);
 
@@ -775,6 +834,12 @@ function renderReceiptHTML(opts: {
       height: 256px;
       margin-top: 15px;
     }
+    /* Nothing may print wider than the roll. The paper width is a per-till
+       setting that goes down to 10mm, so every fixed size in this template is
+       a size that is correct on one printer and off the edge on another. This
+       is the backstop; the images below also carry their own mm caps so they
+       do not grow on a sheet. */
+    #printDiv img { max-width: 100%; }
     #printDiv {
       font-weight: 600;
       margin: 0;
@@ -829,11 +894,18 @@ function renderReceiptHTML(opts: {
         <td style="font-size:15px;font-family:'Open Sans',sans-serif;line-height:18px;vertical-align:bottom;text-align:center;padding-top:5px;">
           ${
             aboutLogo
-              ? `<img style="width:40mm" src="${aboutLogo}" alt="">`
+              ? // Capped at the 40mm it has always been on a full-width roll,
+                // but allowed to shrink below that on a narrow one rather
+                // than running off the edge.
+                `<img style="width:100%;max-width:40mm;height:auto;" src="${aboutLogo}" alt="">`
               : ''
           }
           ${
-            branchName
+            branchHeaderHtml
+              ? `<strong style="font-size:16px;display:block;margin-top:6px;">
+          ${branchHeaderHtml}
+          </strong>`
+              : branchName
               ? `<strong style="font-size:16px;"><br>${branchName}${
                   branchPhone ? ' - <span class="ltr">' + branchPhone + '</span>' : ''
                 }</strong><br>`
@@ -993,22 +1065,42 @@ function renderReceiptHTML(opts: {
     <!-- QR + Barcode -->
     <table width="85%" border="0" cellpadding="0" cellspacing="0" align="left" style="border-top:1px solid #000000;margin-top:6px;">
       <tr>
-        <td>
+        <td width="40%">
           ${
             qrDataUrl
-              ? `<img width="100" height="100" src="${qrDataUrl}" />`
+              ? // Square must be preserved or the QR stops scanning, so the
+                // height is left auto and only the width is driven.
+                `<img style="width:100%;max-width:26mm;height:auto;" src="${qrDataUrl}" />`
               : ''
           }
         </td>
-        <td>
+        <td width="60%">
           ${
             barcodeDataUrl
-              ? `<img class="center" style="margin:10px auto 10px auto;height:40px;width:150px;" src="${barcodeDataUrl}" />`
+              ? // Code128 is read from the RATIO of bar widths, not from
+                // absolute size, so scaling the width is safe and the height
+                // can stay fixed — it carries no information.
+                `<img class="center" style="display:block;margin:10px auto;width:100%;max-width:40mm;height:11mm;" src="${barcodeDataUrl}" />`
               : ''
           }
         </td>
       </tr>
     </table>
+
+    ${
+      branchFooterHtml
+        ? `
+    <!-- Branch footer: address, order line and invoice note, in the same
+         order the back office prints them. -->
+    <table width="85%" border="0" cellpadding="0" cellspacing="0" align="center" style="clear:both;border-top:1px solid #000000;margin-top:8px;">
+      <tr>
+        <td style="font-size:11px;font-family:'Open Sans',sans-serif;color:#000;line-height:15px;text-align:center;padding-top:6px;padding-bottom:8px;">
+          ${branchFooterHtml}
+        </td>
+      </tr>
+    </table>`
+        : ''
+    }
   </div>
 </body>
 </html>`;
@@ -1626,6 +1718,12 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
       // 🔹 The OPERATOR's logo — never this app's own brand mark.
       const aboutLogo = await resolveOperatorLogo(getSetting);
 
+      // 🔹 The BRANCH's own identity, cached by /bootstrap and kept current by
+      //    the /pull feed. Null on a till that has not bootstrapped yet, which
+      //    is the one case that still falls back to the operator settings
+      //    below.
+      const branch = parseBranchProfile(getMeta(BRANCH_PROFILE_META_KEY));
+
       // 🔹 Operator name & phone. The previous keys (general.site_title,
       //    about.name_en, general.phone) are not what the server actually
       //    syncs, so every receipt silently fell back to the branch name.
@@ -1656,9 +1754,13 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
       // prints — the server's reference once it exists. The barcode was
       // encoding order.id, the local row, so one slip could show the customer
       // one number and hand a scanner a different one.
+      // Only ever the server's reference. The old fallback chain reached for
+      // the local number and then the local id, which is exactly the
+      // "invent a local reference" that guarantees a scanner gun finds
+      // nothing in the back office.
       const scanRef = order.reference_no
-        ? String(order.reference_no)
-        : order.order_number || order.number || String(order.id);
+        ? String(order.reference_no).trim()
+        : '';
 
       // The QR opens the order on the website, and the website looks the order
       // up by `order_number` — front/OrderController@orderdetails queries
@@ -1674,7 +1776,14 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
       // Keeping order_number in the URL is also what makes it safe to print:
       // reference_no is a zero-padded sequence, so a reference-based URL would
       // let anyone walk the whole order history by counting.
-      const lookupKey = order.order_number || order.number || String(order.id);
+      //
+      // `order_number` here was only ever an alias of this same column (the
+      // SELECT above does `o.number AS order_number`), so the old three-way
+      // fallback read like three sources of truth and was one. The `order.id`
+      // tail was worse than redundant: id is a local randomUUID the website
+      // cannot resolve by order_number, so it produced a QR that scanned to a
+      // dead page. Better to print no QR than a link that 404s.
+      const lookupKey = String(order.number || '').trim();
 
       // Template is a setting so the path can move without a POS build.
       // {order_number} is the one that belongs in a URL; {reference} is offered
@@ -1685,7 +1794,11 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
         .trim()
         .replace(/\/+$/, '');
       const template = String(getSetting('branding.order_url') || '').trim();
-      const orderUrl = template
+      // No lookup key means no order page exists to point at — a bare
+      // `/order-details/` would scan straight to a 404.
+      const orderUrl = !lookupKey
+        ? ''
+        : template
         ? template
             .replace(/\{order_number\}/gi, encodeURIComponent(lookupKey))
             .replace(/\{reference\}|\{ref\}/gi, encodeURIComponent(scanRef))
@@ -1695,20 +1808,38 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
 
       // With no host and no template there is no page to open, so encode the
       // lookup key itself rather than printing a QR that resolves nowhere.
-      const qrDataUrl = await makeQrPngDataUrl(orderUrl || lookupKey);
+      // With neither, print nothing at all.
+      const qrDataUrl = orderUrl || lookupKey
+        ? await makeQrPngDataUrl(orderUrl || lookupKey)
+        : null;
 
       // Code128 stays the short lookup code. A URL here would be far too wide
       // to scan on a 58mm roll, and in-store scanners want the number, not a
       // link.
-      const codeText = `${(getSetting('gps.username') || 'XXX')
-        .toString()
-        .slice(0, 3)}${scanRef}`;
-      const barcodeDataUrl = await makeCode128PngDataUrl(codeText);
+      //
+      // This used to be prefixed with the first three characters of a
+      // `gps.username` setting. Nothing in this app — or on the server feed
+      // that fills app_settings — has ever written that key, so the prefix
+      // always evaluated to the literal 'XXX' and every barcode we have
+      // shipped encoded `XXX0197` rather than `0197`. It came in with the
+      // original template, copied from an unrelated fleet project.
+      //
+      // No local zero-padding either: the server sends the padded string and
+      // owns its width.
+      //
+      // An offline sale has no reference yet, and bwip-js throws on empty
+      // input rather than rendering a blank — so print no barcode at all. The
+      // reserve-reference call at checkout already closes this gap for every
+      // sale rung up online.
+      const barcodeDataUrl = scanRef
+        ? await makeCode128PngDataUrl(scanRef)
+        : null;
 
       const html = renderReceiptHTML({
         aboutLogo,
         branchName: brandName,
         branchPhone: brandPhone,
+        branch,
         lang,
         order: patchedOrder, // ✅ use patched order here
         lines,

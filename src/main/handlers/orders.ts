@@ -2,6 +2,10 @@ import { shell, type IpcMain } from 'electron';
 import crypto from 'node:crypto';
 import type { MainServices } from '../types/common';
 import { posError } from '../../shared/errorCodes';
+import {
+  WALK_IN_CUSTOMER_MOBILE,
+  WALK_IN_CUSTOMER_NAME,
+} from '../../shared/walkInCustomer';
 import { isDeliveryEnabled } from '../services/settings';
 
 // ⚙️ Utils
@@ -1430,27 +1434,31 @@ export function registerOrdersHandlers(
     }
 
     // ── 1) Auth user & default customer info ──────────────────────────────────
-    const {
-      id: userId,
-      name: userName,
-      mobile: userMobile,
-      email: userEmail,
-    } = getCurrentPosUser();
+    // Only the id is wanted here now: the operator identifies the STAFF on
+    // this sale, never the customer.
+    const { id: userId } = getCurrentPosUser();
 
     // Prepare default customer details (like quick mode)
     let fullName = (order.full_name ?? '').toString().trim();
     let mobile = (order.mobile ?? '').toString().trim();
     let email = (order.email ?? '').toString().trim();
 
+    // A sale closed without a customer is an anonymous walk-in, and that is
+    // what it must be recorded as. This used to fall back to the OPERATOR's
+    // own name, personal mobile and email, so every ticket closed straight
+    // from the order side — reopened orders, dine-in, anything that never
+    // went through the checkout modal — was pushed with the cashier stored as
+    // the customer. The back office saw staff personal numbers in the
+    // customer column, and the placeholder below was never reached.
+    //
+    // The operator is not lost: they are recorded as staff on
+    // created_by_user_id / completed_by_user_id, which the push payload now
+    // sends as server_user_id.
     if (!fullName) {
-      fullName = userName || 'POS Customer';
+      fullName = WALK_IN_CUSTOMER_NAME;
     }
     if (!mobile) {
-      // Same spirit as Checkout quick mode: fallback mobile
-      mobile = userMobile || '55555555';
-    }
-    if (!email) {
-      email = userEmail || '';
+      mobile = WALK_IN_CUSTOMER_MOBILE;
     }
 
     const cols: string[] = ['status = ?', 'updated_at = ?'];

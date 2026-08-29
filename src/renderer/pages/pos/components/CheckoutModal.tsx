@@ -24,6 +24,10 @@ import { DeliveryFeeRow } from './DeliveryFeeRow';
 import { describeError } from '../../../utils/posError';
 import { paymentStatusCode } from '../../../../shared/errors';
 import {
+  WALK_IN_CUSTOMER_MOBILE,
+  WALK_IN_CUSTOMER_NAME,
+} from '../../../../shared/walkInCustomer';
+import {
   FieldError,
   ValidationSummary,
   fieldRing,
@@ -256,22 +260,26 @@ export function CheckoutModal({
       return;
     }
 
-    // Toggle ON → prefill from POS user
-    try {
-      const posUser = await window.api.invoke('settings:getPosUser');
-      if (posUser) {
-        setFormData((p) => ({
-          ...p,
-          full_name: posUser.name || 'POS User',
-          mobile: posUser.mobile || '55555555',
-          email: posUser.email || '',
-        }));
-        setCustomerLookup(null); // override any previous lookup label
-        setUseQuickMode(true);
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    // Toggle ON → record an anonymous walk-in.
+    //
+    // This used to prefill the LOGGED-IN OPERATOR's name, personal mobile and
+    // email as the customer, which is the most-travelled path in the app —
+    // most tickets close through this modal. Every walk-in sale therefore
+    // reached the back office with the cashier's own phone number stored as
+    // the customer's.
+    //
+    // The operator is not lost by dropping it: the push now carries them as
+    // `server_user_id`, taken from the staff columns the till has always
+    // recorded. Prefilling the customer field was only ever a way to smuggle
+    // the operator across, and there is a proper column for that now.
+    setFormData((p) => ({
+      ...p,
+      full_name: WALK_IN_CUSTOMER_NAME,
+      mobile: WALK_IN_CUSTOMER_MOBILE,
+      email: '',
+    }));
+    setCustomerLookup(null); // override any previous lookup label
+    setUseQuickMode(true);
   };
   const makeAddress = () => {
     // For pickup / dine-in, just use the raw address field (optional)

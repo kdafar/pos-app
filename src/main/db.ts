@@ -807,8 +807,27 @@ export function markDeviceRevoked(): PosLockOutcome {
   return { action: 'unpaired', reason: 'device_revoked' };
 }
 
+/**
+ * Locks this function is allowed to lift. Every caller reaches here off the
+ * server's `device.locked_at` being null, which speaks only for the device —
+ * so a lock the device state knows nothing about must not be cleared by it.
+ *
+ * 'branch_removed' is exactly that case: the device row is alive and
+ * unlocked, but the branch it sells for was deleted upstream. Letting the
+ * device check clear it would unlock the till on the very next sync tick and
+ * put it straight back to selling for a shop that no longer exists. It is
+ * lifted by the /pull feed instead, when the branch reappears.
+ */
+const DEVICE_OWNED_LOCK_REASONS = ['', 'server_locked', 'offline_too_long'];
+
 /** Cleared by an admin unlock, confirmed on the next successful sync. */
 export function clearPosLock() {
+  const reason = String(getMeta('pos.lock_reason') ?? '');
+  if (isPosLocked() && !DEVICE_OWNED_LOCK_REASONS.includes(reason)) {
+    console.log('[pos] Lock held — not device-owned.', { reason });
+    return;
+  }
+
   if (getMeta('pos.locked') === '1') {
     console.log('[pos] Lock cleared by server.');
   }
