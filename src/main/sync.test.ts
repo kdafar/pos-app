@@ -11,8 +11,13 @@ vi.mock('./secureStore', () => ({
 vi.mock('./imageCache', () => ({ prefetchItemImages: async () => {} }));
 vi.mock('electron', () => ({ app: { isPackaged: false, getPath: () => '' } }));
 
-const { addonsToCsv, isTerminalLocalOrder, normPullLine, normPullOrder } =
-  await import('./sync');
+const {
+  addonsToCsv,
+  isTerminalLocalOrder,
+  normalizeAppVersion,
+  normPullLine,
+  normPullOrder,
+} = await import('./sync');
 
 /**
  * The server refuses to move an order out of DONE / CANCELLED_* / REJECTED_*
@@ -215,5 +220,37 @@ describe('normPullLine', () => {
   it('coerces variation_id to a string, since the server column is varchar', () => {
     expect(normPullLine(line, 'x').variation_id).toBe('v9');
     expect(normPullLine({ ...line, variation_id: 9 }, 'x').variation_id).toBe('9');
+  });
+});
+
+/**
+ * The back office decides which tills are too old to enforce a feature gate
+ * by running these through PHP's version_compare. A malformed string does not
+ * fail loudly there — it sorts wrong and mis-gates a live till.
+ */
+describe('normalizeAppVersion', () => {
+  it('passes a bare semver through untouched', () => {
+    expect(normalizeAppVersion('0.4.22')).toBe('0.4.22');
+    expect(normalizeAppVersion('0.4.8')).toBe('0.4.8');
+  });
+
+  it('strips a leading v, which version_compare sorts wrong', () => {
+    expect(normalizeAppVersion('v0.4.22')).toBe('0.4.22');
+    expect(normalizeAppVersion('V0.4.22')).toBe('0.4.22');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizeAppVersion('  0.4.22 ')).toBe('0.4.22');
+  });
+
+  it('keeps a prerelease suffix rather than promoting a beta to a release', () => {
+    // Trimming this would put a beta in the field wearing a release number,
+    // which is worse than sorting oddly.
+    expect(normalizeAppVersion('0.4.23-beta.1')).toBe('0.4.23-beta.1');
+  });
+
+  it('survives an empty or absent version without throwing', () => {
+    expect(normalizeAppVersion('')).toBe('');
+    expect(normalizeAppVersion(undefined as any)).toBe('');
   });
 });

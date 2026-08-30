@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button, Card, CardBody, Chip, Input, Switch } from '@heroui/react';
-import { AlertTriangle, Check, Copy, Download, Languages, Lock, Printer } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Download, Inbox, Languages, Lock, Printer } from 'lucide-react';
 import { LANGS, useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import { errorLine as errLine } from '../utils/posError';
@@ -97,6 +97,13 @@ const META_CHANNELS = ['meta:list', 'store:metaList', 'dev:dumpMeta'];
 const SERVER_CHANNELS = ['settings:getAll', 'settings:listAll'];
 
 type PrinterInfo = { name: string; displayName: string; isDefault: boolean };
+/** 0 = pin 2, 1 = pin 5. Shown to the shop as "Standard" / "Alternative". */
+type DrawerConfig = {
+  enabled: boolean;
+  pin: 0 | 1;
+  cashOnly: boolean;
+  printerName: string;
+};
 type PrinterConfig = {
   printerName: string;
   showDialog: boolean;
@@ -144,6 +151,15 @@ export function SettingsPage() {
   // "1" on the way to "105" and reject it, so the value is committed on blur.
   const [widthDraft, setWidthDraft] = useState('80');
   const [heightDraft, setHeightDraft] = useState('0');
+
+  /* ---------- cash drawer ----------
+     The drawer is opened by the receipt printer, so it is configured here and
+     inherits whatever printer is selected above. */
+  const [drawerCfg, setDrawerCfg] = useState<DrawerConfig | null>(null);
+  const [drawerBusy, setDrawerBusy] = useState(false);
+  const [drawerResult, setDrawerResult] = useState<
+    { kind: 'success' | 'error'; message: string } | null
+  >(null);
 
   const [q, setQ] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'meta' | 'server'>(
@@ -232,9 +248,21 @@ export function SettingsPage() {
     }
   }, []);
 
+  const loadDrawer = useCallback(async () => {
+    try {
+      const cfg = (await window.api.invoke('drawer:getConfig')) as DrawerConfig;
+      setDrawerCfg(cfg);
+    } catch {
+      // An older main process has no drawer channels. The card simply does not
+      // render rather than showing an error for a feature that is not there.
+      setDrawerCfg(null);
+    }
+  }, []);
+
   useEffect(() => {
     loadPrinters();
-  }, [loadPrinters]);
+    loadDrawer();
+  }, [loadPrinters, loadDrawer]);
 
   const savePrinter = useCallback(
     async (patch: Partial<Pick<PrinterConfig, 'printerName' | 'showDialog' | 'paperWidthMm' | 'paperHeightMm'>>) => {
@@ -249,6 +277,11 @@ export function SettingsPage() {
         // shows the saved state rather than the requested one.
         setPrinterCfg((prev) => (prev ? { ...prev, ...cfg, missing: false } : prev));
         setPrinterResult({ kind: 'success', message: t('settings.printerSaved') });
+        // The drawer opens through whichever printer is selected here, and it
+        // holds its own copy of that name. Without this the drawer card keeps
+        // showing the previous printer — and its test button stays disabled —
+        // until Settings is closed and reopened.
+        loadDrawer();
       } catch (e) {
         setPrinterResult({ kind: 'error', message: errLine(e) });
         // Put the control back on the stored value rather than leaving it
@@ -258,7 +291,7 @@ export function SettingsPage() {
         setPrinterBusy(false);
       }
     },
-    [t, loadPrinters]
+    [t, loadPrinters, loadDrawer]
   );
 
   const commitPaper = useCallback(() => {
@@ -287,6 +320,43 @@ export function SettingsPage() {
       setPrinterResult({ kind: 'error', message: errLine(e) });
     } finally {
       setPrinterBusy(false);
+    }
+  }, [t]);
+
+  const saveDrawer = useCallback(
+    async (patch: Partial<Pick<DrawerConfig, 'enabled' | 'pin' | 'cashOnly'>>) => {
+      setDrawerBusy(true);
+      setDrawerResult(null);
+      try {
+        const cfg = (await window.api.invoke(
+          'drawer:setConfig',
+          patch
+        )) as DrawerConfig;
+        setDrawerCfg((prev) => (prev ? { ...prev, ...cfg } : prev));
+        setDrawerResult({ kind: 'success', message: t('settings.drawerSaved') });
+      } catch (e) {
+        setDrawerResult({ kind: 'error', message: errLine(e) });
+        loadDrawer();
+      } finally {
+        setDrawerBusy(false);
+      }
+    },
+    [t, loadDrawer]
+  );
+
+  const testDrawer = useCallback(async () => {
+    setDrawerBusy(true);
+    setDrawerResult(null);
+    try {
+      await window.api.invoke('drawer:open');
+      setDrawerResult({
+        kind: 'success',
+        message: t('settings.drawerTestSent'),
+      });
+    } catch (e) {
+      setDrawerResult({ kind: 'error', message: errLine(e) });
+    } finally {
+      setDrawerBusy(false);
     }
   }, [t]);
 
@@ -608,6 +678,116 @@ export function SettingsPage() {
           )}
         </CardBody>
       </Card>
+
+      {/* Cash drawer. Only rendered when the main process offers the channels,
+          so an older build shows nothing rather than a dead card. It sits
+          under the printer because it is opened by the printer — the wording
+          says so, since a shop that does not know that will unplug the wrong
+          cable when it stops working. */}
+      {drawerCfg && (
+        <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
+          <CardBody className='gap-3'>
+            <div>
+              <h2 className='flex items-center gap-2 text-base font-bold text-foreground'>
+                <Inbox size={18} />
+                {t('settings.drawer')}
+              </h2>
+              <p className='mt-0.5 text-sm font-medium text-default-700'>
+                {t('settings.drawerHint')}
+              </p>
+            </div>
+
+            {/* The one failure this cannot detect for the shop. A TSPL label
+                printer, or a thermal printer installed with the wrong driver,
+                accepts the RAW job and renders the five bytes as characters —
+                a slip of gibberish and a drawer that never moves. Say so here
+                rather than letting the shop discover it mid-service. */}
+            <div className='flex items-start gap-2 rounded-lg border border-default-200 bg-content2 p-3 text-sm font-medium text-default-700'>
+              <AlertTriangle size={18} className='mt-0.5 shrink-0 text-warning' />
+              <span>{t('settings.drawerCompatWarning')}</span>
+            </div>
+
+            {drawerCfg.printerName && (
+              <p className='text-sm font-medium text-default-700'>
+                {t('settings.drawerVia')}:{' '}
+                <span className='font-semibold text-foreground'>
+                  {drawerCfg.printerName}
+                </span>
+              </p>
+            )}
+
+            {!drawerCfg.printerName && (
+              <div className='flex items-start gap-2 rounded-lg border border-warning bg-content1 p-3 text-sm font-semibold text-warning'>
+                <AlertTriangle size={18} className='mt-0.5 shrink-0' />
+                <span>{t('settings.drawerNoPrinter')}</span>
+              </div>
+            )}
+
+            <Switch
+              isSelected={drawerCfg.enabled}
+              onValueChange={(v) => void saveDrawer({ enabled: v })}
+              isDisabled={drawerBusy}
+            >
+              <span className='text-sm font-semibold'>
+                {t('settings.drawerEnable')}
+              </span>
+            </Switch>
+            <p className='text-sm font-medium text-default-700'>
+              {t('settings.drawerEnableHint')}
+            </p>
+
+            <Switch
+              isSelected={drawerCfg.cashOnly}
+              onValueChange={(v) => void saveDrawer({ cashOnly: v })}
+              isDisabled={drawerBusy || !drawerCfg.enabled}
+            >
+              <span className='text-sm font-semibold'>
+                {t('settings.drawerCashOnly')}
+              </span>
+            </Switch>
+            <p className='text-sm font-medium text-default-700'>
+              {t('settings.drawerCashOnlyHint')}
+            </p>
+
+            <div className='flex flex-wrap items-end gap-4'>
+              <FilterSelect
+                label={t('settings.drawerPin')}
+                value={String(drawerCfg.pin)}
+                onChange={(v) => void saveDrawer({ pin: v === '1' ? 1 : 0 })}
+                className='min-w-[18rem]'
+                options={[
+                  { value: '0', label: t('settings.drawerPin2') },
+                  { value: '1', label: t('settings.drawerPin5') },
+                ]}
+              />
+              <Button
+                color='primary'
+                variant='flat'
+                onPress={testDrawer}
+                isLoading={drawerBusy}
+                isDisabled={!drawerCfg.printerName}
+                startContent={!drawerBusy ? <Inbox size={18} /> : undefined}
+                className='font-semibold'
+              >
+                {t('settings.drawerTest')}
+              </Button>
+            </div>
+            <p className='text-sm font-medium text-default-700'>
+              {t('settings.drawerPinHint')}
+            </p>
+
+            {drawerResult && (
+              <span
+                className={`text-sm font-semibold ${
+                  drawerResult.kind === 'success' ? 'text-success' : 'text-danger'
+                }`}
+              >
+                {drawerResult.message}
+              </span>
+            )}
+          </CardBody>
+        </Card>
+      )}
 
       <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
         <CardBody className='gap-3'>

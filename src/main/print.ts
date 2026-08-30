@@ -17,6 +17,8 @@ import {
   type IdentityLine,
 } from './branchProfile';
 
+import { registerCashDrawerHandlers, tryOpenCashDrawer } from './cashDrawer';
+
 import { posError } from '../shared/errorCodes';
 import type { MainServices } from './types/common';
 import { assertPermission } from './utils/permissions';
@@ -1413,6 +1415,11 @@ async function printToPdfFile(html: string): Promise<string> {
 export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, services?: MainServices) {
   console.log('[print] registering IPC handlers');
 
+  // The drawer hangs off the receipt printer, so it is configured next to it
+  // and reads the same device name. Registered here rather than in index.ts so
+  // the printer name has exactly one owner.
+  registerCashDrawerHandlers(() => getPrintConfig().printerName, services);
+
   /**
    * The receipt printer is chosen here rather than inherited from Windows.
    * "The printer is switched on but nothing prints" is almost always the till
@@ -1856,11 +1863,49 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
 
       await printHtmlSilently(html);
 
+      // Only after the receipt is out, and only for a sale that has not been
+      // printed before — a reprint is a piece of paper, not a cash movement,
+      // and a till that pops open on every reprint is a till nobody can
+      // reconcile.
+      // Claiming the first print, rather than reading printed_at and then
+      // writing it. `changes` is 1 only for the statement that actually
+      // flipped a NULL, so two prints of the same order racing each other
+      // cannot both conclude they are the first and kick the drawer twice.
+      //
+      // Doing it as a read followed by a write happens to be safe today —
+      // better-sqlite3 is synchronous and nothing awaits between the two — but
+      // that is an invariant no one would think to preserve when adding an
+      // await here later, and the cost of not relying on it is one WHERE
+      // clause.
+      let firstPrint = false;
       try {
-        db.prepare(
-          `UPDATE orders SET printed_at = datetime('now') WHERE id = ?`
-        ).run(orderId);
-      } catch {}
+        firstPrint =
+          db
+            .prepare(
+              `UPDATE orders SET printed_at = datetime('now')
+                 WHERE id = ? AND printed_at IS NULL`
+            )
+            .run(orderId).changes > 0;
+        if (!firstPrint) {
+          // printed_at means "last printed", and a reprint still moves it. The
+          // drawer is the only thing that cares which print this was.
+          db.prepare(
+            `UPDATE orders SET printed_at = datetime('now') WHERE id = ?`
+          ).run(orderId);
+        }
+      } catch {
+        // Leaves firstPrint false: a till whose stamp cannot be written must
+        // not pop the drawer on every reprint.
+      }
+
+      // Deliberately not awaited: the sale is complete either way, and a
+      // drawer that does not open must never make a finished sale look failed.
+      // tryOpenCashDrawer swallows its own errors.
+      if (firstPrint) {
+        void tryOpenCashDrawer(getPrintConfig().printerName, {
+          paymentSlug: order.payment_method_slug ?? null,
+        });
+      }
 
       return { ok: true };
     }

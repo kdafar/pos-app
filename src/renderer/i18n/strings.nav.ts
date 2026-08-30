@@ -155,6 +155,54 @@ export const navStrings = {
   },
   'settings.printerSaved': { en: 'Printer settings saved.', ar: 'تم حفظ إعدادات الطابعة.' },
 
+  /* ---------- cash drawer ----------
+     The drawer plugs into the receipt printer, so its settings live with the
+     printer's and are worded for a shop owner, not an engineer: nobody on a
+     till knows what an RJ11 pin is. */
+  'settings.drawer': { en: 'Cash drawer', ar: 'درج النقد' },
+  'settings.drawerHint': {
+    en: 'The drawer opens through the receipt printer it is plugged into. Saved on this device only.',
+    ar: 'يفتح الدرج عن طريق طابعة الإيصالات الموصول بها. يُحفظ على هذا الجهاز فقط.',
+  },
+  'settings.drawerEnable': {
+    en: 'Open the drawer when an order is placed',
+    ar: 'فتح الدرج عند تسجيل الطلب',
+  },
+  'settings.drawerEnableHint': {
+    en: 'Off by default. The drawer opens after the receipt prints, and only the first time an order is printed — never on a reprint.',
+    ar: 'مغلق افتراضياً. يفتح الدرج بعد طباعة الإيصال، وفقط في أول طباعة للطلب — ولا يفتح عند إعادة الطباعة.',
+  },
+  'settings.drawerCashOnly': {
+    en: 'Cash payments only',
+    ar: 'المدفوعات النقدية فقط',
+  },
+  'settings.drawerCashOnlyHint': {
+    en: 'Leave this on so the drawer stays shut on KNET and card sales.',
+    ar: 'اتركه مفعّلاً حتى يبقى الدرج مغلقاً في مبيعات كي نت والبطاقات.',
+  },
+  'settings.drawerPin': { en: 'Drawer connection', ar: 'توصيل الدرج' },
+  'settings.drawerPin2': { en: 'Standard (most drawers)', ar: 'قياسي (معظم الأدراج)' },
+  'settings.drawerPin5': { en: 'Alternative', ar: 'بديل' },
+  'settings.drawerPinHint': {
+    en: 'If the test does nothing but the printer works, switch this to Alternative and test again.',
+    ar: 'إذا لم يحدث شيء عند التجربة بينما الطابعة تعمل، غيّر هذا إلى "بديل" وجرّب مرة أخرى.',
+  },
+  'settings.drawerTest': { en: 'Open the drawer now', ar: 'افتح الدرج الآن' },
+  'settings.drawerTestSent': {
+    en: 'Signal sent. If the drawer did not open, try the other connection setting.',
+    ar: 'تم إرسال الإشارة. إذا لم يفتح الدرج، جرّب إعداد التوصيل الآخر.',
+  },
+  'settings.drawerSaved': { en: 'Cash drawer settings saved.', ar: 'تم حفظ إعدادات درج النقد.' },
+  'settings.drawerVia': { en: 'Opens through', ar: 'يفتح عن طريق' },
+  'settings.drawerCompatWarning': {
+    en: 'Test with "Open the drawer now" before using this in the shop. It needs a thermal receipt printer that understands ESC/POS. On a label printer, or one set up with the wrong driver, the signal can print a slip of stray characters instead of opening the drawer.',
+    ar: 'جرّب بـ "افتح الدرج الآن" قبل استخدامه في المحل. يحتاج إلى طابعة إيصالات حرارية تدعم ESC/POS. في طابعة الملصقات، أو طابعة مثبتة بتعريف غير صحيح، قد تطبع الإشارة ورقة بحروف غريبة بدلاً من فتح الدرج.',
+  },
+  'settings.drawerNoPrinter': {
+    en: 'Choose the receipt printer above first — the drawer opens through it.',
+    ar: 'اختر طابعة الإيصالات أعلاه أولاً — الدرج يفتح عن طريقها.',
+  },
+
   /* ---------- updates screen ----------
      Versions stay Latin and LTR, like every other identifier. */
   'nav.updates': { en: 'Updates', ar: 'التحديثات' },

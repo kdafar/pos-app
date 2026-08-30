@@ -21,6 +21,45 @@ export class AuthError extends Error {
   }
 }
 
+/**
+ * The build number as the server wants to compare it: bare semver, no "v".
+ *
+ * The back office sorts these with PHP's version_compare to decide which
+ * tills are too old to enforce a feature gate, so a stray "v" prefix does not
+ * merely look untidy — it sorts wrong and mis-gates a real till.
+ *
+ * A prerelease suffix is deliberately left intact rather than trimmed: a
+ * build calling itself 0.4.23-beta.1 must not report as the release, and
+ * quietly rewriting it would put a beta in the field wearing a release
+ * number.
+ */
+export function normalizeAppVersion(raw: string): string {
+  return String(raw ?? '').trim().replace(/^v/i, '');
+}
+
+function appVersion(): string {
+  return normalizeAppVersion(app.getVersion());
+}
+
+/**
+ * Both spellings go on every request, on purpose.
+ *
+ * The till has reported its version since the header was added, but under
+ * `X-Pos-Version` — which nothing upstream reads, so every authenticated call
+ * looked version-less and pos_devices.app_version stayed frozen at whatever
+ * /register recorded on pairing day. The back office was judging live tills
+ * by their pairing-day build.
+ *
+ * `X-App-Version` is the name the server actually reads. The old name stays
+ * alongside it so this build does not go dark to anything already keyed on
+ * it, and because a header costs nothing next to a wrong answer about what is
+ * in the field.
+ */
+function versionHeaders(): Record<string, string> {
+  const v = appVersion();
+  return { 'X-App-Version': v, 'X-Pos-Version': v };
+}
+
 let api: AxiosInstance;
 
 export function configureApi(baseUrl: string, device: Device, token: string) {
@@ -30,10 +69,11 @@ export function configureApi(baseUrl: string, device: Device, token: string) {
     headers: {
       Authorization: `Bearer ${token}`,
       'X-Pos-Device': device.id,
-      // Rides on every request — push, pull and bootstrap — so the server can
-      // see which build a till is running without the till having to report it
-      // separately, and without a version-specific endpoint to keep in step.
-      'X-Pos-Version': app.getVersion(),
+      // Rides on every request — push, pull, bootstrap and time — so the
+      // server sees which build a till is running without the till having to
+      // report it separately, and without a version-specific endpoint to keep
+      // in step.
+      ...versionHeaders(),
     },
   });
 
@@ -612,9 +652,12 @@ export async function pairDevice(
   deviceName: string,
   machineId: string
 ) {
+  // Pairing runs on its own instance — there is no token yet — so it does not
+  // inherit the headers configureApi sets and has to carry the version itself.
   const pairingApi = axios.create({
     baseURL: baseUrl.replace(/\/+$/, '') + '/api/pos',
     timeout: 15000,
+    headers: { ...versionHeaders() },
   });
 
   const { data } = await pairingApi.post('/register', {
@@ -624,7 +667,7 @@ export async function pairDevice(
     machine_id: machineId,
     // Known from the first contact, so a device that never syncs again still
     // has a recorded version.
-    app_version: app.getVersion(),
+    app_version: appVersion(),
   });
 
   if (!data.device?.id || !data.token) {
@@ -1972,7 +2015,14 @@ export async function pushOutbox(
   envelope: { client_msg_id: string },
   batch: { orders: any[]; payments?: any[] }
 ) {
-  const { data } = await api.post('/push', { envelope, ...batch });
+  // Also in the envelope, not only the header. Order rows record the build
+  // that rang them, and without this the server fell back to deriving a name
+  // from client_msg_id — which is where the meaningless "pos-1" in
+  // device_info came from.
+  const { data } = await api.post('/push', {
+    envelope: { ...envelope, app_version: appVersion() },
+    ...batch,
+  });
   markSyncedNow();
   return data;
 }
