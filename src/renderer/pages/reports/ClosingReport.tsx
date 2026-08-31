@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button, Chip, Input, Tab, Tabs } from '@heroui/react';
 import {
@@ -8,6 +8,7 @@ import {
   FileSpreadsheet,
   Moon,
   Printer,
+  ReceiptText,
   XCircle,
 } from 'lucide-react';
 
@@ -19,6 +20,7 @@ import { DataTable } from '../../components/DataTable';
 import { DataState, PageShell, StatCard } from '../../components/PageShell';
 
 import { errorLine as errLine } from '../../utils/posError';
+import { buildThermalReportHtml } from './thermalReport';
 type BackendOrderRow = {
   id: string;
   order_number: string;
@@ -40,8 +42,14 @@ type BackendOrderRow = {
   grand_total: number;
 };
 
-type AggregateRow = { item: string; sold: number; total: number };
-type PaymentRow = { id: string; name: string; total: number };
+type AggregateRow = {
+  item: string;
+  /** Sent separately so the table can pick the language, not the query. */
+  name_ar?: string | null;
+  sold: number;
+  total: number;
+};
+type PaymentRow = { id: string; name: string; count: number; total: number };
 type OrderTypeRow = {
   order_type: number;
   label: string;
@@ -128,6 +136,11 @@ export default function ClosingReport() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('orders');
+  /** Which print job is in flight, so neither button can start a second one. */
+  const [busy, setBusy] = useState<'a4' | 'thermal' | null>(null);
+  // State updates after the event returns. The ref closes the same-tick window
+  // in which a double click can enter both handlers before React re-renders.
+  const printLock = useRef(false);
   const [fromStr, setFromStr] = useState('');
   const [toStr, setToStr] = useState('');
   const [data, setData] = useState<ReportData | null>(null);
@@ -462,6 +475,96 @@ export default function ClosingReport() {
     });
   };
 
+  /**
+   * Maps the report on screen onto the roll document. The layout itself lives
+   * in `thermalReport.ts`, which is pure and unit tested; everything language-
+   * or money-shaped is resolved here, where the formatters are.
+   */
+  const printThermalReport = async () => {
+    if (!data || !f) return;
+    const sync = (await window.api.invoke('sync:status').catch(() => null)) as
+      | { branch_name?: string }
+      | null;
+    const branchName = sync?.branch_name || 'All Branches';
+
+    const html = buildThermalReportHtml({
+      dir: lang === 'ar' ? 'rtl' : 'ltr',
+      font:
+        lang === 'ar'
+          ? '"Tajawal","Noto Naskh Arabic","Segoe UI",Tahoma,Arial,sans-serif'
+          : '"Open Sans","Segoe UI",Arial,sans-serif',
+      title: t('admin.rep.thermalTitle'),
+      branchName,
+      rangeLabel: f.date || `${fromStr} → ${toStr}`,
+      windowLabel: `${fmtDateTime(data.fromMs)} — ${fmtDateTime(data.toMs)}`,
+      generatedAt: fmtDateTime(Date.now()),
+      generatedBy: user?.name || user?.role || 'POS User',
+      labels: {
+        generatedAt: t('admin.rep.thermalGeneratedAt'),
+        generatedBy: t('admin.rep.thermalGeneratedBy'),
+        counts: t('admin.rep.thermalCounts'),
+        inside: t('admin.rep.cardInside'),
+        outside: t('admin.rep.cardOutside'),
+        cancelled: t('admin.rep.cardCancelled'),
+        totalOrders: t('admin.rep.thermalTotalOrders'),
+        payments: t('admin.rep.tabPayment'),
+        orderTypes: t('admin.rep.tabOrderType'),
+        items: t('admin.rep.tabItem'),
+        categories: t('admin.rep.tabCategory'),
+        orders: t('admin.rep.thermalOrders'),
+        signature: t('admin.rep.thermalSignature'),
+      },
+      counts: {
+        inside: String(f.inside_hours_count ?? 0),
+        outside: String(f.outside_hours_count ?? 0),
+        cancelled: String(f.canceled_order_count ?? 0),
+        total: String(f.total_order ?? 0),
+      },
+      payments: data.payments.map((p) => ({
+        label: p.name || t('admin.rep.unknown'),
+        value: fmt(p.total),
+      })),
+      orderTypes: data.orderTypes.map((o) => ({
+        label: `${
+          Number(o.order_type) === 4
+            ? t('admin.rep.orderTypeDriveThru')
+            : orderTypeLabel(o.order_type)
+        } ×${o.count}`,
+        value: fmt(o.total),
+      })),
+      // The same two tabs the screen shows, in the roll's one-column shape:
+      // the quantity leads the name, because at close the cashier is counting
+      // units, and the money stays in the right-hand column with everything
+      // else. name_ar arrives beside the base name so the roll follows the
+      // till's language rather than the catalogue's.
+      categories: (data.categories ?? []).map((c) => ({
+        label: `${c.sold ?? 0}× ${
+          (lang === 'ar' && c.name_ar) || c.item || t('admin.rep.unknown')
+        }`,
+        value: fmt(c.total),
+      })),
+      items: (data.aggregates ?? []).map((it) => ({
+        label: `${it.sold ?? 0}× ${
+          (lang === 'ar' && it.name_ar) || it.item || t('admin.rep.unknown')
+        }`,
+        value: fmt(it.total),
+      })),
+      orders: data.orders.map((o, i) => ({
+        label: `${i + 1}. ${o.reference_no || o.order_number}`,
+        value: fmt(o.grand_total),
+        cancelled: isCancelled(o),
+      })),
+      totals: [
+        { label: t('admin.rep.grossSales'), value: fmt(f.gross_sales_total) },
+        { label: t('admin.rep.discounts'), value: `- ${fmt(f.discounts)}` },
+        { label: t('admin.rep.deliveryFees'), value: fmt(f.delivery_fees) },
+        { label: t('admin.rep.netTotal'), value: fmt(f.grand_total) },
+      ],
+    });
+
+    await window.api.invoke('reports:printThermal', html);
+  };
+
   const openPrintPreview = async () => {
     if (!data || !f) return;
     const sync = (await window.api.invoke('sync:status').catch(() => null)) as
@@ -557,10 +660,31 @@ export default function ClosingReport() {
       primaryAction={
         <div className='flex gap-2 no-print'>
           <Button color='success' variant='flat' startContent={<FileSpreadsheet size={16} />} onPress={exportExcel}>Excel</Button>
-          <Button variant='flat' startContent={<Printer size={16} />} onPress={async () => {
+          {/* Both print buttons latch while the job is in flight. Rendering and
+              spooling take seconds, in which a button that looks idle gets
+              pressed again — on the roll that is a second report's worth of
+              paper, and on the A4 path a second preview window. */}
+          <Button variant='flat' isLoading={busy === 'a4'} isDisabled={busy !== null} startContent={<Printer size={16} />} onPress={async () => {
+            if (printLock.current) return;
+            printLock.current = true;
+            setBusy('a4');
             try { await openPrintPreview(); }
             catch (error) { console.error('Unable to open print preview:', error); window.alert('Unable to open the print preview. Please try again.'); }
+            finally { printLock.current = false; setBusy(null); }
           }}>{t('admin.rep.print')}</Button>
+          {/* Its own button rather than an option inside the preview: the roll
+              report is a different document, and at close the cashier wants one
+              press, not a preview window they then have to configure. */}
+          <Button variant='flat' isLoading={busy === 'thermal'} isDisabled={busy !== null} startContent={<ReceiptText size={16} />} onPress={async () => {
+            if (printLock.current) return;
+            printLock.current = true;
+            setBusy('thermal');
+            try { await printThermalReport(); }
+            catch (error) { console.error('Unable to print the thermal report:', error); window.alert(`${t('admin.rep.thermalFailed')}
+
+${errLine(error, lang)}`); }
+            finally { printLock.current = false; setBusy(null); }
+          }}>{t('admin.rep.printThermal')}</Button>
         </div>
       }
       filters={

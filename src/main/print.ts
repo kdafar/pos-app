@@ -8,6 +8,7 @@ import QRCode from 'qrcode';
 import bwipjs from 'bwip-js';
 import ExcelJS from 'exceljs';
 import { getReceiptPageLayout } from './receiptPageLayout';
+import { isPrintCancellation } from './printOutcome';
 import {
   BRANCH_PROFILE_META_KEY,
   buildBranchFooterLines,
@@ -1180,13 +1181,24 @@ function getPaperHeightMm(): number {
 
 // ---- print flow -----------------------------------------------------------
 
-async function printHtmlSilently(html: string): Promise<void> {
+async function printHtmlSilently(
+  html: string,
+  options: { requireConfiguredPrinter?: boolean } = {}
+): Promise<void> {
   const win = new BrowserWindow({
-    show: true,
+    // Never on screen at creation. A window created visible flashes up and
+    // takes focus for as long as the receipt takes to render — mid-order that
+    // swallows whatever the cashier types next, and on a till running
+    // full-screen it is a visible blink on every sale. It is shown only when
+    // the dialog is wanted, or when printing failed and the receipt is worth
+    // reading. `backgroundThrottling` off because Chromium slows timers and
+    // rendering in windows it believes nobody is looking at, and this one is
+    // measured for its page length before it prints.
+    show: false,
     width: 420,
     height: 800,
     title: 'Receipt',
-    webPreferences: { javascript: true },
+    webPreferences: { javascript: true, backgroundThrottling: false },
   });
 
   let tmpFile: string | null = null;
@@ -1258,6 +1270,17 @@ async function printHtmlSilently(html: string): Promise<void> {
       configured && printers.some((p) => p.name === configured)
         ? configured
         : undefined;
+    // Both cases are fixed on the same settings screen, but they are different
+    // sentences: one printer has gone missing, the other was never chosen.
+    // "Not configured" interpolated into "the configured printer ... is not
+    // connected" would tell the cashier to check a printer of that name.
+    if (options.requireConfiguredPrinter && !deviceName) {
+      throw configured
+        ? posError('POS_PRINT_PRINTER_MISSING', {
+            params: { printer: configured },
+          })
+        : posError('POS_PRINT_PRINTER_NOT_SET');
+    }
     if (configured && !deviceName) {
       console.warn(
         `[print] configured printer "${configured}" not found; using the system default`
@@ -1363,11 +1386,9 @@ async function printHtmlSilently(html: string): Promise<void> {
         },
         (ok, reason) =>
           done(() =>
-            ok
-              ? resolve()
-              : // "cancelled" is the user closing the dialog, not a failure.
-              /cancel/i.test(reason || '')
-              ? resolve()
+            ok || isPrintCancellation(reason, wantDialog)
+              ? // Closing the dialog is a decision, not a failure.
+                resolve()
               : reject(new Error(reason || 'Print failed'))
           )
       );
@@ -1397,10 +1418,11 @@ async function printHtmlSilently(html: string): Promise<void> {
 
 async function printToPdfFile(html: string): Promise<string> {
   const win = new BrowserWindow({
-    show: true,
+    // Saving a PDF has nothing to show the cashier; see printHtmlSilently.
+    show: false,
     width: 420,
     height: 800,
-    webPreferences: { javascript: true },
+    webPreferences: { javascript: true, backgroundThrottling: false },
   });
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   const pdf = await win.webContents.printToPDF({ printBackground: true });
@@ -1544,6 +1566,49 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
     return { ok: true, printerName: printerName || null };
   });
 
+  /**
+   * The A4 closing report and the thermal one are different documents, not one
+   * document at two sizes: thirteen landscape columns cannot be squeezed onto
+   * an 80mm roll and stay readable. So the roll version is its own summary
+   * document built in the renderer, and it goes down the *receipt* path —
+   * `printHtmlSilently` — which already owns roll width, auto page length and
+   * the configured thermal printer. Reusing it is what keeps the A4 report,
+   * receipts and labels each at their own size: nothing here changes the
+   * page-size rules, it only feeds one more document through the existing one.
+   */
+  // A closing report takes seconds to render and print, and a button that has
+  // not visibly done anything yet gets pressed again. The renderer disables its
+  // button, but the guard belongs here too: two receipts-worth of roll for one
+  // intended report is paper the shop cannot put back. A second call while one
+  // is in flight joins the first rather than starting another job.
+  let thermalInFlight: Promise<{ ok: true; printerName: string | null }> | null =
+    null;
+
+  ipcMain.handle('reports:printThermal', async (_event, html: string) => {
+    if (services) assertPermission(services, 'reports.view');
+    if (typeof html !== 'string' || !html.trim() || html.length > 5_000_000) {
+      throw new Error('Invalid thermal report document.');
+    }
+    if (thermalInFlight) {
+      console.log('[print] thermal report already printing; joining that job');
+      return thermalInFlight;
+    }
+    // Unlike an order receipt, this button explicitly promises the thermal
+    // printer. Falling back to the Windows default here can waste an A4 sheet
+    // or open a PDF writer while still reporting success.
+    thermalInFlight = printHtmlSilently(html, {
+      requireConfiguredPrinter: true,
+    })
+      .then(() => {
+        const { printerName } = getPrintConfig();
+        return { ok: true as const, printerName: printerName || null };
+      })
+      .finally(() => {
+        thermalInFlight = null;
+      });
+    return thermalInFlight;
+  });
+
   ipcMain.handle('reports:openPreview', async (event, html: string) => {
     if (services) assertPermission(services, 'reports.view');
     if (typeof html !== 'string' || !html.trim() || html.length > 5_000_000) {
@@ -1566,9 +1631,19 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
       if (url !== 'majestic-print://print') return;
       navigationEvent.preventDefault();
 
+      // The Settings "show print dialog" toggle used to reach receipts only:
+      // this path hardcoded `silent: true` and never read the print config, so
+      // the report always went straight to the Windows default printer with no
+      // way to pick another one. Honour the same toggle here.
+      //
+      // `deviceName` is deliberately NOT forced to the configured printer: that
+      // one is the thermal unit, and an A4 landscape report sent there prints
+      // nothing. Silent keeps today's behaviour (system default); with the
+      // dialog on, the cashier picks the sheet printer themselves.
+      const { showDialog: wantDialog } = getPrintConfig();
       preview.webContents.print(
         {
-          silent: true,
+          silent: !wantDialog,
           printBackground: true,
           landscape: true,
           // `usePrinterDefaultPageSize` was passed here, but that option does
@@ -1578,8 +1653,12 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
           pageSize: 'A4',
         },
         (success, failureReason) => {
+          // Closing the dialog is a decision, not a fault. Reporting it as
+          // "Printing failed" would send the cashier hunting a printer problem
+          // that does not exist.
+          if (!success && isPrintCancellation(failureReason, wantDialog)) return;
           const message = success
-            ? 'Report sent to the default printer.'
+            ? `Report sent to ${wantDialog ? 'the printer' : 'the default printer'}.`
             : `Printing failed: ${failureReason || 'Unknown printer error'}`;
           if (!preview.isDestroyed()) {
             preview.webContents

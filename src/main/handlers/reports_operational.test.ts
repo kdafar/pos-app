@@ -4,8 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 // under test are pure and touch none of it.
 vi.mock('../db', () => ({ default: {} }));
 
-const { isSold, isCancelled, rowMoney, classifyRow, clampRangeToWindow } =
-  await import('./reports_operational');
+const {
+  isSold,
+  isCancelled,
+  rowMoney,
+  classifyRow,
+  clampRangeToWindow,
+  soldFilterSql,
+} = await import('./reports_operational');
 
 /**
  * These two functions decide what a shop's daily takings are. Every case below
@@ -234,5 +240,55 @@ describe('clampRangeToWindow', () => {
       toMs: 2_000,
       clamped: true,
     });
+  });
+});
+
+/**
+ * The payment breakdown groups in SQL, so it cannot call isSold(). This is the
+ * guard that the two definitions stay the same one: the breakdown used to
+ * count open and cancelled tickets that the footer's net excluded, so the
+ * "By Payment" totals never added up to the report's own bottom line.
+ */
+describe('soldFilterSql', () => {
+  it('excludes every status isSold() refuses', () => {
+    const sql = soldFilterSql('s');
+
+    for (const status of ['open', 'pending', 'draft', 'pending payment']) {
+      expect(isSold({ status, grand_total: 5 }), status).toBe(false);
+      expect(sql, status).toContain(`'${status}'`);
+    }
+  });
+
+  it('excludes cancellations by label and by server code', () => {
+    const sql = soldFilterSql('s', { statusCode: true });
+
+    expect(sql).toContain("NOT LIKE 'cancel%'");
+    expect(sql).toContain("NOT LIKE 'reject%'");
+    // The same four codes isCancelled() honours.
+    for (const code of [5, 6, 8, 9]) {
+      expect(isCancelled({ status: '', status_code: code })).toBe(true);
+      expect(sql).toMatch(new RegExp(String.raw`NOT IN \([^)]*\b${code}\b`));
+    }
+  });
+
+  it('requires money on the row, like isSold does', () => {
+    expect(soldFilterSql('s')).toContain('COALESCE(s.grand_total, 0) > 0');
+    expect(isSold({ status: 'closed', grand_total: 0 })).toBe(false);
+  });
+
+  it('only references columns the schema was said to have', () => {
+    const bare = soldFilterSql('o');
+    expect(bare).not.toContain('status_code');
+    expect(bare).not.toContain('is_cancelled');
+
+    const full = soldFilterSql('o', { statusCode: true, isCancelled: true });
+    expect(full).toContain('o.status_code');
+    expect(full).toContain('o.is_cancelled');
+  });
+
+  it('qualifies every column with the caller’s alias', () => {
+    const sql = soldFilterSql('x', { statusCode: true, isCancelled: true });
+    expect(sql).not.toMatch(/(?<![.\w])status\b(?!_)/);
+    expect(sql.match(/\bx\./g)?.length).toBeGreaterThanOrEqual(4);
   });
 });

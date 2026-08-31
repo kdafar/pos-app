@@ -524,6 +524,107 @@ function normalizeServerCreatedAt(createdAt: any, createdAtMs: any) {
   return ms == null ? S(createdAt) : new Date(ms).toISOString();
 }
 
+/**
+ * Pull the payment method off a server order, whatever shape it arrives in.
+ *
+ * The till pushes the method up in two forms already — `payment.method_slug`
+ * and `payments[].method` (handlers/sync.ts) — so the backend holds it for
+ * every order this device rang. What comes back down was simply never read:
+ * neither feed's normaliser looked for a payment field, so 100+ orders on a
+ * live till carry no method at all and the closing report prints them as
+ * "Unknown".
+ *
+ * The key name on the down-feed is not documented (docs/BACKEND-QUESTIONS.md
+ * §payment methods is still "?"), so rather than block on that, read every
+ * shape the API plausibly uses. A key that never arrives costs nothing; the
+ * one that does arrive is captured without another round trip to the backend.
+ */
+export function extractPaymentMethod(o: any): {
+  payment_method_id: string | null;
+  payment_method_slug: string | null;
+} {
+  const nested = [
+    o?.payment,
+    o?.payment_method,
+    o?.paymentMethod,
+    Array.isArray(o?.payments) ? o.payments[0] : null,
+  ].filter((v) => v && typeof v === 'object');
+
+  const pick = (...values: any[]) => {
+    for (const v of values) {
+      // A nested object here means the caller asked for `.slug` on something
+      // that is itself the method object; skip rather than stringify to
+      // "[object Object]" and write that into the column.
+      if (v == null || typeof v === 'object') continue;
+      const text = String(v).trim();
+      if (text) return text;
+    }
+    return null;
+  };
+
+  // `payment_method` may itself be the slug when the API sends a bare string.
+  const flatSlug = typeof o?.payment_method === 'string' ? o.payment_method : null;
+
+  return {
+    payment_method_id: pick(
+      o?.payment_method_id,
+      ...nested.map((n: any) => n.method_id),
+      ...nested.map((n: any) => n.payment_method_id),
+      // `.id` ONLY from an object that is itself a payment method. On a
+      // `payments: [{ id: 991, amount: 5 }]` tender line, `.id` is the payment
+      // row's own key — writing that would make the order look resolved,
+      // remove it from the repair queue for good, and print a bare number as
+      // the method name. Strictly worse than "Unknown".
+      o?.payment_method?.id,
+      o?.paymentMethod?.id
+    ),
+    payment_method_slug: pick(
+      o?.payment_method_slug,
+      flatSlug,
+      ...nested.map((n: any) => n.method_slug),
+      ...nested.map((n: any) => n.slug),
+      ...nested.map((n: any) => n.method),
+      ...nested.map((n: any) => n.code)
+    ),
+  };
+}
+
+/**
+ * How many distinct tender lines the server sent for one order.
+ *
+ * The POS credits a whole order to a single method, which is right if a sale is
+ * always settled one way and quietly wrong if it is not: 5 KWD cash + the rest
+ * on KNET would post the entire total to cash. Nobody could say for certain
+ * whether this shop splits payments, so rather than assume, count — an order
+ * that arrives with more than one method is surfaced instead of silently
+ * mis-credited, and the answer comes from the till's own traffic.
+ */
+export function countTenders(o: any): number {
+  const list = Array.isArray(o?.payments) ? o.payments : [];
+  const methods = new Set(
+    list
+      .map((t: any) =>
+        String(t?.method ?? t?.method_slug ?? t?.slug ?? t?.payment_method_id ?? '')
+          .trim()
+          .toLowerCase()
+      )
+      .filter(Boolean)
+  );
+  return methods.size;
+}
+
+/** Running tally of split-tender orders, so the repair screen can report it. */
+export function noteSplitTender(orderRef: string, tenders: number) {
+  if (tenders < 2) return;
+  const seen = Number(getMeta('payment.split_tender_count') ?? 0) + 1;
+  setMeta('payment.split_tender_count', String(seen));
+  setMeta('payment.split_tender_last', orderRef);
+  console.warn(
+    `[sync] order ${orderRef} carries ${tenders} payment methods; the report ` +
+      `credits the whole total to the first. Split tender is not modelled yet.`
+  );
+}
+
 export function normPullOrder(o: any) {
   const cust = o?.customer ?? {};
   const tot = o?.totals ?? {};
@@ -539,6 +640,7 @@ export function normPullOrder(o: any) {
     mobile: S(cust.mobile) || '',
     email: S(cust.email),
     payment_type: N(o.payment_type),
+    ...extractPaymentMethod(o),
     subtotal: N(tot.subtotal),
     discount_amount: N(tot.discount),
     discount_pr: N(tot.discount_pr),
@@ -569,10 +671,21 @@ export function normPullLine(l: any, localOrderId: string) {
   };
 }
 
-function normOrderSeed(o: any) {
+export function normOrderSeed(o: any) {
   return {
     id: S(o.id)!,
     number: S(o.number) || '',
+    // The feed has always sent this and the normaliser never read it, so every
+    // seeded order landed with a NULL branch. The closing report keeps
+    // branch-less rows deliberately (they might be this till's own older
+    // sales), which meant another branch's lookup orders were counted into
+    // this branch's takings — 42 orders and 330.150 on the till this was found
+    // on. The pull feed has always read it; the seed simply never did.
+    // NOT N(): that turns a missing value into 0, and 0 is a branch the report
+    // filter does not match — a feed that omitted the field would make those
+    // orders vanish from the report entirely. Absent stays NULL, which the
+    // report still counts.
+    branch_id: o.branch_id == null || o.branch_id === '' ? null : N(o.branch_id),
     // Human-facing running number (0001, 0002 …) allocated by the server.
     reference_no: S(o.reference_no ?? o.reference_number),
     // §4.1: the pull feed sends a bare MySQL datetime ("2026-08-16 10:19:03")
@@ -591,6 +704,10 @@ function normOrderSeed(o: any) {
     mobile: S(o.mobile) || '',
     full_name: S(o.full_name) || '',
     grand_total: N(o.grand_total),
+    // The seed feed is where most server orders enter a till, and it carried
+    // no payment method at all — the single biggest source of "Unknown" on the
+    // closing report.
+    ...extractPaymentMethod(o),
   };
 }
 
@@ -1158,11 +1275,12 @@ export async function bootstrap(baseUrl: string) {
 
     // recent orders seed (for phone lookup)
     const upOrderSeed = db.prepare(`
-      INSERT INTO orders (id, number, reference_no, opened_at, created_at, order_type, status, status_code, mobile, full_name, grand_total)
-      VALUES (@id, @number, @reference_no, COALESCE(@opened_at, strftime('%s','now')*1000), @created_at, @order_type, @status, @status_code, @mobile, @full_name, @grand_total)
+      INSERT INTO orders (id, number, reference_no, branch_id, opened_at, created_at, order_type, status, status_code, mobile, full_name, grand_total, payment_method_id, payment_method_slug)
+      VALUES (@id, @number, @reference_no, @branch_id, COALESCE(@opened_at, strftime('%s','now')*1000), @created_at, @order_type, @status, @status_code, @mobile, @full_name, @grand_total, @payment_method_id, @payment_method_slug)
       ON CONFLICT(id) DO UPDATE SET
         number      = excluded.number,
         reference_no = COALESCE(excluded.reference_no, reference_no),
+        branch_id   = COALESCE(excluded.branch_id, branch_id),
         opened_at   = COALESCE(excluded.opened_at, opened_at),
         created_at  = COALESCE(excluded.created_at, created_at),
         order_type  = excluded.order_type,
@@ -1170,7 +1288,13 @@ export async function bootstrap(baseUrl: string) {
         status_code = excluded.status_code,
         mobile      = excluded.mobile,
         full_name   = excluded.full_name,
-        grand_total = excluded.grand_total
+        grand_total = excluded.grand_total,
+        -- COALESCE, never a bare assignment: an order rung up on THIS till
+        -- already knows how it was paid, and a feed that omits the field would
+        -- otherwise erase that on the next sync. A server value only ever
+        -- fills a blank here.
+        payment_method_id   = COALESCE(excluded.payment_method_id, payment_method_id),
+        payment_method_slug = COALESCE(excluded.payment_method_slug, payment_method_slug)
     `);
     // Orders this device created are pushed up and then come back down in the
     // seed feed under the SERVER's id. Keyed on id alone that never matches the
@@ -1304,12 +1428,14 @@ function buildOrderSyncOps() {
   const upPullOrder = db.prepare(`
     INSERT INTO orders (
       id, number, reference_no, branch_id, order_type, status, status_code,
-      full_name, mobile, email, payment_type, subtotal, discount_amount,
+      full_name, mobile, email, payment_type, payment_method_id,
+      payment_method_slug, subtotal, discount_amount,
       discount_pr, delivery_fee, grand_total, promocode, created_at,
       opened_at, updated_at, server_id
     ) VALUES (
       @id, @number, @reference_no, @branch_id, @order_type, @status,
-      @status_code, @full_name, @mobile, @email, @payment_type, @subtotal,
+      @status_code, @full_name, @mobile, @email, @payment_type,
+      @payment_method_id, @payment_method_slug, @subtotal,
       @discount_amount, @discount_pr, @delivery_fee, @grand_total,
       @promocode, @created_at, @opened_at, @updated_at, @server_id
     )
@@ -1324,6 +1450,9 @@ function buildOrderSyncOps() {
       mobile          = excluded.mobile,
       email           = COALESCE(excluded.email, email),
       payment_type    = excluded.payment_type,
+      -- See the seed upsert: fill a blank, never overwrite what this till knows.
+      payment_method_id   = COALESCE(excluded.payment_method_id, payment_method_id),
+      payment_method_slug = COALESCE(excluded.payment_method_slug, payment_method_slug),
       subtotal        = excluded.subtotal,
       discount_amount = excluded.discount_amount,
       discount_pr     = excluded.discount_pr,
@@ -1520,6 +1649,203 @@ export async function reconcileOrderFromServer(
     lines: written,
   });
   return written;
+}
+
+/**
+ * Fill in the payment method on orders that arrived before the feeds read it.
+ *
+ * The columns were never written by either down-feed, so a till that has been
+ * running a while holds a pile of orders whose method is simply absent — they
+ * print as "Unknown" on the closing report and no amount of fixing the report
+ * recovers them. Nothing local can: there is no tender table, no payment link
+ * and no outbox on these rows. The server is the only copy, and it has one,
+ * because every order this till rang was pushed up with `payment.method_slug`.
+ *
+ * Deliberately NOT reconcileOrderFromServer():
+ *  - that skips terminal orders to protect their status, and a third of these
+ *    are DONE — exactly the closed days a shop reprints a report for;
+ *  - it rewrites the header and lines, which is far more than this needs.
+ * This writes two columns and only where they are empty, so it cannot regress
+ * a status, a total or a line, and re-running it is harmless.
+ */
+export async function backfillPaymentMethods(
+  limit = 200,
+  opts: { auto?: boolean } = {}
+): Promise<{
+  scanned: number;
+  updated: number;
+  unresolved: number;
+  failed: number;
+  splitTender: number;
+  linesAdded: number;
+  notOnServer: number;
+}> {
+  if (!api) throw posError('POS_CFG_API_NOT_READY');
+
+  // If the server has no method to give, an automatic run is one HTTP call per
+  // order, every sync, forever, for nothing. One fruitless automatic pass turns
+  // the automatic half off; the Settings button ignores the flag and clears it
+  // the moment a repair actually lands, so the shop is never stuck with it.
+  if (opts.auto && getMeta('payment.autofix_off') === '1') {
+    return {
+      scanned: 0,
+      updated: 0,
+      unresolved: 0,
+      failed: 0,
+      splitTender: 0,
+      linesAdded: 0,
+      notOnServer: 0,
+    };
+  }
+
+  // Two different holes, one request each. An order can be missing its payment
+  // method, its lines, or both — the seed feed supplies neither — and a single
+  // GET /orders/{id} answers for all of it.
+  const rows = db
+    .prepare(
+      `
+      SELECT o.id, COALESCE(NULLIF(TRIM(o.server_id), ''), o.id) AS remote_id,
+             COALESCE(NULLIF(TRIM(o.payment_method_slug), ''),
+                      NULLIF(TRIM(o.payment_method_id), '')) IS NULL AS needs_method,
+             NOT EXISTS (
+               SELECT 1 FROM order_lines l WHERE l.order_id = o.id
+             ) AS needs_lines
+      FROM orders o
+      WHERE COALESCE(o.grand_total, 0) > 0
+        AND (
+          COALESCE(NULLIF(TRIM(o.payment_method_slug), ''),
+                   NULLIF(TRIM(o.payment_method_id), '')) IS NULL
+          OR NOT EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = o.id)
+        )
+      ORDER BY COALESCE(o.opened_at, 0) DESC
+      LIMIT ?
+    `
+    )
+    .all(limit) as Array<{
+    id: string;
+    remote_id: string;
+    needs_method: number;
+    needs_lines: number;
+  }>;
+
+  // COALESCE on the way in as well as the way out: between the read above and
+  // the write below the cashier may have rung the order up on this till, and
+  // the local answer is the better one.
+  const write = db.prepare(`
+    UPDATE orders
+    SET payment_method_id   = COALESCE(NULLIF(TRIM(payment_method_id), ''), @payment_method_id),
+        payment_method_slug = COALESCE(NULLIF(TRIM(payment_method_slug), ''), @payment_method_slug)
+    WHERE id = @id
+  `);
+
+  let updated = 0;
+  let unresolved = 0;
+  let failed = 0;
+  let splitTender = 0;
+  let linesAdded = 0;
+  // Two very different answers that were reported as one. "The server has no
+  // method for this order" is a data question for the backend; "the server has
+  // never heard of this order" is a local-only row that no repair can ever
+  // reach. Telling the shop the first when it is the second sends them asking
+  // the wrong people.
+  let notOnServer = 0;
+
+  /**
+   * The same call that carries the payment method carries the order's lines,
+   * and we were discarding them.
+   *
+   * The seed feed sends no lines at all (verified against the live API: 0 of
+   * 65 rows), so every order that entered a till that way has a total and
+   * nothing to explain it — which is why "By Item" and "By Category" print
+   * empty for days that plainly had sales. Taking the lines here costs no
+   * extra request.
+   *
+   * Only ever for an order that has NO lines locally. An order rung up on this
+   * till owns its own lines and they are authoritative.
+   */
+  const countLines = db.prepare(
+    'SELECT COUNT(*) FROM order_lines WHERE order_id = ?'
+  );
+
+  for (const row of rows) {
+    let payload: Awaited<ReturnType<typeof fetchOrderFromServer>>;
+    try {
+      payload = await fetchOrderFromServer(row.remote_id);
+    } catch (e: any) {
+      // An order the server has never heard of is not a failure to report and
+      // not worth retrying; anything else is a real fault worth counting.
+      if (e?.code === 'POS_VAL_ORDER_NOT_FOUND') notOnServer++;
+      else failed++;
+      continue;
+    }
+
+    const tenders = countTenders(payload.order ?? {});
+    if (tenders > 1) {
+      splitTender++;
+      noteSplitTender(row.remote_id, tenders);
+    }
+
+    const method = extractPaymentMethod(payload.order ?? {});
+    if (row.needs_method) {
+      if (method.payment_method_id || method.payment_method_slug) {
+        write.run({ ...method, id: row.id });
+        updated++;
+      } else {
+        // The server holds this order but records no method for it.
+        unresolved++;
+      }
+    }
+
+    try {
+      const lines = Array.isArray(payload.lines) ? payload.lines : [];
+      if (lines.length && Number(countLines.pluck().get(row.id) ?? 0) === 0) {
+        const ops = orderSyncOps();
+        const writeLines = db.transaction(() => {
+          for (const l of lines) {
+            ops.upPullLine.run(normPullLine(l, row.id));
+            linesAdded++;
+          }
+        });
+        writeLines();
+      }
+    } catch (e) {
+      // Lines are a bonus on this pass; never let them cost the payment repair.
+      console.error('[sync] backfill could not write lines for', row.id, e);
+    }
+  }
+
+  // Scanned orders but recovered nothing: the server does not return a method
+  // on this endpoint, and no amount of retrying changes that.
+  //
+  // `!failed` matters. A network blip or a 5xx also recovers nothing, and
+  // latching the automatic pass off for that would mean one bad Wi-Fi moment
+  // silently disables the repair until somebody finds the Settings button
+  // months later. Only a clean run that genuinely had nothing to take counts.
+  if (rows.length && !updated && !linesAdded && !failed && !notOnServer) {
+    if (opts.auto) setMeta('payment.autofix_off', '1');
+  } else if (updated || linesAdded) {
+    setMeta('payment.autofix_off', '0');
+  }
+
+  console.log('[sync] payment method backfill', {
+    scanned: rows.length,
+    updated,
+    unresolved,
+    failed,
+    splitTender,
+    linesAdded,
+    notOnServer,
+    auto: !!opts.auto,
+  });
+  return {
+    scanned: rows.length,
+    updated,
+    unresolved,
+    failed,
+    splitTender,
+    linesAdded,
+    notOnServer,
+  };
 }
 
 export async function pullChanges() {

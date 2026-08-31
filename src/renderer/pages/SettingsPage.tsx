@@ -137,6 +137,10 @@ export function SettingsPage() {
   const [logoResult, setLogoResult] = useState<
     { kind: 'success' | 'error'; message: string } | null
   >(null);
+  const [payFixBusy, setPayFixBusy] = useState(false);
+  const [payFixResult, setPayFixResult] = useState<
+    { kind: 'success' | 'error'; message: string } | null
+  >(null);
 
   /* ---------- receipt printer ----------
      A till that prints to the wrong device looks identical to a till that
@@ -231,6 +235,47 @@ export function SettingsPage() {
       });
     } finally {
       setLogoBusy(false);
+    }
+  }, [t]);
+
+  /**
+   * Orders that reached this till before the sync feeds read the payment method
+   * carry none, and print as "Unknown" on the closing report. Nothing local can
+   * recover them — the server holds the only copy — so this asks it, one order
+   * at a time, and writes only the two empty columns.
+   */
+  const backfillPayments = useCallback(async () => {
+    setPayFixBusy(true);
+    setPayFixResult(null);
+    try {
+      const r = (await window.api.invoke('sync:backfillPaymentMethods')) as {
+        scanned: number;
+        updated: number;
+        unresolved: number;
+        splitTender: number;
+        linesAdded: number;
+        notOnServer: number;
+      };
+      const message = t('settings.payFixDone', {
+        updated: r.updated,
+        scanned: r.scanned,
+        unresolved: r.unresolved,
+      });
+      // An order settled with two methods is credited whole to the first one.
+      // Rare enough not to model yet, common enough that nobody should find
+      // out from a wrong total months later.
+      const parts = [message];
+      if (r.notOnServer)
+        parts.push(t('settings.payFixNotOnServer', { count: r.notOnServer }));
+      if (r.linesAdded)
+        parts.push(t('settings.payFixLines', { count: r.linesAdded }));
+      if (r.splitTender)
+        parts.push(t('settings.payFixSplit', { count: r.splitTender }));
+      setPayFixResult({ kind: 'success', message: parts.join(' ') });
+    } catch (e) {
+      setPayFixResult({ kind: 'error', message: errLine(e) });
+    } finally {
+      setPayFixBusy(false);
     }
   }, [t]);
 
@@ -817,6 +862,42 @@ export function SettingsPage() {
                 }`}
               >
                 {logoResult.message}
+              </span>
+            )}
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
+        <CardBody className='gap-3'>
+          <div>
+            <h2 className='text-base font-bold text-foreground'>
+              {t('settings.payFixTitle')}
+            </h2>
+            <p className='mt-0.5 text-sm font-medium text-default-700'>
+              {t('settings.payFixHint')}
+            </p>
+          </div>
+          <div className='flex flex-wrap items-center gap-3'>
+            <Button
+              color='primary'
+              variant='flat'
+              onPress={backfillPayments}
+              isLoading={payFixBusy}
+              startContent={!payFixBusy ? <Download size={18} /> : undefined}
+              className='font-semibold'
+            >
+              {t('settings.payFixRun')}
+            </Button>
+            {payFixResult && (
+              <span
+                className={`text-sm font-semibold ${
+                  payFixResult.kind === 'success'
+                    ? 'text-success'
+                    : 'text-danger'
+                }`}
+              >
+                {payFixResult.message}
               </span>
             )}
           </div>

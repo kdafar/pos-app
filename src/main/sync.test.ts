@@ -13,8 +13,11 @@ vi.mock('electron', () => ({ app: { isPackaged: false, getPath: () => '' } }));
 
 const {
   addonsToCsv,
+  countTenders,
+  extractPaymentMethod,
   isTerminalLocalOrder,
   normalizeAppVersion,
+  normOrderSeed,
   normPullLine,
   normPullOrder,
 } = await import('./sync');
@@ -252,5 +255,175 @@ describe('normalizeAppVersion', () => {
   it('survives an empty or absent version without throwing', () => {
     expect(normalizeAppVersion('')).toBe('');
     expect(normalizeAppVersion(undefined as any)).toBe('');
+  });
+});
+
+/**
+ * Every order this till rings up is pushed with `payment.method_slug` and
+ * `payments[].method`, so the backend holds the method — but neither feed's
+ * normaliser read it on the way back, which is why a live till had 100+ orders
+ * printing as "Unknown" on the closing report. The down-feed key is not
+ * documented, so every plausible shape is accepted.
+ */
+describe('extractPaymentMethod', () => {
+  it('reads the flat columns the local schema uses', () => {
+    expect(
+      extractPaymentMethod({
+        payment_method_id: '1',
+        payment_method_slug: 'cash',
+      })
+    ).toEqual({ payment_method_id: '1', payment_method_slug: 'cash' });
+  });
+
+  it('reads the nested shape the till itself pushes', () => {
+    expect(
+      extractPaymentMethod({ payment: { method_id: 2, method_slug: 'knet' } })
+    ).toEqual({ payment_method_id: '2', payment_method_slug: 'knet' });
+  });
+
+  it('reads a payments[] tender line', () => {
+    expect(
+      extractPaymentMethod({ payments: [{ method: 'cash', amount: 3 }] })
+    ).toEqual({ payment_method_id: null, payment_method_slug: 'cash' });
+  });
+
+  it('reads a payment_method object and a bare payment_method string', () => {
+    expect(
+      extractPaymentMethod({ payment_method: { id: 3, slug: 'online' } })
+    ).toEqual({ payment_method_id: '3', payment_method_slug: 'online' });
+    expect(extractPaymentMethod({ payment_method: 'talabat' })).toEqual({
+      payment_method_id: null,
+      payment_method_slug: 'talabat',
+    });
+  });
+
+  it('returns nulls rather than empty strings when nothing is there', () => {
+    // NULL is what lets the upsert's COALESCE keep the value this till already
+    // knows; '' would overwrite a real method with a blank.
+    for (const payload of [{}, { payment: {} }, { payment_method_slug: '  ' }]) {
+      expect(extractPaymentMethod(payload)).toEqual({
+        payment_method_id: null,
+        payment_method_slug: null,
+      });
+    }
+  });
+
+  it('never stringifies an object into the column', () => {
+    const out = extractPaymentMethod({ payment_method_id: { nested: true } });
+    expect(out.payment_method_id).toBeNull();
+    expect(JSON.stringify(out)).not.toContain('object Object');
+  });
+
+  /**
+   * The exact block SyncController.php returns, verified against branch 7 on
+   * 2026-08-31: paymentPayload() emits {method_id, method_slug, type} on
+   * /bootstrap orders_seed, /pull changes[].data and /orders/{id}, or null.
+   * If the backend ever reshapes this, this test is what says so.
+   */
+  it('reads the block the Laravel backend actually sends', () => {
+    expect(
+      extractPaymentMethod({
+        id: 433,
+        payment_type: 0,
+        payment: { method_id: 1, method_slug: 'cash', type: 0 },
+      })
+    ).toEqual({ payment_method_id: '1', payment_method_slug: 'cash' });
+
+    // A code with no catalogue row comes down as null, and null must leave
+    // whatever this till already knows untouched.
+    expect(extractPaymentMethod({ id: 9, payment: null })).toEqual({
+      payment_method_id: null,
+      payment_method_slug: null,
+    });
+  });
+
+  it('puts the method onto the normalised pull row', () => {
+    const row = normPullOrder({
+      id: '1',
+      number: 'A-1',
+      customer: {},
+      totals: {},
+      payment: { method_slug: 'knet', method_id: 2 },
+    });
+    expect(row.payment_method_slug).toBe('knet');
+    expect(row.payment_method_id).toBe('2');
+  });
+});
+
+/**
+ * The POS credits a whole order to one method. That is right if a sale is
+ * always settled one way and quietly wrong if it is not — 5 cash + the rest on
+ * KNET would post the lot to cash. Nobody could say for certain whether this
+ * shop splits payments, so the till counts them and says so rather than
+ * guessing either way.
+ */
+describe('countTenders', () => {
+  it('counts one method however it was sent', () => {
+    expect(countTenders({ payments: [{ method: 'cash', amount: 5 }] })).toBe(1);
+    // Two lines, one method (a part payment) is still a single method.
+    expect(
+      countTenders({
+        payments: [
+          { method: 'cash', amount: 5 },
+          { method: 'cash', amount: 2 },
+        ],
+      })
+    ).toBe(1);
+  });
+
+  it('spots a genuine split', () => {
+    expect(
+      countTenders({
+        payments: [
+          { method: 'cash', amount: 5 },
+          { method: 'knet', amount: 7.5 },
+        ],
+      })
+    ).toBe(2);
+  });
+
+  it('is unbothered by an absent or malformed payments array', () => {
+    for (const payload of [
+      {},
+      { payments: null },
+      { payments: [] },
+      { payments: [{}, { amount: 3 }] },
+      { payment: { method_slug: 'cash' } },
+    ]) {
+      expect(countTenders(payload)).toBe(0);
+    }
+  });
+
+  it('ignores case and padding, which two feeds disagree on', () => {
+    expect(
+      countTenders({
+        payments: [{ method: 'Cash' }, { method: ' cash ' }],
+      })
+    ).toBe(1);
+  });
+});
+
+/**
+ * The seed feed is how most server orders enter a till. It has always sent
+ * branch_id and the normaliser never read it, so every seeded order landed
+ * branch-less — and the closing report, which deliberately keeps branch-less
+ * rows, counted another branch's orders into this branch's takings.
+ */
+describe('normOrderSeed', () => {
+  it('keeps the branch the order belongs to', () => {
+    const row = normOrderSeed({
+      id: '433',
+      number: 'POS-1-ABC',
+      branch_id: 1,
+      grand_total: 12.5,
+      payment: { method_id: 1, method_slug: 'cash', type: 0 },
+    });
+
+    expect(row.branch_id).toBe(1);
+    expect(row.payment_method_slug).toBe('cash');
+  });
+
+  it('leaves branch_id null when the server omits it, so nothing is invented', () => {
+    expect(normOrderSeed({ id: '1', number: 'A' }).branch_id).toBeNull();
   });
 });

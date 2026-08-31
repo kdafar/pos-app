@@ -1246,6 +1246,43 @@ export const ERROR_CATALOG = {
       body: 'لا توجد طابعة مثبتة على هذا الجهاز. أضف طابعة من إعدادات ويندوز ثم حاول مرة أخرى.',
     },
   },
+  /**
+   * Only the closing report raises this. A receipt falls back to the Windows
+   * default when the configured printer has gone, because a till that cannot
+   * print a receipt cannot trade — but a closing report quietly rendered on
+   * the office A4 or swallowed by a PDF writer is a report the shop thinks it
+   * has and does not.
+   */
+  POS_PRINT_PRINTER_MISSING: {
+    severity: 'toast',
+    retry: true,
+    where: 'reports:printThermal',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Receipt printer not found',
+      body: 'The configured printer "{printer}" is not connected to this computer. Check it is switched on, or pick another one in Settings > Printing.',
+    },
+    ar: {
+      title: 'الطابعة الحرارية غير موجودة',
+      body: 'الطابعة المحددة "{printer}" غير متصلة بهذا الجهاز. تأكد من تشغيلها أو اختر طابعة أخرى من الإعدادات ← الطباعة.',
+    },
+  },
+  POS_PRINT_PRINTER_NOT_SET: {
+    severity: 'toast',
+    retry: false,
+    where: 'reports:printThermal',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'No receipt printer chosen',
+      body: 'This till has no receipt printer selected, so the report cannot be sent to one. Choose it in Settings > Printing.',
+    },
+    ar: {
+      title: 'لم يتم اختيار طابعة',
+      body: 'لا توجد طابعة إيصالات محددة على هذا الجهاز لإرسال التقرير إليها. اخترها من الإعدادات ← الطباعة.',
+    },
+  },
   POS_PRINT_ORDER_NOT_LOCAL: {
     severity: 'toast',
     retry: false,

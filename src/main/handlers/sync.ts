@@ -25,6 +25,7 @@ import { safePushStatus } from '../utils/serverStatus';
 import { loadSecret } from '../secureStore';
 import { readOrCreateMachineId } from '../machineId';
 import {
+  backfillPaymentMethods,
   bootstrap,
   configureApi,
   pairDevice,
@@ -785,6 +786,16 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     }
 
     setMeta('sync.last_at', String(Date.now()));
+
+    // Orders that reached this till before the feeds read the payment method
+    // print as "Unknown" on the closing report. Top up a few after every sync
+    // so the till heals itself instead of waiting for someone to notice and
+    // press a button. Fire-and-forget on purpose: this is a repair, and a
+    // repair must never be the reason a sync reports failure.
+    backfillPaymentMethods(25, { auto: true }).catch((err) =>
+      console.error('[Sync] payment backfill after sync failed', err)
+    );
+
     console.log(`[Sync] Manual sync:run complete. Pushed: ${pushedCount}`);
 
     return { ok: true, pulled: true, pushed: pushedCount, failed: pushFailed };
@@ -870,6 +881,45 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     const result = await pushOutbox(envelope, { orders: [payload] });
     const applied = applyPushResult(result);
     return { ok: applied.acked > 0, pushed: applied.acked, ...applied };
+  });
+
+  /**
+   * Repairs orders that reached this till before the feeds read the payment
+   * method. Manual rather than automatic: it is one HTTP call per order, and
+   * the shop should choose when to spend that — after close, not mid-service.
+   */
+  /**
+   * Make sure the shared axios client exists before a handler uses it.
+   *
+   * sync:run configures it as a side effect of running a sync, so anything the
+   * cashier can press *before* a sync — the repair button — would otherwise
+   * fail with POS_CFG_API_NOT_READY and read as a network fault.
+   */
+  const ensureApiConfigured = async () => {
+    const base = getMeta('server.base_url') || '';
+    const device_id =
+      getMeta('device_id') ||
+      store.get('device_id') ||
+      store.get('server.device_id') ||
+      '';
+    const branch_id = Number(getMeta('branch_id') || 0);
+    const token = await loadSecret('device_token');
+    if (!base || !device_id || !token) throw posError('POS_CFG_API_NOT_READY');
+    configureApi(base, { id: String(device_id), branch_id }, token);
+  };
+
+  ipcMain.handle('sync:backfillPaymentMethods', async (_e, limit = 200) => {
+    if ((getMeta('pos.mode') || 'live') !== 'live')
+      throw posError('POS_NET_OFFLINE');
+    // The axios client is built by configureApi() during sync or login, so a
+    // freshly started till that has not synced yet has none — and the button
+    // failed with "still connecting" while the network was perfectly fine.
+    // Build it here from the same stored credentials sync:run uses.
+    await ensureApiConfigured();
+    const capped = Math.max(1, Math.min(Number(limit) || 200, 1000));
+    // No `auto` flag: pressing the button is an explicit request and ignores
+    // the automatic pass's back-off.
+    return backfillPaymentMethods(capped);
   });
 
   ipcMain.handle('sync:flushOrders', async (_e, limit = 20) => {

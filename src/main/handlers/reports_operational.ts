@@ -380,6 +380,46 @@ export function rowMoney(r: any): {
   return { gross, discount, delivery, net };
 }
 
+/**
+ * The SQL form of "this row is a sale", for aggregates that group in the
+ * database instead of walking the classified rows.
+ *
+ * The payment breakdown used to filter on `grand_total > 0` alone, so an open
+ * ticket or a cancelled order still carrying a total sat inside the breakdown
+ * while the footer excluded it from the net — the two never reconciled, and
+ * the difference looked like a payment-method fault.
+ *
+ * Built from the same NOT_YET_SOLD and CANCELLED_SERVER_CODES that
+ * isSold()/isCancelled() use, so the two cannot drift apart.
+ */
+export function soldFilterSql(
+  alias: string,
+  caps: { statusCode?: boolean; isCancelled?: boolean } = {}
+): string {
+  const status = `LOWER(TRIM(COALESCE(${alias}.status, '')))`;
+  const notYetSold = [...NOT_YET_SOLD]
+    .map((v) => `'${v.replace(/'/g, "''")}'`)
+    .join(', ');
+  return `
+          AND COALESCE(${alias}.grand_total, 0) > 0
+          AND ${status} NOT IN (${notYetSold})
+          AND ${status} NOT LIKE 'cancel%'
+          AND ${status} NOT LIKE 'reject%'
+          ${
+            caps.statusCode
+              ? `AND COALESCE(${alias}.status_code, -1) NOT IN (${[
+                  ...CANCELLED_SERVER_CODES,
+                ].join(', ')})`
+              : ''
+          }
+          ${
+            caps.isCancelled
+              ? `AND COALESCE(${alias}.is_cancelled, 0) = 0`
+              : ''
+          }
+        `;
+}
+
 function insideOperational(tsMs: number): boolean {
   const d = new Date(tsMs);
   const d0 = new Date(d);
@@ -487,6 +527,20 @@ export function registerOperationalReportHandlers(services: MainServices) {
       const andBranch =
         hasBranch && branchId
           ? ' AND (o.branch_id = @branch_id OR o.branch_id IS NULL) '
+          : '';
+
+      /**
+       * The same rule, for the aggregates that group in SQL under their own
+       * alias. They each used a strict `branch_id = @branch_id`, which quietly
+       * excluded every branch-less row the footer above counts — orders seeded
+       * from the server for phone lookup carry no branch_id, and so do older
+       * local rows. On a till holding 103 such orders the table showed them and
+       * every tab reported nothing, which reads as "the report is broken"
+       * rather than "these two disagree about what a branch is".
+       */
+      const branchFilter = (alias: string) =>
+        hasBranch && branchId
+          ? ` AND (${alias}.branch_id = @branch_id OR ${alias}.branch_id IS NULL) `
           : '';
 
       // Prefer the server's running number (0057) over the local key
@@ -675,13 +729,34 @@ export function registerOperationalReportHandlers(services: MainServices) {
         }
       }
 
+      // Bound once: the capability checks read the live schema, the filter
+      // itself is pure.
+      const soldFilter = (alias: string) =>
+        soldFilterSql(alias, {
+          statusCode: tableHasColumn('orders', 'status_code'),
+          isCancelled: tableHasColumn('orders', 'is_cancelled'),
+        });
+
       // ── 3) Payments aggregate ─────────────────────────
       const payments = (() => {
-        const rows: Array<{ id: string; name: string; total: number }> = [];
+        const rows: Array<{
+          id: string;
+          name: string;
+          count: number;
+          total: number;
+        }> = [];
 
         const hasPmTable = tableExists('payment_methods');
         const hasSlugCol = tableHasColumn('orders', 'payment_method_slug');
         const hasIdCol = tableHasColumn('orders', 'payment_method_id');
+        // The pull feed has always carried `payment_type` — the backend's
+        // legacy numeric code — even on orders that reach the till with no
+        // slug and no id. `payment_methods.legacy_code` is the other half of
+        // that map, and nothing here ever joined the two, so those orders
+        // printed as "Unknown" while the till held enough to name them.
+        const hasTypeCol =
+          tableHasColumn('orders', 'payment_type') &&
+          tableHasColumn('payment_methods', 'legacy_code');
 
         const run = (sql: string) => {
           const result = db
@@ -689,12 +764,14 @@ export function registerOperationalReportHandlers(services: MainServices) {
             .all({ fromMs, toMs, branch_id: branchId }) as Array<{
             id: string;
             name: string;
+            count: number;
             total: number;
           }>;
           for (const r of result) {
             rows.push({
               id: String(r.id ?? ''),
               name: String(r.name ?? 'Unknown'),
+              count: Number(r.count ?? 0),
               total: Number(r.total ?? 0),
             });
           }
@@ -703,62 +780,79 @@ export function registerOperationalReportHandlers(services: MainServices) {
 
         let used = 0;
 
-        if (hasSlugCol) {
-          const hasSlugData = !!db
-            .prepare(
-              `
-            SELECT 1
-            FROM orders
-            WHERE payment_method_slug IS NOT NULL
-              AND payment_method_slug != ''
-              AND COALESCE(grand_total,0) > 0
-            LIMIT 1
-          `
-            )
-            .get();
-
-          if (hasSlugData) {
-            used = run(`
-              SELECT
-                COALESCE(pm.slug, s.payment_method_slug, 'unknown') AS id,
-                COALESCE(pm.name_en, pm.name_ar, pm.slug, s.payment_method_slug, 'Unknown') AS name,
-                ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
-              FROM orders s
-              ${
-                hasPmTable
-                  ? 'LEFT JOIN payment_methods pm ON pm.slug = s.payment_method_slug'
+        if (hasSlugCol || hasIdCol || hasTypeCol) {
+          // Old/local orders are not uniform: some store a slug, some only an
+          // ID, and a shift can contain both. The previous code picked the
+          // slug query when *any order in the whole database* had a slug. A
+          // current shift containing ID-only orders then collapsed into one
+          // "Unknown" row. Resolve both representations per order instead.
+          const slug = hasSlugCol
+            ? "NULLIF(TRIM(CAST(s.payment_method_slug AS TEXT)), '')"
+            : 'NULL';
+          const methodId = hasIdCol
+            ? "NULLIF(TRIM(CAST(s.payment_method_id AS TEXT)), '')"
+            : 'NULL';
+          const joins = hasPmTable
+            ? `${
+                hasSlugCol
+                  ? 'LEFT JOIN payment_methods pm_slug ON pm_slug.slug = s.payment_method_slug'
                   : ''
               }
-              WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(
-              tsCol,
-              's'
-            )} < @toMs
-                ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
-                AND COALESCE(s.grand_total,0) > 0
-              GROUP BY 1, 2
-              ORDER BY total DESC
-            `);
-          }
-        }
+               ${
+                 hasIdCol
+                   ? 'LEFT JOIN payment_methods pm_id ON CAST(pm_id.id AS TEXT) = CAST(s.payment_method_id AS TEXT)'
+                   : ''
+               }
+               ${
+                 hasTypeCol
+                   ? // Pinned to one row on purpose. `id` and `slug` are unique
+                     // so those two joins cannot fan out, but `legacy_code` has
+                     // no constraint and is written verbatim from the server
+                     // feed — two methods sharing a code would duplicate every
+                     // matching order and inflate both COUNT(*) and SUM(),
+                     // breaking the very reconciliation this filter restored.
+                     "LEFT JOIN payment_methods pm_type ON CAST(pm_type.legacy_code AS TEXT) = CAST(s.payment_type AS TEXT) AND NULLIF(TRIM(CAST(s.payment_type AS TEXT)), '') IS NOT NULL AND pm_type.id = (SELECT MIN(p2.id) FROM payment_methods p2 WHERE CAST(p2.legacy_code AS TEXT) = CAST(s.payment_type AS TEXT))"
+                   : ''
+               }`
+            : '';
+          // Order matters: what the order itself says beats what its legacy
+          // type code implies, and both beat the raw column value.
+          const resolvedId = `COALESCE(${
+            hasPmTable && hasSlugCol ? 'pm_slug.slug,' : ''
+          }${hasPmTable && hasIdCol ? 'pm_id.slug,' : ''}${
+            hasPmTable && hasTypeCol ? 'pm_type.slug,' : ''
+          }${slug}, ${methodId}, 'unknown')`;
+          const resolvedName = `COALESCE(${
+            hasPmTable && hasSlugCol
+              ? 'pm_slug.name_en, pm_slug.name_ar, pm_slug.slug,'
+              : ''
+          }${
+            hasPmTable && hasIdCol
+              ? 'pm_id.name_en, pm_id.name_ar, pm_id.slug,'
+              : ''
+          }${
+            hasPmTable && hasTypeCol
+              ? 'pm_type.name_en, pm_type.name_ar, pm_type.slug,'
+              : ''
+          }${slug}, ${methodId}, 'Unknown')`;
 
-        if (!used && hasIdCol) {
           used = run(`
             SELECT
-              CAST(COALESCE(s.payment_method_id, 0) AS TEXT) AS id,
-              COALESCE(pm.name_en, pm.name_ar, pm.slug, CAST(s.payment_method_id AS TEXT), 'Unknown') AS name,
+              ${resolvedId} AS id,
+              ${resolvedName} AS name,
+              -- The table's "Count Sold" column reads sold, then count.
+              -- Payments returned neither, so every method printed a count of
+              -- 0 next to a real total.
+              COUNT(*) AS count,
               ROUND(SUM(COALESCE(s.grand_total,0)), 3) AS total
             FROM orders s
-            ${
-              hasPmTable
-                ? 'LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id'
-                : ''
-            }
+            ${joins}
             WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(
-            tsCol,
-            's'
+              tsCol,
+              's'
           )} < @toMs
-              ${hasBranch && branchId ? ' AND s.branch_id = @branch_id ' : ''}
-              AND COALESCE(s.grand_total,0) > 0
+              ${branchFilter('s')}
+              ${soldFilter('s')}
             GROUP BY 1, 2
             ORDER BY total DESC
           `);
@@ -777,6 +871,7 @@ export function registerOperationalReportHandlers(services: MainServices) {
                 `
                 SELECT
                   CAST(COALESCE(p.payment_method_id, 0) AS TEXT) AS id,
+                  COUNT(*) AS count,
                   ROUND(SUM(COALESCE(p.amount,0)), 3) AS total
                 FROM ${payTbl} p
                 JOIN orders o ON o.id = p.order_id
@@ -784,17 +879,15 @@ export function registerOperationalReportHandlers(services: MainServices) {
                   tsCol,
                   'o'
                 )} < @toMs
-                  ${
-                    hasBranch && branchId
-                      ? ' AND o.branch_id = @branch_id '
-                      : ''
-                  }
+                  ${branchFilter('o')}
+                  ${soldFilter('o')}
                 GROUP BY ${hasPmOnPay ? 'p.payment_method_id' : '1'}
                 ORDER BY total DESC
               `
               )
               .all({ fromMs, toMs, branch_id: branchId }) as Array<{
               id: string;
+              count: number;
               total: number;
             }>;
 
@@ -814,6 +907,7 @@ export function registerOperationalReportHandlers(services: MainServices) {
               rows.push({
                 id: String(r.id ?? ''),
                 name,
+                count: Number(r.count ?? 0),
                 total: Number(r.total ?? 0),
               });
             }
@@ -844,7 +938,7 @@ export function registerOperationalReportHandlers(services: MainServices) {
           FROM orders o
           WHERE ${tsMs} >= @fromMs AND ${tsMs} < @toMs
             ${andBranch}
-            AND COALESCE(o.grand_total, 0) > 0
+            ${soldFilter('o')}
           GROUP BY o.order_type
           ORDER BY total DESC, count DESC
         `
@@ -880,21 +974,27 @@ export function registerOperationalReportHandlers(services: MainServices) {
         }
 
         const hasCats = tableExists('categories');
+        // Hoisted: the SELECT below needs to know whether an Arabic column
+        // exists, and it is built outside this block.
+        const hasCatNameEn = hasCats && tableHasColumn('categories', 'name_en');
+        const hasCatNameAr = hasCats && tableHasColumn('categories', 'name_ar');
+        const hasCatName = hasCats && tableHasColumn('categories', 'name');
 
         let joinCat = '';
         let catNameExpr = `CAST(it.category_id AS TEXT)`; // fallback
 
         if (hasCats) {
-          const hasCatNameEn = tableHasColumn('categories', 'name_en');
-          const hasCatNameAr = tableHasColumn('categories', 'name_ar');
-          const hasCatName = tableHasColumn('categories', 'name');
-
           joinCat = 'LEFT JOIN categories c ON c.id = it.category_id';
 
+          // English (or the base name) first. Listing name_ar ahead of name
+          // meant an English till printed every category in Arabic — the
+          // `categories` table has no name_en at all, so that branch always
+          // won. Arabic is returned in its own column instead, and the table
+          // picks the language.
           const parts: string[] = [];
           if (hasCatNameEn) parts.push('c.name_en');
-          if (hasCatNameAr) parts.push('c.name_ar');
           if (hasCatName) parts.push('c.name');
+          if (hasCatNameAr) parts.push('c.name_ar');
 
           if (parts.length > 0) {
             catNameExpr = `COALESCE(${parts.join(', ')}, 'Uncategorized')`;
@@ -903,9 +1003,14 @@ export function registerOperationalReportHandlers(services: MainServices) {
           }
         }
 
+        // LEFT JOIN for the same reason as the item tab: a line whose item is
+        // gone from the catalogue still sold something, and dropping it hides
+        // real revenue. Such lines land in one honest "Uncategorized" bucket
+        // rather than disappearing.
         const sql = `
           SELECT
-            ${catNameExpr} AS item,
+            COALESCE(${catNameExpr}, 'Uncategorized') AS item,
+            ${hasCats && hasCatNameAr ? "NULLIF(TRIM(c.name_ar), '')" : 'NULL'} AS name_ar,
             SUM(COALESCE(l.qty, 0)) AS sold,
             ROUND(
               SUM(
@@ -918,13 +1023,13 @@ export function registerOperationalReportHandlers(services: MainServices) {
             ) AS total
           FROM ${linesTable} l
           JOIN orders o ON o.id = l.order_id
-          JOIN ${itemTbl} it ON it.id = l.item_id
+          LEFT JOIN ${itemTbl} it ON it.id = l.item_id
           ${joinCat}
           WHERE ${msExpr(tsCol, 'o')} >= @fromMs
             AND ${msExpr(tsCol, 'o')} < @toMs
-            ${hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : ''}
-            AND COALESCE(o.grand_total, 0) > 0
-          GROUP BY item
+            ${branchFilter('o')}
+            ${soldFilter('o')}
+          GROUP BY 1, 2
           ORDER BY total DESC, sold DESC
           LIMIT 50
         `;
@@ -933,6 +1038,7 @@ export function registerOperationalReportHandlers(services: MainServices) {
           .prepare(sql)
           .all({ fromMs, toMs, branch_id: branchId }) as Array<{
           item: string;
+          name_ar: string | null;
           sold: number;
           total: number;
         }>;
@@ -946,22 +1052,40 @@ export function registerOperationalReportHandlers(services: MainServices) {
           return [] as Array<{ item: string; sold: number; total: number }>;
         }
 
-        const hasNameEn = tableHasColumn(itemTbl, 'name_en');
         const hasNameAr = tableHasColumn(itemTbl, 'name_ar');
-        const hasName = tableHasColumn(itemTbl, 'name');
+        const lineHasNameAr = tableHasColumn(linesTable, 'name_ar');
 
-        let itemNameExpr: string;
-        if (hasNameEn || hasNameAr) {
-          itemNameExpr = `COALESCE(it.name_ar, it.name, 'Unknown Item')`;
-        } else if (hasName) {
-          itemNameExpr = `COALESCE(it.name, 'Unknown Item')`;
-        } else {
-          itemNameExpr = `CAST(it.id AS TEXT)`;
-        }
+        /**
+         * The line carries the name it was sold under; the catalogue carries
+         * today's name. Prefer the catalogue, fall back to the line.
+         *
+         * That fallback is the point. This was an INNER JOIN onto items, so a
+         * line whose item has since been deleted or re-keyed vanished from the
+         * tab entirely — 23 of 66 lines and 110.500 of revenue on the till this
+         * was found on. The money was in the footer and nowhere in the
+         * breakdown, which is the worst way for a report to be wrong.
+         */
+        const itemNameExpr = `COALESCE(NULLIF(TRIM(it.name), ''), NULLIF(TRIM(l.name), ''), 'Unknown Item')`;
+        // Arabic goes in its own column. It used to be returned AS item, so an
+        // English till listed every product in Arabic — the renderer picks the
+        // language, and it can only do that if both names arrive.
+        const arabicExpr = [
+          hasNameAr ? "NULLIF(TRIM(it.name_ar), '')" : null,
+          lineHasNameAr ? "NULLIF(TRIM(l.name_ar), '')" : null,
+        ].filter(Boolean);
 
         const sql = `
           SELECT
             ${itemNameExpr} AS item,
+            ${
+              // COALESCE(x) with a single argument does not parse in SQLite and
+              // would throw the whole report at prepare time — on exactly the
+              // schema this guard exists to serve, where only one of the two
+              // name_ar columns is present.
+              arabicExpr.length > 1
+                ? `COALESCE(${arabicExpr.join(', ')})`
+                : arabicExpr[0] ?? 'NULL'
+            } AS name_ar,
             SUM(COALESCE(l.qty, 0)) AS sold,
             ROUND(
               SUM(
@@ -974,12 +1098,15 @@ export function registerOperationalReportHandlers(services: MainServices) {
             ) AS total
           FROM ${linesTable} l
           JOIN orders o ON o.id = l.order_id
-          JOIN ${itemTbl} it ON it.id = l.item_id
+          LEFT JOIN ${itemTbl} it ON it.id = l.item_id
           WHERE ${msExpr(tsCol, 'o')} >= @fromMs
             AND ${msExpr(tsCol, 'o')} < @toMs
-            ${hasBranch && branchId ? ' AND o.branch_id = @branch_id ' : ''}
-            AND COALESCE(o.grand_total, 0) > 0
-          GROUP BY item
+            ${branchFilter('o')}
+            ${soldFilter('o')}
+          -- By ordinal, not by alias: name_ar is a real column on both
+          -- order_lines and items, so grouping by the name resolves to the
+          -- source column and SQLite rejects the query as ambiguous.
+          GROUP BY 1, 2
           ORDER BY total DESC, sold DESC
           LIMIT 100
         `;
@@ -988,6 +1115,7 @@ export function registerOperationalReportHandlers(services: MainServices) {
           .prepare(sql)
           .all({ fromMs, toMs, branch_id: branchId }) as Array<{
           item: string;
+          name_ar: string | null;
           sold: number;
           total: number;
         }>;

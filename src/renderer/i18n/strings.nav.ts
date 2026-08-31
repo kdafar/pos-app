@@ -115,6 +115,38 @@ export const navStrings = {
     ar: 'تم تنزيل الشعار وهو جاهز للفواتير.',
   },
 
+  /* ---------- payment method repair ----------
+     Orders that reached this till before the sync feeds read the payment
+     method carry none, and print as "Unknown" on the closing report. */
+  'settings.payFixTitle': {
+    en: 'Repair incomplete orders',
+    ar: 'إصلاح الطلبات الناقصة',
+  },
+  'settings.payFixHint': {
+    en: 'Orders that arrived from the server can be missing their payment method or their items, which makes the closing report show "Unknown" and leaves the By Item and By Category tabs empty. This asks the server for what is missing on those orders only. Safe to run at any time, and safe to run again.',
+    ar: 'قد تصل الطلبات من الخادم بدون طريقة دفع أو بدون أصنافها، فيظهر تقرير الإغلاق "غير معروف" ويبقى تبويبا حسب الصنف وحسب الفئة فارغين. يطلب هذا الإجراء الناقص من الخادم لتلك الطلبات فقط. آمن في أي وقت ويمكن تكراره.',
+  },
+  'settings.payFixRun': {
+    en: 'Repair from server',
+    ar: 'إصلاح من الخادم',
+  },
+  'settings.payFixLines': {
+    en: 'Also recovered {count} order lines, so the By Item and By Category tabs can show them.',
+    ar: 'تم أيضاً استرجاع {count} صنفاً في الطلبات لتظهر في تبويبي حسب الصنف وحسب الفئة.',
+  },
+  'settings.payFixSplit': {
+    en: '{count} were paid with more than one method — the report credits the whole total to the first. Tell your developer if this is common.',
+    ar: '{count} تم دفعها بأكثر من طريقة — يحتسب التقرير المبلغ كاملاً للطريقة الأولى. أبلغ المطور إذا كان هذا شائعاً.',
+  },
+  'settings.payFixDone': {
+    en: 'Repaired {updated} of {scanned} orders. {unresolved} are on the server but have no payment method recorded.',
+    ar: 'تم إصلاح {updated} من {scanned} طلبًا. {unresolved} موجودة على الخادم بدون طريقة دفع مسجلة.',
+  },
+  'settings.payFixNotOnServer': {
+    en: '{count} exist only on this device, so there is nothing to fetch for them.',
+    ar: '{count} موجودة على هذا الجهاز فقط، فلا يوجد ما يمكن جلبه لها.',
+  },
+
   /* ---------- receipt printer ----------
      Which printer a till prints to is per-device: it is stored locally and
      never synced, because two branches on one account have different hardware
