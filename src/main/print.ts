@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain, app, dialog } from 'electron';
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -1168,6 +1169,48 @@ function renderReceiptHTML(opts: {
 // ---- printer configuration ------------------------------------------------
 
 /**
+ * Which printer Windows considers the default.
+ *
+ * Electron 36 removed `isDefault` (and `status`) from `PrinterInfo`, and
+ * nothing replaced them — on Electron 43 every entry comes back as just
+ * `{ name, displayName, description, options: {} }` with `options` empty. The
+ * settings dropdown marks the default with a star precisely so the person
+ * choosing can see where receipts have been going all along, which is the
+ * fault this screen exists to expose. Losing the star silently would take that
+ * away without anyone noticing, so it is read from Windows instead.
+ *
+ * Best effort by design: any failure returns null and the list simply carries
+ * no star. A settings screen that refused to open because a WMI query timed
+ * out would be a worse bug than a missing marker.
+ */
+async function getWindowsDefaultPrinterName(): Promise<string | null> {
+  if (process.platform !== 'win32') return null;
+  return new Promise((resolve) => {
+    execFile(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "(Get-CimInstance -ClassName Win32_Printer -Filter 'Default = TRUE').Name",
+      ],
+      { timeout: 5_000, windowsHide: true },
+      (err, stdout) => {
+        if (err) {
+          console.warn(
+            '[print] could not read the Windows default printer:',
+            (err as Error)?.message
+          );
+          resolve(null);
+          return;
+        }
+        resolve(String(stdout || '').trim() || null);
+      }
+    );
+  });
+}
+
+/**
  * Which printer a till uses is a property of that till, not of the operator's
  * account — two branches sharing one server have different hardware, and the
  * back office cannot know either. So it lives in `meta` (local, never synced)
@@ -1510,11 +1553,13 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
       BrowserWindow.getAllWindows()[0];
     if (!win) return [];
     const printers = await win.webContents.getPrintersAsync();
+    // `status` used to be forwarded here and nothing ever read it, so it is not
+    // replaced — see getWindowsDefaultPrinterName for why `isDefault` is.
+    const defaultName = await getWindowsDefaultPrinterName();
     return printers.map((p) => ({
       name: p.name,
       displayName: p.displayName || p.name,
-      isDefault: !!p.isDefault,
-      status: p.status,
+      isDefault: !!defaultName && p.name === defaultName,
     }));
   };
 
