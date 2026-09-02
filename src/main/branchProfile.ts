@@ -27,6 +27,14 @@ export type BranchProfile = {
   duty_time_to: string | null;
   invoice_note: string;
   invoice_note_ar: string;
+  /**
+   * Whether this branch prints cash received / change under the grand total.
+   *
+   * Off on every branch until a manager ticks the box, and a till that has not
+   * seen the field yet reads it as off — so the upgrade changes nothing for
+   * anyone until the back office says so.
+   */
+  show_change_on_receipt: boolean;
   updated_at: string;
 };
 
@@ -42,6 +50,18 @@ export const BRANCH_PROFILE_META_KEY = 'branch.profile';
 function str(v: unknown): string {
   if (v === null || v === undefined) return '';
   return String(v).trim();
+}
+
+/**
+ * A switch the server may send as a real boolean, as 0/1, or as the strings
+ * MySQL drivers produce for a tinyint. Anything else — absent included — is
+ * off: the only safe default for a flag that changes what a receipt prints.
+ */
+function bool(v: unknown): boolean {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v === 1;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true';
 }
 
 function nullableTime(v: unknown): string | null {
@@ -67,6 +87,7 @@ export function normalizeBranchProfile(raw: any): BranchProfile | null {
     duty_time_to: nullableTime(raw.duty_time_to),
     invoice_note: str(raw.invoice_note),
     invoice_note_ar: str(raw.invoice_note_ar),
+    show_change_on_receipt: bool(raw.show_change_on_receipt),
     updated_at: str(raw.updated_at),
   };
 }

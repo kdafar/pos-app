@@ -138,6 +138,25 @@ export const cartStrings = {
     en: 'Please select a payment method.',
     ar: 'الرجاء اختيار طريقة الدفع.',
   },
+  /* ---------- cash received / change (branch.show_change_on_receipt) ---------- */
+  'checkout.cashReceived': {
+    en: 'Cash received',
+    ar: 'المبلغ المدفوع',
+  },
+  'checkout.change': { en: 'Change', ar: 'الباقي' },
+  'checkout.rounding': { en: 'Rounding', ar: 'التقريب' },
+  // Shown under the field when the cashier types less than the bill. Not an
+  // error: the sale is fine, the tender simply is not recorded.
+  'checkout.cashShort': {
+    en: 'Less than the total — will not be printed',
+    ar: 'أقل من الإجمالي — لن يتم طباعته',
+  },
+  // Kuwait has no 1 or 2 fils coin, so a tender must land on 5 fils.
+  'checkout.cashNotCoin': {
+    en: 'Round to the nearest 5 fils',
+    ar: 'يجب أن يكون من مضاعفات 5 فلوس',
+  },
+  'checkout.cashExact': { en: 'Exact', ar: 'المبلغ بالضبط' },
   'checkout.payLinkNoUrl': {
     en: 'Payment link created but no URL returned from server',
     ar: 'تم إنشاء رابط الدفع لكن لم يصل أي رابط من الخادم',

@@ -28,6 +28,12 @@ import {
   WALK_IN_CUSTOMER_NAME,
 } from '../../../../shared/walkInCustomer';
 import {
+  computeChangeBlock,
+  isCashPayment,
+  isTenderable,
+  suggestTenders,
+} from '../../../../shared/cashChange';
+import {
   FieldError,
   ValidationSummary,
   fieldRing,
@@ -115,6 +121,19 @@ export function CheckoutModal({
     payment_method_slug: 'cash',
   });
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  /**
+   * Whether this branch asks for the cash received. Off until the back office
+   * ticks the box, and off on a till that has not bootstrapped since the
+   * server started sending the field — so nothing about checkout changes for
+   * a shop that never asked for this.
+   */
+  const [capturesCash, setCapturesCash] = useState(false);
+  /**
+   * Held as the raw string the cashier is typing, not a number. "5." and ""
+   * are both states a half-typed amount passes through, and rounding them to
+   * a number on every keystroke fights the person at the keyboard.
+   */
+  const [cashReceived, setCashReceived] = useState('');
   const [useQuickMode, setUseQuickMode] = useState(false);
   const [customerLookup, setCustomerLookup] = useState<Customer | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -213,6 +232,14 @@ export function CheckoutModal({
     (async () => {
       const methods = await window.api.invoke('payments:listMethods');
       setPaymentMethods(methods || []);
+
+      try {
+        const branch = await window.api.invoke('branch:profile');
+        setCapturesCash(Boolean(branch?.show_change_on_receipt));
+      } catch {
+        // An unreachable profile means the field stays hidden, which is the
+        // pre-existing checkout. Never block the sale over a receipt option.
+      }
       if (methods?.length) {
         setFormData((p) => ({
           ...p,
@@ -311,6 +338,66 @@ export function CheckoutModal({
     const grand = Math.max(0, subtotal - discount + delivery);
     return { subtotal, discount, delivery, grand_total: grand };
   };
+
+  /**
+   * The cash field shows only for a cash sale at a branch that captures it.
+   * A KNET terminal has already taken the exact amount, so there is no tender
+   * to record and no change to hand back.
+   */
+  const showCashCapture =
+    capturesCash && isCashPayment(formData.payment_method_slug);
+
+  /** What the cashier has typed, as a number — NaN while it is unusable. */
+  const tenderedValue = Number(cashReceived);
+
+  // Only for an amount that could actually be handed over. Previewing change
+  // against 0.507 would contradict the warning shown right under the field.
+  const changePreview = showCashCapture && isTenderable(tenderedValue)
+    ? computeChangeBlock({
+        grandTotal: computeDisplayTotals().grand_total,
+        amountTendered: tenderedValue,
+        paymentSlug: formData.payment_method_slug,
+        enabled: true,
+      })
+    : null;
+
+  /**
+   * Typed something, but less than the bill. Worth saying out loud — it is
+   * almost always a slip of the keypad — but not worth blocking: the sale is
+   * valid, and a short tender is a partial payment, which this is not.
+   */
+  const cashIsShort =
+    showCashCapture &&
+    cashReceived.trim() !== '' &&
+    Number.isFinite(tenderedValue) &&
+    tenderedValue > 0 &&
+    tenderedValue < computeDisplayTotals().grand_total;
+
+  /**
+   * Typed an amount that does not exist in coins — 0.007, say.
+   *
+   * The field used to step in 1 fils, which put 0.001 → 0.002 → 0.003 on the
+   * spinner. Kuwait has no coin below 5 fils, so none of those can be handed
+   * over, and recording one would print change against money nobody received.
+   */
+  const cashIsNotTenderable =
+    showCashCapture &&
+    cashReceived.trim() !== '' &&
+    Number.isFinite(tenderedValue) &&
+    tenderedValue > 0 &&
+    !isTenderable(tenderedValue);
+
+  /** Only a real, covering tender is worth recording. */
+  const cashIsUsable =
+    showCashCapture &&
+    Number.isFinite(tenderedValue) &&
+    isTenderable(tenderedValue) &&
+    tenderedValue >= computeDisplayTotals().grand_total;
+
+  /** The notes a customer plausibly hands over for this bill. */
+  const tenderChoices = showCashCapture
+    ? suggestTenders(computeDisplayTotals().grand_total)
+    : [];
 
   /** Payment slugs that hand the customer a link instead of taking cash here. */
   const isOnlinePayment = (slug?: string | null) =>
@@ -434,6 +521,10 @@ export function CheckoutModal({
         note: formData.note || null,
         payment_method_id: String(formData.payment_method_id ?? ''),
         payment_method_slug: String(formData.payment_method_slug ?? ''),
+        // Only ever sent for a cash sale at a branch that captures it. The
+        // main process re-validates against the recalculated total and drops
+        // anything short, so this is a capture, not a claim.
+        amount_tendered: cashIsUsable ? tenderedValue : null,
         state_id: selectedState?.id ?? null,
         city_id: selectedCity?.id ?? null,
         block_id: selectedBlock?.id ?? null,
@@ -622,7 +713,7 @@ export function CheckoutModal({
 
             <button
               onClick={onClose}
-              className='grid h-9 w-9 place-items-center rounded-lg text-default-600 hover:bg-default-100 hover:text-foreground'
+              className='grid h-9 w-9 place-items-center rounded-lg text-default-700 hover:bg-default-100 hover:text-foreground'
               aria-label={t('common.close')}
             >
               <X size={22} />
@@ -1062,6 +1153,108 @@ export function CheckoutModal({
               </span>
             </div>
             <FieldError issue={issues.codeFor('totals')} />
+
+            {/*
+              Cash received, and the change owed back.
+              Under the total deliberately: the cashier reads the amount to
+              ask for, takes the note, types it, and reads the change back —
+              in the same order on screen as it happens at the counter.
+            */}
+            {showCashCapture && (
+              <div className='pt-2 border-t border-default-200 space-y-1.5'>
+                <label className='flex items-center justify-between gap-2'>
+                  <span className='text-default-700'>
+                    {t('checkout.cashReceived')}
+                  </span>
+                  <input
+                    // Deliberately not type='number'. Its spinner steps
+                    // through amounts nobody hands over — 0.505, 0.510, 0.515
+                    // against a 0.500 bill — which is increment thinking, not
+                    // money. The buttons below are the real control; this is
+                    // for the occasional odd amount, typed straight in.
+                    type='text'
+                    inputMode='decimal'
+                    dir='ltr'
+                    value={cashReceived}
+                    onChange={(e) => {
+                      // Digits and at most one dot, three decimals — the
+                      // shape of a KD amount. Anything else never lands.
+                      const next = e.target.value.replace(/[^\d.]/g, '');
+                      if (/^\d*\.?\d{0,3}$/.test(next)) setCashReceived(next);
+                    }}
+                    placeholder={money(computeDisplayTotals().grand_total)}
+                    className={`w-28 text-end rounded-md border px-2 py-1 money
+                      bg-content1 text-foreground ${
+                        cashIsShort || cashIsNotTenderable
+                          ? 'border-warning'
+                          : 'border-default-300'
+                      }`}
+                  />
+                </label>
+
+                {/*
+                  The real control: what a customer actually hands over for
+                  this bill — the exact money, then the notes above it. One
+                  tap, sized for a finger, because this is a till.
+                */}
+                <div className='flex flex-wrap justify-end gap-1.5'>
+                  {tenderChoices.map((amount, i) => {
+                    const selected =
+                      Number.isFinite(tenderedValue) &&
+                      Math.round(tenderedValue * 1000) ===
+                        Math.round(amount * 1000);
+                    return (
+                      <button
+                        key={amount}
+                        type='button'
+                        onClick={() => setCashReceived(amount.toFixed(3))}
+                        className={`rounded-md border px-3 py-1.5 text-sm font-semibold money
+                          ${
+                            selected
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-default-300 text-foreground hover:bg-default-100'
+                          }`}
+                      >
+                        {i === 0 ? t('checkout.cashExact') : money(amount)}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {cashIsNotTenderable ? (
+                  <div className='text-xs text-warning text-end'>
+                    {t('checkout.cashNotCoin')}
+                  </div>
+                ) : cashIsShort ? (
+                  <div className='text-xs text-warning text-end'>
+                    {t('checkout.cashShort')}
+                  </div>
+                ) : null}
+
+                {/* Only when rounding actually moved the figure — the same
+                    rule the receipt follows, so the screen and the slip show
+                    the same three lines. */}
+                {changePreview && changePreview.rounding !== 0 && (
+                  <Row
+                    label={t('checkout.rounding')}
+                    value={`${changePreview.rounding < 0 ? '-' : ''}${money(
+                      Math.abs(changePreview.rounding)
+                    )}`}
+                    theme={theme}
+                  />
+                )}
+
+                {changePreview && (
+                  <div className='flex justify-between pos-price font-bold text-foreground'>
+                    <span>{t('checkout.change')}</span>
+                    <span className='money text-success'>
+                      {money(changePreview.change)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {order.order_type === 1 && Number(selectedCity?.min_order ?? 0) > 0 && (
               <div
                 className={`text-xs ${

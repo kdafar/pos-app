@@ -8,6 +8,10 @@ import {
   isDeliveryEnabled,
 } from '../services/settings'; // still used for generic settings handlers
 import { fetchOperatorLogo } from '../print';
+import {
+  BRANCH_PROFILE_META_KEY,
+  parseBranchProfile,
+} from '../branchProfile';
 
 // type for the POS user we return to the renderer
 type PosUserInfo = {
@@ -116,6 +120,19 @@ export function registerSettingsHandlers(ipcMain: IpcMain) {
   ipcMain.handle('settings:getAll', async () => getAllSettings()); // alias
 
   ipcMain.handle('settings:fetchLogo', async () => fetchOperatorLogo());
+
+  /**
+   * The branch's own row, as the server last sent it.
+   *
+   * The checkout screen needs one field off it — whether this branch asks the
+   * cashier for the cash received — but the whole profile is returned rather
+   * than a single boolean channel: it is one cached object, and the next
+   * screen that wants the address or the duty hours should not need a second
+   * handler. Null before the first bootstrap.
+   */
+  ipcMain.handle('branch:profile', async () =>
+    parseBranchProfile(getMeta(BRANCH_PROFILE_META_KEY) as string | null)
+  );
 
   ipcMain.handle('meta:list', () => {
     return db.prepare('SELECT key, value FROM meta ORDER BY key').all();

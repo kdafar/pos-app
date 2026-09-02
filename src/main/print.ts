@@ -19,6 +19,7 @@ import {
 } from './branchProfile';
 
 import { registerCashDrawerHandlers, tryOpenCashDrawer } from './cashDrawer';
+import { computeChangeBlock, type ChangeBlock } from '../shared/cashChange';
 
 import { posError } from '../shared/errorCodes';
 import type { MainServices } from './types/common';
@@ -42,6 +43,10 @@ type OrderRow = {
   grand_total?: number | null;
   subtotal?: number | null;
   tax_total?: number | null;
+  /** Cash handed over. Null unless this branch captures it. */
+  amount_tendered?: number | null;
+  /** The server's own rounded figure, for a reprint of a pulled order. */
+  change_due?: number | null;
 
   delivery_date?: string | number | null;
   created_at: string | number | null;
@@ -121,6 +126,8 @@ function getOrder(orderId: string): OrderRow | undefined {
       o.tax_total                  AS tax_total,
       o.grand_total,
       o.subtotal,
+      o.amount_tendered,
+      o.change_due,
 
       o.delivery_date,
       o.created_at,
@@ -746,6 +753,20 @@ function renderReceiptHTML(opts: {
       ? Number(order.grand_total)
       : +(subtotal - discount + deliveryCharge).toFixed(3);
 
+  // ---- cash received / change ----
+  //
+  // Derived from the tender rather than read back from change_due, so the
+  // counter slip and every reprint of it come out of one rule. The server
+  // sends both figures for an order pulled back down, and they agree by
+  // construction — change_due is stored, not printed, so a support question
+  // about a disputed slip can be answered by comparing the two.
+  const changeBlock = computeChangeBlock({
+    grandTotal,
+    amountTendered: order.amount_tendered,
+    paymentSlug: order.payment_method_slug,
+    enabled: branch?.show_change_on_receipt,
+  });
+
   // ---- date / time ----
   // ---- created_at handling (supports ms epoch or "YYYY-MM-DD HH:mm:ss") ----
   let createdAt: Date;
@@ -807,6 +828,40 @@ function renderReceiptHTML(opts: {
   const rtl = lang === 'ar';
   // KD / د.ك — the operator's own settings carry both spellings.
   const cur = rtl ? 'د.ك' : currency || 'KD';
+
+  /**
+   * Cash received, the rounding it forced, and the change handed back — in
+   * that order, directly under the grand total.
+   *
+   * The rounding line prints only when rounding actually moved the figure, so
+   * the three numbers on the slip always add up. It is signed: negative means
+   * the shop rounded up and paid the odd fils out of its own pocket, which is
+   * the case a cashier gets asked about.
+   */
+  const cashRows = (block: ChangeBlock) => {
+    const row = (en: string, ar: string, value: string) => `
+        <tr>
+          <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
+            <strong>${L(lang, en, ar)}</strong>
+          </td>
+          <td style="font-size:15px;font-family:'Open Sans',sans-serif;color:#000;line-height:22px;vertical-align:top;text-align:right;">
+            <strong class="money">${value}</strong>
+          </td>
+        </tr>`;
+
+    const rounding = block.rounding;
+    // Printed as the shop sees it: a negative rounding is money leaving the
+    // drawer, so it carries the minus sign the change line does not.
+    const roundingText = `${rounding < 0 ? '- ' : ''}${cur} ${fmt(
+      Math.abs(rounding)
+    )}`;
+
+    return [
+      row('Cash received', 'المبلغ المدفوع', `${cur} ${fmt(block.tendered)}`),
+      rounding === 0 ? '' : row('Rounding', 'التقريب', roundingText),
+      row('Change', 'الباقي', `${cur} ${fmt(block.change)}`),
+    ].join('');
+  };
 
   return `<!DOCTYPE html>
 <html lang="${lang}" dir="${rtl ? 'rtl' : 'ltr'}">
@@ -1062,6 +1117,7 @@ function renderReceiptHTML(opts: {
             <strong class="money">${cur} ${fmt(grandTotal)}</strong>
           </td>
         </tr>
+        ${changeBlock ? cashRows(changeBlock) : ''}
       </tbody>
     </table>
 

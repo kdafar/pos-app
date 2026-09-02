@@ -7,6 +7,7 @@ import {
   WALK_IN_CUSTOMER_NAME,
 } from '../../shared/walkInCustomer';
 import { isDeliveryEnabled } from '../services/settings';
+import { isCashPayment, tenderForWire } from '../../shared/cashChange';
 
 // ⚙️ Utils
 import { allocUniqueOrderNumber } from '../utils/orderNumbers';
@@ -1667,6 +1668,23 @@ export function registerOrdersHandlers(
         totals.grand_total,
         ts,
       ];
+
+      // Cash received, when the cashier was asked for it.
+      //
+      // Recorded against the recalculated grand total rather than the one the
+      // checkout screen was showing: the recalc above can move the delivery
+      // fee, and a tender validated against a stale total is how you get a
+      // slip whose change line does not match its own bill. tenderForWire
+      // drops anything short — that is a partial payment, not a rounding
+      // question — and drops it silently, because the sale itself is valid.
+      const tendered = isCashPayment(customer.payment_method_slug)
+        ? tenderForWire(customer.amount_tendered, totals.grand_total)
+        : null;
+
+      if (hasColumn('orders', 'amount_tendered')) {
+        cols.push('amount_tendered = ?');
+        params.push(tendered);
+      }
 
       if (hasColumn('orders', 'completed_by_user_id')) {
         cols.push('completed_by_user_id = ?');

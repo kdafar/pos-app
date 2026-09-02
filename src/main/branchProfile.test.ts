@@ -23,6 +23,7 @@ const WIRE = {
   duty_time_to: '23:59',
   invoice_note: 'Kanafa Habiba Amman Company, No. 22274655',
   invoice_note_ar: 'شركة كنافة حبيبة عمان، رقم 22274655',
+  show_change_on_receipt: false,
   updated_at: '2026-08-29T09:44:28.000000Z',
 };
 
@@ -41,7 +42,41 @@ describe('normalizeBranchProfile', () => {
       duty_time_to: '23:59',
       invoice_note: 'Kanafa Habiba Amman Company, No. 22274655',
       invoice_note_ar: 'شركة كنافة حبيبة عمان، رقم 22274655',
+      show_change_on_receipt: false,
       updated_at: '2026-08-29T09:44:28.000000Z',
+    });
+  });
+
+  // The switch that decides whether a receipt gains cash-received and change
+  // lines. Off is the only safe reading of anything that is not plainly on —
+  // including a payload from before the field existed.
+  describe('show_change_on_receipt', () => {
+    const flag = (raw: unknown) =>
+      normalizeBranchProfile({ id: 7, show_change_on_receipt: raw })!
+        .show_change_on_receipt;
+
+    it.each([true, 1, '1', 'true', 'TRUE'])('reads %o as on', (raw) => {
+      expect(flag(raw)).toBe(true);
+    });
+
+    it.each([false, 0, '0', 'false', '', null, undefined, 'maybe', 2])(
+      'reads %o as off',
+      (raw) => {
+        expect(flag(raw)).toBe(false);
+      }
+    );
+
+    it('is off when the field is absent altogether', () => {
+      expect(
+        normalizeBranchProfile({ id: 7 })!.show_change_on_receipt
+      ).toBe(false);
+    });
+
+    it('survives the cache round trip', () => {
+      const on = normalizeBranchProfile({ id: 7, show_change_on_receipt: 1 })!;
+      expect(
+        parseBranchProfile(serializeBranchProfile(on))!.show_change_on_receipt
+      ).toBe(true);
     });
   });
 

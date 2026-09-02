@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import type { MainServices } from './types/common';
 import { getMeta, setMeta } from './db';
 import { assertPermission } from './utils/permissions';
+import { isCashPayment } from '../shared/cashChange';
 
 /**
  * A cash drawer is not a computer peripheral. It has no driver and no port of
@@ -85,18 +86,15 @@ export function getDrawerConfig(): DrawerConfig {
 }
 
 /**
- * Payment method slugs come from the server, so this cannot be an equality
- * check against a fixed list. `cash` is the built-in fallback slug used when
- * no method is chosen (see CheckoutModal), and a chain may well have `cash_kd`
- * or `cash-counter` alongside it.
+ * Whether a sale was settled in cash — the question that decides both whether
+ * the drawer pops and whether the receipt carries a change block.
+ *
+ * Defined in shared/ and re-exported here: the checkout screen needs the same
+ * answer, and it cannot import this module (electron and the SQLite handle
+ * come in at import time). Kept exported from cashDrawer so existing callers
+ * and tests are unaffected.
  */
-export function isCashPayment(slug?: string | null): boolean {
-  const s = String(slug ?? '')
-    .trim()
-    .toLowerCase();
-  if (!s) return false;
-  return /(^|[_-])cash([_-]|$)/.test(s);
-}
+export { isCashPayment };
 
 /**
  * The Windows RAW spool job, via winspool. There is no way to do this from

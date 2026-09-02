@@ -470,6 +470,17 @@ export function migrate() {
     'void_delivery_fee INTEGER DEFAULT 0',
     'void_delivery_fee'
   );
+  // What the customer handed over on a cash sale, and what was handed back.
+  //
+  // Both NULL on the overwhelming majority of orders, and that is the point:
+  // NULL means "nobody recorded a tender", which must print differently from
+  // a recorded 0. No DEFAULT for the same reason.
+  //
+  // change_due is the server's own figure, kept only so a reprint of a pulled
+  // order can show what the original slip said. The till derives change from
+  // amount_tendered when it has it — one rounding rule, applied in one place.
+  ensureColumn('orders', 'amount_tendered REAL', 'amount_tendered');
+  ensureColumn('orders', 'change_due REAL', 'change_due');
   // Set when a cashier types the delivery charge in by hand. Without this we
   // cannot tell a hand-entered fee from one derived from the city, so a recalc
   // either clobbers the cashier's number or freezes a stale city fee forever.
