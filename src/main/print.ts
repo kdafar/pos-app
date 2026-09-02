@@ -1228,6 +1228,7 @@ export function getPrintConfig(): {
   showDialog: boolean;
   paperWidthMm: number;
   paperHeightMm: number;
+  usePrinterDefaultPage: boolean;
 } {
   const printerName = String(
     getMeta('print.printer_name') ?? getSetting('print.printer_name') ?? ''
@@ -1236,11 +1237,21 @@ export function getPrintConfig(): {
     String(
       getMeta('print.show_dialog') ?? getSetting('print.show_dialog') ?? ''
     ).trim() === '1';
+  // Off unless a till has been switched over deliberately. Every existing till
+  // must print on upgrade exactly as it does today; this changes what the
+  // driver is asked for, which is the one thing that must not move by itself.
+  const usePrinterDefaultPage =
+    String(
+      getMeta('print.use_printer_default_page') ??
+        getSetting('print.use_printer_default_page') ??
+        ''
+    ).trim() === '1';
   return {
     printerName,
     showDialog,
     paperWidthMm: getPaperWidthMm(),
     paperHeightMm: getPaperHeightMm(),
+    usePrinterDefaultPage,
   };
 }
 
@@ -1360,7 +1371,11 @@ async function printHtmlSilently(
     // straight to the printer by default; the Settings toggle (or
     // `print.show_dialog = 1`) restores the dialog for a shop that wants to
     // choose per receipt, and is the fallback when silent printing misbehaves.
-    const { printerName: configured, showDialog: wantDialog } = getPrintConfig();
+    const {
+      printerName: configured,
+      showDialog: wantDialog,
+      usePrinterDefaultPage,
+    } = getPrintConfig();
 
     // A named printer wins if one is configured and actually present. Falling
     // back rather than failing matters: a printer renamed in Windows would
@@ -1436,10 +1451,13 @@ async function printHtmlSilently(
       contentPx
     );
     console.log('[print] page size', {
+      mode: usePrinterDefaultPage ? 'printer default form' : 'computed',
       widthMm,
       heightMm: heightMm || 'auto',
       configuredHeightMm,
       contentPx,
+      // Logged even when unused: when a till is switched over, the first
+      // question is what it *would* have asked the driver for.
       pageSize,
     });
 
@@ -1479,7 +1497,22 @@ async function printHtmlSilently(
         {
           silent: !wantDialog,
           printBackground: true,
-          pageSize,
+          // A thermal driver publishes a short, fixed list of forms — the OMEGA
+          // unit on site offers exactly eight, among them "80 x Roll". Nothing
+          // we compute from the measured receipt height is ever on that list,
+          // so the driver accepts the job, reports success and discards it.
+          // That is the blank-paper fault, confirmed on the hardware.
+          //
+          // Handing the decision to the driver removes the mismatch entirely:
+          // it prints on the form it is actually set to. Requires Electron 41+
+          // — on 30 the option did not exist, which is why the till had to be
+          // upgraded before this was reachable at all.
+          //
+          // `pageSize` must be omitted, not merely ignored: passing both leaves
+          // Chromium validating a size we just said we did not want to choose.
+          ...(usePrinterDefaultPage
+            ? { usePrinterDefaultPageSize: true }
+            : { pageSize }),
           margins: { marginType: 'none' },
           ...(deviceName ? { deviceName } : {}),
         },
@@ -1586,9 +1619,16 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
         showDialog?: boolean;
         paperWidthMm?: number;
         paperHeightMm?: number;
+        usePrinterDefaultPage?: boolean;
       }
     ) => {
       if (services) assertPermission(services, 'settings.manage');
+      if (payload && 'usePrinterDefaultPage' in payload) {
+        setMeta(
+          'print.use_printer_default_page',
+          payload.usePrinterDefaultPage ? '1' : '0'
+        );
+      }
       if (payload && 'printerName' in payload) {
         // '' means "use the Windows default" — a real choice, so it is stored
         // as an empty string rather than left unset.

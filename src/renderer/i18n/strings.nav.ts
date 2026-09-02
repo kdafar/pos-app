@@ -180,6 +180,14 @@ export const navStrings = {
     en: 'Off by default so a sale does not need an extra confirmation. Turn it on if receipts still do not come out.',
     ar: 'مغلق افتراضيًا حتى لا تحتاج كل عملية بيع إلى تأكيد إضافي. فعّله إذا كانت الإيصالات لا تخرج.',
   },
+  'settings.printerDefaultPage': {
+    en: "Use the printer's own paper size",
+    ar: 'استخدم مقاس الورق الخاص بالطابعة',
+  },
+  'settings.printerDefaultPageHint': {
+    en: 'Turn this on if receipts come out blank. The app then prints on whatever paper size the printer driver is set to — set that to a roll size (for example "80 x Roll") in the Windows printer settings.',
+    ar: 'فعّل هذا إذا كانت الإيصالات تخرج فارغة. عندها يطبع التطبيق على مقاس الورق المضبوط في تعريف الطابعة — اضبطه على مقاس رول (مثل "80 x Roll") من إعدادات الطابعة في ويندوز.',
+  },
   'settings.printTest': { en: 'Print a test receipt', ar: 'طباعة إيصال تجريبي' },
   'settings.printTestSent': {
     en: 'Test receipt sent. If nothing comes out, try another printer or turn on the print dialog.',

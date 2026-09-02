@@ -110,6 +110,12 @@ type PrinterConfig = {
   paperWidthMm: number;
   /** 0 = as long as the receipt (roll). Non-zero = fixed stock, e.g. a label. */
   paperHeightMm: number;
+  /**
+   * Print on the form the printer driver is set to, instead of a page size
+   * computed from the receipt. The fix for blank paper: a thermal driver only
+   * accepts its own short list of forms and silently discards anything else.
+   */
+  usePrinterDefaultPage: boolean;
   printers: PrinterInfo[];
   missing: boolean;
 };
@@ -310,7 +316,18 @@ export function SettingsPage() {
   }, [loadPrinters, loadDrawer]);
 
   const savePrinter = useCallback(
-    async (patch: Partial<Pick<PrinterConfig, 'printerName' | 'showDialog' | 'paperWidthMm' | 'paperHeightMm'>>) => {
+    async (
+      patch: Partial<
+        Pick<
+          PrinterConfig,
+          | 'printerName'
+          | 'showDialog'
+          | 'paperWidthMm'
+          | 'paperHeightMm'
+          | 'usePrinterDefaultPage'
+        >
+      >
+    ) => {
       setPrinterBusy(true);
       setPrinterResult(null);
       try {
@@ -684,6 +701,23 @@ export function SettingsPage() {
                   ))}
                 </div>
               </div>
+
+              <div className='flex flex-wrap items-center gap-4'>
+                <Switch
+                  isSelected={!!printerCfg?.usePrinterDefaultPage}
+                  onValueChange={(v) =>
+                    void savePrinter({ usePrinterDefaultPage: v })
+                  }
+                  isDisabled={printerBusy}
+                >
+                  <span className='text-sm font-semibold'>
+                    {t('settings.printerDefaultPage')}
+                  </span>
+                </Switch>
+              </div>
+              <p className='text-sm font-medium text-default-700'>
+                {t('settings.printerDefaultPageHint')}
+              </p>
 
               <div className='flex flex-wrap items-center gap-4'>
                 <Switch
