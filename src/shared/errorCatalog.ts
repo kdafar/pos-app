@@ -53,6 +53,21 @@ export type CatalogEntry = {
   ar: { title: string; body: string };
 };
 
+/**
+ * How many codes the backend actually sends, per its own authority: the
+ * constants in PosError.php. 43 of them when they answered, plus
+ * POS_RECLAIM_MACHINE_IN_USE added with the liveness guard on 2026-09-02 —
+ * 44 is inferred from that and still wants confirming. 42 were mirrored plus
+ * POS_ORDER_NOT_FOUND, which is deliberately absent here because this client
+ * already renders that condition as POS_VAL_ORDER_NOT_FOUND. Their
+ * PosErrorCatalogueTest records it under ALIASED_BY_THE_APP; shipping both
+ * would give two codes that open an identical dialog.
+ *
+ * Kept next to the catalogue rather than inside the drift test so the export
+ * and the test cannot disagree about the target.
+ */
+export const BACKEND_SENT_CODE_COUNT = 44;
+
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
   // Offline is not an error. The cashier did nothing wrong and has nothing to
@@ -105,6 +120,133 @@ export const ERROR_CATALOG = {
       body: 'هذا الجهاز غير مربوط بالنظام. اربطه من جديد برمز الربط من لوحة التحكم.',
     },
   },
+  /**
+   * A device id this server has never issued. Emphatically NOT a revoke — the
+   * backend split the two after §2.1, because the usual cause is a till
+   * pointed at the wrong base_url or a database restored from before it
+   * paired, and neither is worth throwing a working pairing away for.
+   */
+  POS_DEVICE_UNKNOWN: {
+    severity: 'blocker',
+    retry: false,
+    where: '*',
+    http: 401,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Server does not know this device',
+      body: 'Check the server address is right. If it is, pair the device again with a code from the dashboard.',
+    },
+    ar: {
+      title: 'الخادم لا يعرف هذا الجهاز',
+      body: 'تأكد أن رابط السيرفر صحيح. إذا كان صحيحًا، أعد ربط الجهاز برمز من لوحة التحكم.',
+    },
+  },
+
+  /* ─────────────────── reclaim (silent re-pair) ─────────────────── */
+  POS_RECLAIM_DISABLED: {
+    severity: 'info',
+    retry: false,
+    where: '/reclaim',
+    http: 403,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Self re-pairing is off',
+      body: 'This branch does not allow a device to reconnect on its own. Pair it with a code instead.',
+    },
+    ar: {
+      title: 'إعادة الربط الذاتي مغلقة',
+      body: 'هذا الفرع لا يسمح للجهاز بإعادة الربط وحده. اربطه برمز بدلاً من ذلك.',
+    },
+  },
+  POS_RECLAIM_INPUT_MISSING: {
+    severity: 'info',
+    retry: false,
+    where: '/reclaim',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Cannot reconnect on its own',
+      body: 'This device does not have enough saved to identify itself. Pair it with a code.',
+    },
+    ar: {
+      title: 'تعذّرت إعادة الربط تلقائيًا',
+      body: 'لا توجد بيانات كافية على الجهاز للتعرف عليه. اربطه برمز.',
+    },
+  },
+  POS_RECLAIM_MACHINE_MISMATCH: {
+    severity: 'info',
+    retry: false,
+    where: '/reclaim',
+    http: 403,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Different computer',
+      body: 'This is not the computer the device was paired from. Pair it again with a code from the dashboard.',
+    },
+    ar: {
+      title: 'جهاز كمبيوتر مختلف',
+      body: 'هذا ليس الكمبيوتر الذي تم ربط الجهاز منه. أعد الربط برمز من لوحة التحكم.',
+    },
+  },
+  POS_RECLAIM_DEVICE_UNKNOWN: {
+    severity: 'info',
+    retry: false,
+    where: '/reclaim',
+    http: 404,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Server does not know this device',
+      body: 'Check the server address is right, then pair the device with a code.',
+    },
+    ar: {
+      title: 'الخادم لا يعرف هذا الجهاز',
+      body: 'تأكد أن رابط السيرفر صحيح، ثم اربط الجهاز برمز.',
+    },
+  },
+  /**
+   * The liveness guard on a machine-only claim. The device this machine
+   * resolves to was syncing minutes ago, so it has lost nothing — which is
+   * what separates an honest till from a disk image of one. Never reached by
+   * a caller that supplied device_id.
+   */
+  POS_RECLAIM_MACHINE_IN_USE: {
+    severity: 'info',
+    retry: true,
+    where: '/reclaim',
+    http: 409,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'This till is still connected',
+      body: 'Wait a moment and try again, or pair the device with a code.',
+    },
+    ar: {
+      title: 'هذا الجهاز ما زال متصلاً',
+      body: 'انتظر قليلاً ثم حاول مرة أخرى، أو اربط الجهاز برمز.',
+    },
+  },
+  POS_RECLAIM_RATE_LIMITED: {
+    severity: 'info',
+    retry: false,
+    where: '/reclaim',
+    http: 429,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Already reconnected today',
+      body: 'A device can reconnect on its own once a day. Pair it with a code instead.',
+    },
+    ar: {
+      title: 'تمت إعادة الاتصال اليوم',
+      body: 'يمكن للجهاز إعادة الاتصال تلقائيًا مرة واحدة يوميًا. اربطه برمز بدلاً من ذلك.',
+    },
+  },
+
   POS_DEVICE_REVOKED: {
     severity: 'blocker',
     retry: false,
@@ -172,7 +314,9 @@ export const ERROR_CATALOG = {
   POS_RATE_LIMITED: {
     severity: 'toast',
     retry: true,
-    where: '/register',
+    // The whole api group, not just pairing: 60/min per IP, shared by every
+    // till behind one shop's NAT.
+    where: '*',
     http: 429,
     sent: true,
     origin: 'server',

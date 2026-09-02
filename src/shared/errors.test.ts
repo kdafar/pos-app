@@ -10,7 +10,11 @@ import {
   toPosError,
 } from './errors';
 import { posError } from './errorCodes';
-import { ERROR_CATALOG, type PosErrorCode } from './errorCatalog';
+import {
+  BACKEND_SENT_CODE_COUNT,
+  ERROR_CATALOG,
+  type PosErrorCode,
+} from './errorCatalog';
 import { describeError } from '../renderer/utils/posError';
 
 const CODES = Object.keys(ERROR_CATALOG) as PosErrorCode[];
@@ -284,18 +288,43 @@ describe('codes the server never sends', () => {
     expect(ERROR_CATALOG.POS_PUSH_PARTIAL.sent).toBe(false);
   });
 
-  it('marks exactly the 27 codes the backend actually sends', () => {
-    // Drift guard in both directions: this number is the backend's own count
-    // of constants in PosError.php. If either side adds or drops one without
-    // the other, this fails instead of silently mismatching.
+  it('mirrors 34 of the 44 codes the backend sends, with the gap pinned', () => {
+    // Drift guard in both directions. The authority is the constants in
+    // PosError.php, not this file — BACKEND_SENT_CODE_COUNT carries it.
+    //
+    // 27 → 33 on 2026-09-01 (POS_DEVICE_UNKNOWN, split out of
+    // POS_DEVICE_REVOKED, plus the five POS_RECLAIM_* codes), then 34 on
+    // 2026-09-02 with POS_RECLAIM_MACHINE_IN_USE, the liveness guard. The remaining
+    // ten are a known, deliberate gap rather than drift, so they are asserted
+    // rather than described: closing any of them has to move both numbers.
+    //
+    // What we believe the ten are — the six permission-write codes for
+    // GET/PUT /users/{user}/permissions, which this client has no names for
+    // and does not yet call, and four the backend sends in a 200 body rather
+    // than an error response (POS_PROMO_WRONG_BRANCH, POS_PAY_STATUS_FAILED,
+    // POS_PAY_STATUS_EXPIRED, POS_OK_PROMO_APPLIED). Promos and payments are
+    // otherwise complete at 3 and 8, so the shape is not what it looked like
+    // from the other side. Awaiting their per-endpoint list to close it.
     const sent = CODES.filter((c) => ERROR_CATALOG[c].sent);
-    expect(sent).toHaveLength(27);
+    expect(sent).toHaveLength(34);
+    expect(BACKEND_SENT_CODE_COUNT - sent.length).toBe(10);
+
     // Spot-check the classes that must never be marked as server-sent.
     for (const code of CODES) {
       if (code.startsWith('POS_VAL_') || code.startsWith('POS_NET_')) {
         expect(ERROR_CATALOG[code].sent, String(code)).toBe(false);
       }
     }
+  });
+
+  /**
+   * The alias the backend nearly un-did. POS_ORDER_NOT_FOUND must stay absent:
+   * this client renders that condition as POS_VAL_ORDER_NOT_FOUND, and two
+   * codes opening the same dialog is worse than one.
+   */
+  it('keeps POS_ORDER_NOT_FOUND aliased rather than mirrored', () => {
+    expect(CODES).not.toContain('POS_ORDER_NOT_FOUND' as PosErrorCode);
+    expect(ERROR_CATALOG.POS_VAL_ORDER_NOT_FOUND).toBeDefined();
   });
 
   it('still prefers a real server code over message matching', () => {

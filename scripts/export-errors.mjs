@@ -35,7 +35,7 @@ const bundled = await build({
   logLevel: 'silent',
 });
 
-const { ERROR_CATALOG } = await import(
+const { BACKEND_SENT_CODE_COUNT, ERROR_CATALOG } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`
 );
 
@@ -104,9 +104,33 @@ mkdirSync(resolve(root, 'docs'), { recursive: true });
 const write = (name, body) =>
   writeFileSync(resolve(root, name), JSON.stringify(body, null, 2) + '\n', 'utf8');
 
+const appRowCount = rows.filter((r) => r.origin === 'app').length;
+const sentRowCount = rows.filter((r) => r.sent_by_server).length;
+
 write('docs/pos-errors.json', {
   generated_from: 'src/shared/errorCatalog.ts',
   note: 'Generated. Edit the TypeScript module, then run: node scripts/export-errors.mjs',
+  conventions: {
+    // The backend's PosErrorCatalogueTest asserts against these, so they are
+    // computed from the catalogue rather than written down — a hand-kept
+    // number is exactly what drifted last time.
+    code_coverage: {
+      backend_sends: BACKEND_SENT_CODE_COUNT,
+      mirrored_here: sentRowCount,
+      outstanding: BACKEND_SENT_CODE_COUNT - sentRowCount,
+      note:
+        'backend_sends is the count of constants in PosError.php, their authority. ' +
+        'POS_ORDER_NOT_FOUND is counted there but deliberately absent here: this ' +
+        'client renders that condition as POS_VAL_ORDER_NOT_FOUND (their ' +
+        'ALIASED_BY_THE_APP). The outstanding codes are believed to be the six ' +
+        'permission-write codes, which this client has no names for and does not ' +
+        'yet call, plus four the server sends in a 200 body rather than an error ' +
+        'response — awaiting a per-endpoint list to confirm.',
+    },
+    total_codes: rows.length,
+    app_only: appRowCount,
+    server_side: rows.length - appRowCount,
+  },
   severities: {
     blocker: 'Centred modal, dimmed backdrop, explicit dismissal. Work stops.',
     toast: 'Bottom-centre card, auto-dismiss, optional retry.',
@@ -135,9 +159,9 @@ write('docs/pos-app-error-inventory.json', {
   codes: appRows,
 });
 
-const sentCount = rows.filter((r) => r.sent_by_server).length;
 console.log(
   `docs/pos-errors.json: ${rows.length} codes ` +
     `(${rows.length - appRows.length} server, ${appRows.length} app; ` +
-    `${sentCount} arrive as a server code)`
+    `${sentRowCount} of the backend's ${BACKEND_SENT_CODE_COUNT} arrive as a ` +
+    `server code, ${BACKEND_SENT_CODE_COUNT - sentRowCount} outstanding)`
 );
