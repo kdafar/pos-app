@@ -22,13 +22,17 @@ const PUSH_ELIGIBLE = `
   AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = orders.id)
 `;
 import { safePushStatus } from '../utils/serverStatus';
-import { loadSecret } from '../secureStore';
+import { loadSecretWithRetry } from '../secureStore';
+import { isCashPayment, tenderForWire } from '../../shared/cashChange';
 import { readOrCreateMachineId } from '../machineId';
+import { recoverDeviceIdFromOrders } from '../utils/deviceIdentity';
 import {
   backfillPaymentMethods,
   bootstrap,
+  classifyAuthFailure,
   configureApi,
   pairDevice,
+  reclaimDevice,
   pullChanges,
   pushOutbox,
 } from '../sync';
@@ -104,6 +108,13 @@ function safeBuildOrderPayload(orderId: string) {
     ? [{ method: o.payment_method_slug, amount: Number(o.grand_total || 0) }]
     : [];
 
+  // Re-validated on the way out rather than trusted from the column: an order
+  // whose payment method was corrected to KNET after the fact still carries
+  // the cash tender it was rung up with, and a card sale has no tender.
+  const tender = isCashPayment(o.payment_method_slug)
+    ? tenderForWire(o.amount_tendered, o.grand_total)
+    : null;
+
   return {
     // temp_id is the server's idempotency key — it reads this, NOT `id`.
     // Without it the server minted a fresh ULID on every push, so retries
@@ -171,6 +182,15 @@ function safeBuildOrderPayload(orderId: string) {
       discount_total: o.discount_total,
       delivery_fee: o.delivery_fee,
       grand_total: o.grand_total,
+      // What the customer handed over, when it was recorded. Spread rather
+      // than set to null: the contract says to OMIT the key instead of sending
+      // 0, which the server would read as "the customer paid nothing" and
+      // print the whole bill back as change owed.
+      //
+      // The change itself is deliberately not sent. The server derives it with
+      // the same 5 fils rule, and two implementations of one rounding rule is
+      // how the counter slip and the office copy end up a few fils apart.
+      ...(tender == null ? {} : { amount_tendered: tender }),
     },
     timestamps: {
       opened_at: o.opened_at,
@@ -332,14 +352,9 @@ async function getSyncStatus(): Promise<SyncStatus> {
   const branch_id = Number(getMeta('branch_id') || 0);
   const last_sync_at = Number(getMeta('sync.last_at') || 0);
 
-  let token: string | null = null;
-  if (deviceId) {
-    token = (await loadSecret('device_token')) || null;
-    if (!token) {
-      await new Promise((r) => setTimeout(r, 100));
-      token = (await loadSecret('device_token')) || null;
-    }
-  }
+  // A cold keychain read answers null for a token that is really there, so
+  // never call a paired till unpaired on the first miss.
+  const token = deviceId ? await loadSecretWithRetry('device_token') : null;
 
   const token_present = !!token;
   const paired = !!(deviceId && token_present);
@@ -398,7 +413,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       store.get('server.device_id') ||
       '';
     const branch_id = Number(getMeta('branch_id') ?? 0);
-    const token = await loadSecret('device_token');
+    const token = await loadSecretWithRetry('device_token');
     if (!device_id || !token) throw posError('POS_AUTH_MISSING');
 
     setMeta('server.base_url', baseUrl);
@@ -469,6 +484,83 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     }
   );
 
+  /**
+   * Silent re-pair: trade the identity the till still holds for a new token.
+   *
+   * The Pair screen calls this before it shows anyone a form. A device that
+   * lost only its token — the reinstall case — still knows its device_id and
+   * the machine it paired from, so there is no reason to make a cashier read a
+   * pairing code out of the back office mid-service.
+   *
+   * Every refusal is survivable and simply falls through to that form. Nothing
+   * here destroys local state except the one case that already would: a server
+   * that says this device was revoked.
+   */
+  ipcMain.handle('sync:reclaim', async () => {
+    const base = getMeta('server.base_url') || '';
+    if (!base) return { ok: false, reason: 'no_identity' as const };
+
+    // Stable per physical machine, and recomputed identically if the meta row
+    // is missing — so a till that kept nothing else can still prove which
+    // machine it is. The server refuses anything that does not match exactly.
+    const machine_id = await readOrCreateMachineId();
+    if (!machine_id) return { ok: false, reason: 'no_identity' as const };
+
+    // May legitimately be empty: a till blanked before its first sale has no
+    // meta row and no order of its own to recover one from. The server
+    // resolves it from the machine in that case.
+    const device_id =
+      getMeta('device_id') ||
+      store.get('device_id') ||
+      store.get('server.device_id') ||
+      recoverDeviceIdFromOrders(db) ||
+      '';
+
+    const branch_id = Number(getMeta('branch_id') || 0) || undefined;
+
+    const result = await reclaimDevice(
+      base,
+      String(device_id),
+      machine_id,
+      branch_id
+    );
+
+    if (!result.ok) {
+      if (result.reason === 'revoked') markDeviceRevoked();
+      if (result.reason === 'locked') {
+        setMeta('pos.locked', '1');
+        setMeta('pos.lock_reason', 'server_locked');
+      }
+      return result;
+    }
+
+    const device = result.device;
+    if (device.killswitch_after_days != null) {
+      setMeta('security.kill_after_days', String(device.killswitch_after_days));
+    }
+    if (device.locked_at) {
+      setMeta('pos.locked', '1');
+      setMeta('pos.lock_reason', 'server_locked');
+      setMeta('pos.locked_at', String(new Date(device.locked_at).getTime()));
+    } else {
+      clearPosLock();
+    }
+
+    setMeta('pos.unpaired_reason', '');
+    setMeta('pos.unpaired_at', '');
+
+    console.log('[Sync] Device re-paired itself.', {
+      branch_id: device.branch_id ?? null,
+      locked: !!device.locked_at,
+    });
+
+    return {
+      ok: true as const,
+      branch_id: device.branch_id ?? null,
+      locked: !!device.locked_at,
+    };
+  });
+
   ipcMain.handle('sync:bootstrap', async (_e, baseUrl?: string) => {
     ensureOrderNumberDedupeTriggers();
     const url = baseUrl || getMeta('server.base_url') || '';
@@ -502,15 +594,16 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         return { ok: false, reason: 'locked' as const, locked_at: lockedAt };
       }
 
-      // 401 covers both a revoked device and a merely invalid/expired token,
-      // so distinguish on the message — only an explicit revoke unpairs, and
-      // even then local data is preserved (§6.4).
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
-        const msg = String((err.response.data as any)?.message ?? '');
-        if (/revoked/i.test(msg)) {
-          markDeviceRevoked();
-          return { ok: false, reason: 'revoked' as const };
-        }
+      // 401/403 covers a revoked device, a merely invalid or expired token,
+      // and a proxy in the way — only an explicit revoke unpairs, and even
+      // then local data is preserved (§6.4).
+      const authFailure = classifyAuthFailure(err);
+      if (authFailure === 'revoked') {
+        markDeviceRevoked();
+        return { ok: false, reason: 'revoked' as const };
+      }
+      if (authFailure === 'unauthorized') {
+        console.warn('[sync:bootstrap] credentials rejected; pairing kept.');
         return { ok: false, reason: 'unauthorized' as const };
       }
 
@@ -635,6 +728,17 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       return { ok: false, reason: 'offline' as const };
     }
 
+    // The server asked us to honour Retry-After rather than retrying straight
+    // away. The window is recorded by configureApi's interceptor, so any 429
+    // from any endpoint lands here — including the shared per-IP throttle a
+    // branch can hit with several tills and no misbehaviour at all.
+    const retryAfterAt = Number(getMeta('sync.retry_after_at') || 0);
+    if (retryAfterAt > Date.now()) {
+      const retry_after = Math.ceil((retryAfterAt - Date.now()) / 1000);
+      console.log('[Sync] Holding off — server throttled us.', { retry_after });
+      return { ok: false, reason: 'rate_limited' as const, retry_after };
+    }
+
     const base = getMeta('server.base_url') || '';
     const device_id =
       getMeta('device_id') ||
@@ -642,7 +746,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       store.get('server.device_id') ||
       '';
     const branch_id = Number(getMeta('branch_id') || 0);
-    const token = await loadSecret('device_token');
+    const token = await loadSecretWithRetry('device_token');
 
     // ❌ DON'T touch bootstrap.last_at here
 
@@ -686,6 +790,20 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         return { ok: false, reason: 'locked' as const, locked_at: lockedAt };
       }
 
+      // sync:run is the only sync a running till performs, so a revoke has to
+      // be honoured here too — sync:bootstrap sees one while pairing, this
+      // sees it every 10 seconds afterwards.
+      if (classifyAuthFailure(err) === 'revoked') {
+        markDeviceRevoked();
+        return { ok: false, reason: 'revoked' as const };
+      }
+
+      // Every other rejection falls through to the throw below on purpose.
+      // The pairing survives it — nothing above this line touches the token —
+      // but the cashier still gets the "Sync failed" toast off the Sync
+      // button, which is the only sign the till has stopped talking to the
+      // server. Swallowing it here would leave the till quietly falling
+      // behind with a green status bar.
       console.error('[Sync] Manual sync: bootstrap failed', err);
       throw err;
     }
@@ -903,7 +1021,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       store.get('server.device_id') ||
       '';
     const branch_id = Number(getMeta('branch_id') || 0);
-    const token = await loadSecret('device_token');
+    const token = await loadSecretWithRetry('device_token');
     if (!base || !device_id || !token) throw posError('POS_CFG_API_NOT_READY');
     configureApi(base, { id: String(device_id), branch_id }, token);
   };

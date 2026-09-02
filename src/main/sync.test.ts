@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { describe, expect, it, vi } from 'vitest';
 
 // sync.ts opens the SQLite database and reaches for Electron at import time;
@@ -13,6 +14,7 @@ vi.mock('electron', () => ({ app: { isPackaged: false, getPath: () => '' } }));
 
 const {
   addonsToCsv,
+  classifyAuthFailure,
   countTenders,
   extractPaymentMethod,
   isTerminalLocalOrder,
@@ -425,5 +427,111 @@ describe('normOrderSeed', () => {
 
   it('leaves branch_id null when the server omits it, so nothing is invented', () => {
     expect(normOrderSeed({ id: '1', number: 'A' }).branch_id).toBeNull();
+  });
+});
+
+/**
+ * The response interceptor used to delete the device token and blank device_id
+ * on every 401 and 403, so one rejected request unpaired the till for good —
+ * the reinstall complaint, where the first sync on a new build met a refusal
+ * and the cashier was handed the Pair screen.
+ *
+ * Every body below is the backend's verbatim answer to §2.1 of
+ * docs/BACKEND-pairing-recovery.md, taken off the live server. Exactly one of
+ * them may unpair a till.
+ */
+describe('classifyAuthFailure', () => {
+  const rejected = (status: number, data: unknown = {}) =>
+    new axios.AxiosError('rejected', 'ERR_BAD_REQUEST', undefined, undefined, {
+      status,
+      data,
+      statusText: '',
+      headers: {},
+      config: {} as any,
+    } as any);
+
+  it('unpairs on a revoke, the one permanent refusal', () => {
+    expect(
+      classifyAuthFailure(
+        rejected(401, { code: 'POS_DEVICE_REVOKED', message: 'Device revoked' })
+      )
+    ).toBe('revoked');
+  });
+
+  it('unpairs when a revoke is met while pairing', () => {
+    expect(
+      classifyAuthFailure(
+        rejected(403, {
+          code: 'POS_PAIR_DEVICE_REVOKED',
+          message: 'Device revoked',
+        })
+      )
+    ).toBe('revoked');
+  });
+
+  /**
+   * The backend fixed this on their side: an unknown device used to answer
+   * POS_DEVICE_REVOKED. A missing row most often means the till is pointed at
+   * the wrong base_url or at a restored database — not that anyone revoked it.
+   */
+  it.each([
+    ['POS_DEVICE_UNKNOWN', 'Unknown device', 401],
+    ['POS_TOKEN_INVALID', 'Invalid token', 401],
+    ['POS_AUTH_MISSING', 'Unauthorized', 401],
+    ['POS_RECLAIM_DISABLED', 'Self-service re-pairing is not enabled', 403],
+    ['POS_RECLAIM_MACHINE_MISMATCH', 'This machine is not the one', 403],
+  ])('keeps the pairing on %s', (code, message, status) => {
+    expect(classifyAuthFailure(rejected(status, { code, message }))).toBe(
+      'unauthorized'
+    );
+  });
+
+  /**
+   * The property the backend committed to: POS_DEVICE_REVOKED is the only
+   * device-auth response that may unpair. A code, once present, is never
+   * second-guessed by the message — otherwise a reworded body could quietly
+   * reintroduce the bug.
+   */
+  it('lets the code override even a message that says revoked', () => {
+    expect(
+      classifyAuthFailure(
+        rejected(401, {
+          code: 'POS_DEVICE_UNKNOWN',
+          message: 'Unknown device (previously revoked)',
+        })
+      )
+    ).toBe('unauthorized');
+  });
+
+  it('falls back to the message only on a server too old to send a code', () => {
+    expect(classifyAuthFailure(rejected(401, { message: 'Device revoked' }))).toBe(
+      'revoked'
+    );
+    expect(classifyAuthFailure(rejected(401, { message: 'Invalid token' }))).toBe(
+      'unauthorized'
+    );
+    expect(classifyAuthFailure(rejected(401, {}))).toBe('unauthorized');
+    // A WAF or proxy answering instead of the API — no JSON body at all.
+    expect(classifyAuthFailure(rejected(403, '<html>403 Forbidden</html>'))).toBe(
+      'unauthorized'
+    );
+  });
+
+  it('says nothing about statuses that are not an auth rejection', () => {
+    // 423 is a lock and 404 is "not your order" — both survivable, and neither
+    // this function's business.
+    for (const status of [404, 423, 429, 500, 200]) {
+      expect(
+        classifyAuthFailure(
+          rejected(status, { code: 'POS_DEVICE_REVOKED', message: 'revoked' })
+        ),
+        String(status)
+      ).toBeNull();
+    }
+  });
+
+  it('says nothing about a network failure with no response at all', () => {
+    expect(classifyAuthFailure(new Error('ECONNREFUSED'))).toBeNull();
+    expect(classifyAuthFailure(undefined)).toBeNull();
   });
 });

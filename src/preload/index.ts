@@ -18,6 +18,7 @@ const bridge = {
     setMode: (next: 'live' | 'offline') =>
       ipcRenderer.invoke('sync:setMode', next),
     run: () => ipcRenderer.invoke('sync:run'),
+    reclaim: () => ipcRenderer.invoke('sync:reclaim'),
   },
 
   catalog: { search: (q: string) => ipcRenderer.invoke('catalog:search', q) },

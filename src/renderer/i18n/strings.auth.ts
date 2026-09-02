@@ -181,12 +181,20 @@ export const authStrings = {
     ar: 'الجهاز مربوط من قبل؟',
   },
   'pair.serverLocked': {
-    en: '*This device was locked by the server.* Its local catalog and orders were removed. Contact your administrator, then pair again.',
-    ar: '*تم قفل هذا الجهاز من السيرفر.* وانحذفت الأصناف والطلبات المحفوظة عليه. راجع الإدارة ثم أعد الربط.',
+    en: '*This device was locked by the server.* Its catalog and saved orders are safe. Ask your administrator to unlock it, then pair again.',
+    ar: '*تم قفل هذا الجهاز من السيرفر.* الأصناف والطلبات المحفوظة بأمان. اطلب من الإدارة فك القفل ثم أعد الربط.',
   },
   'pair.offlineTooLong': {
     en: '*This device was offline for too long.* For security it was signed out and unpaired. Local data was kept — pair again to reconnect and sync.',
     ar: '*هذا الجهاز ظل بدون اتصال مدة طويلة.* ولأسباب أمنية تم تسجيل الخروج وإلغاء الربط. البيانات المحلية محفوظة — أعد الربط للاتصال والمزامنة.',
+  },
+  'pair.reclaiming': {
+    en: 'Reconnecting this device…',
+    ar: 'جارٍ إعادة توصيل الجهاز…',
+  },
+  'pair.reclaimHint': {
+    en: 'It was paired here before, so it is asking the server for a new key. No code needed.',
+    ar: 'الجهاز كان مربوطًا هنا من قبل، لذا يطلب مفتاحًا جديدًا من السيرفر. لا حاجة لرمز.',
   },
   'pair.baseUrl': { en: 'Server base URL', ar: 'رابط السيرفر' },
   'pair.deviceName': { en: 'Device name', ar: 'اسم الجهاز' },

@@ -8,6 +8,7 @@ import {
   Input,
   Button,
   Divider,
+  Spinner,
 } from '@heroui/react';
 import { useNavigate } from 'react-router-dom';
 import { BrandHeader } from '../components/BrandHeader';
@@ -47,26 +48,59 @@ export default function PairScreen() {
   const [err, setErr] = useState<string | null>(null);
   const [prefilled, setPrefilled] = useState(false);
   const [unpairedReason, setUnpairedReason] = useState<string | null>(null);
+  // Starts true so the pairing form never flashes up before the till has had
+  // its chance to reconnect on its own.
+  const [reclaiming, setReclaiming] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const s = await (window as any).pos.auth.status();
-      if (s.paired) {
-        nav('/login', { replace: true });
-        return;
+      try {
+        let s = await (window as any).pos.auth.status();
+        if (s.paired) {
+          nav('/login', { replace: true });
+          return;
+        }
+
+        /**
+         * Before asking anyone for a code, let the till try to reconnect
+         * itself. A device that lost only its token still knows its device_id
+         * and the machine it paired from, and the server will trade those for
+         * a new one — so the common case never reaches this form at all.
+         *
+         * Every refusal is survivable and simply falls through to it: the
+         * branch may not have self-service re-pairing switched on, the
+         * machine may have been replaced, or there may be no network.
+         */
+        const reclaimed = await (window as any).api
+          .invoke('sync:reclaim')
+          .catch(() => null);
+
+        if (reclaimed?.ok) {
+          // Best effort: a till that just got its key back should not sit on
+          // a stale catalog, but a sync that fails must not trap it here.
+          await (window as any).api.invoke('sync:run').catch(() => null);
+          s = await (window as any).pos.auth.status();
+          if (s.paired) {
+            nav('/login', { replace: true });
+            return;
+          }
+        }
+
+        setUnpairedReason(s.unpaired_reason ?? null);
+        // Prefill if available
+        let anyPrefilled = false;
+        if (s.base_url) {
+          setBaseUrl(s.base_url);
+          anyPrefilled = true;
+        }
+        if (s.branch_id) {
+          setBranchId(String(s.branch_id));
+          anyPrefilled = true;
+        }
+        if (anyPrefilled) setPrefilled(true);
+      } finally {
+        setReclaiming(false);
       }
-      setUnpairedReason(s.unpaired_reason ?? null);
-      // Prefill if available
-      let anyPrefilled = false;
-      if (s.base_url) {
-        setBaseUrl(s.base_url);
-        anyPrefilled = true;
-      }
-      if (s.branch_id) {
-        setBranchId(String(s.branch_id));
-        anyPrefilled = true;
-      }
-      if (anyPrefilled) setPrefilled(true);
     })();
   }, [nav]);
 
@@ -144,6 +178,26 @@ export default function PairScreen() {
       setBusy(false);
     }
   };
+
+  // Same waiting card AuthedGate shows, so a till reconnecting on its own
+  // looks like the app still starting up rather than a new screen appearing.
+  if (reclaiming) {
+    return (
+      <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
+        <Card className='w-full max-w-md shadow-lg border border-slate-200 bg-white'>
+          <CardBody className='py-6 px-6 flex flex-col items-center gap-3 text-center'>
+            <Spinner size='lg' color='primary' />
+            <div className='text-base font-semibold text-slate-900'>
+              {t('pair.reclaiming')}
+            </div>
+            <div className='text-[11px] text-slate-500 max-w-sm'>
+              {t('pair.reclaimHint')}
+            </div>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>

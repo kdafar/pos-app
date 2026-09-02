@@ -4,7 +4,7 @@ import type { IpcMain } from 'electron';
 import bcrypt from 'bcryptjs';
 
 import { readOrCreateMachineId } from '../machineId';
-import { loadSecret, saveSecret } from '../secureStore';
+import { loadSecretWithRetry, saveSecret } from '../secureStore';
 import type { MainServices } from '../types/common';
 import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
 
@@ -130,7 +130,11 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
   ipcMain.handle('auth:status', async () => {
     const base_url = getBaseUrl();
     const device_id = getDeviceId();
-    const token_present = !!(await loadSecret('device_token'));
+    // Retried, not read once: the keychain can answer null for a token that
+    // is really there, and AuthedGate sends the till to the Pair screen on the
+    // first `paired: false` it sees. sync:status has always retried here — the
+    // screen that decides whether the device is paired at all has to as well.
+    const token_present = !!(await loadSecretWithRetry('device_token'));
     const session = qActiveSession.get() as any;
     const user = getCurrentUser();
     const { branch_id, branch_name } = getBranchMeta();

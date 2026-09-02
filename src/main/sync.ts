@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import db, { getMeta, setMeta } from './db';
-import { deleteSecret, loadSecret, saveSecret } from './secureStore';
+import { loadSecret, saveSecret } from './secureStore';
 import { prefetchItemImages } from './imageCache';
 import { app } from 'electron';
 
@@ -12,13 +12,48 @@ import {
 } from './branchProfile';
 type Device = { id: string; branch_id: number };
 
-// ---------- Auth error ----------
-export class AuthError extends Error {
-  constructor(message = 'Authentication failed, please re-pair.') {
-    super(message);
-    this.name = 'AuthError';
-    Object.setPrototypeOf(this, AuthError.prototype);
-  }
+// ---------- Auth ----------
+export type AuthFailure = 'revoked' | 'unauthorized';
+
+/**
+ * The only two codes that may cost a till its pairing.
+ *
+ * POS_DEVICE_REVOKED is a decision a person made about this device in the
+ * dashboard. POS_PAIR_DEVICE_REVOKED is the same decision met while pairing.
+ * Everything else the server can refuse with — POS_DEVICE_UNKNOWN,
+ * POS_TOKEN_INVALID, POS_AUTH_MISSING — is survivable and must leave
+ * device_id, the stored token and the outbox alone.
+ */
+const REVOKING_CODES = new Set(['POS_DEVICE_REVOKED', 'POS_PAIR_DEVICE_REVOKED']);
+
+/**
+ * What a rejected request actually means for the pairing.
+ *
+ * The backend has sent a stable `code` on every /api/pos/* refusal since
+ * 2026-08-23, so the code decides and nothing else is consulted. That matters
+ * more than it looks: POS_DEVICE_UNKNOWN is a 401 that means "this server has
+ * never issued that device id" — most often a till pointed at the wrong
+ * base_url, or a database restored from before it paired. Unpairing on it
+ * would throw away a working till and its unsent outbox over a typo'd server
+ * address, which is the whole failure mode this function exists to prevent.
+ *
+ * The message is read only when there is no code at all, for a server older
+ * than that date. A code, once present, is never second-guessed by it.
+ */
+export function classifyAuthFailure(err: unknown): AuthFailure | null {
+  if (!axios.isAxiosError(err)) return null;
+
+  const status = err.response?.status;
+  if (status !== 401 && status !== 403) return null;
+
+  const body = err.response?.data as any;
+  const code = typeof body?.code === 'string' ? body.code.trim() : '';
+  if (code) return REVOKING_CODES.has(code) ? 'revoked' : 'unauthorized';
+
+  // Legacy path: a pre-code server. "Device revoked" is the exact wording,
+  // and no other refusal it can send contains the word.
+  const message = typeof body?.message === 'string' ? body.message : '';
+  return /revoked/i.test(message) ? 'revoked' : 'unauthorized';
 }
 
 /**
@@ -79,18 +114,46 @@ export function configureApi(baseUrl: string, device: Device, token: string) {
 
   api.interceptors.response.use(
     (response) => response,
-    async (error) => {
+    (error) => {
       const st = error?.response?.status;
       if (st === 401 || st === 403) {
-        await deleteSecret('device_token');
-        setMeta('device_id', '');
-        throw new AuthError();
+        // Deliberately destroys nothing.
+        //
+        // This used to delete the device token and blank device_id on every
+        // 401 and 403, so a single rejected request — an expired token, a
+        // proxy, a WAF, a version gate met by the first sync after an update
+        // — unpaired the till permanently and dropped the cashier on the Pair
+        // screen with no reason recorded. It also converted the error to
+        // AuthError, which hid the status from the callers whose whole job is
+        // telling a revoke apart from a glitch, leaving their 401 branches
+        // dead. The axios error now goes through untouched so they can run.
+        console.warn('[SYNC] server rejected our credentials', {
+          status: st,
+          message: error?.response?.data?.message,
+        });
       }
       if (st === 423) {
         // server says device locked
         setMeta(
           'device.locked_at',
           String(error?.response?.data?.locked_at ?? Date.now())
+        );
+      }
+      if (st === 429) {
+        // The whole /api group is throttled at 60 requests a minute per IP,
+        // and every till in a shop shares one NAT address — so a busy branch
+        // reaches it with no single till misbehaving. Record when we may talk
+        // again and let sync:run refuse to start before then; retrying
+        // immediately is what turns a brief throttle into a sustained one.
+        const retryAfter =
+          Number(
+            error?.response?.headers?.['retry-after'] ??
+              error?.response?.data?.retry_after ??
+              0
+          ) || 60;
+        setMeta(
+          'sync.retry_after_at',
+          String(Date.now() + Math.max(1, retryAfter) * 1000)
         );
       }
       return Promise.reject(error);
@@ -106,6 +169,18 @@ function markSyncedNow() {
 const S = (v: any) => (v === undefined || v === null ? null : String(v));
 const N = (v: any) =>
   v === undefined || v === null || v === '' ? 0 : Number(v);
+/**
+ * A number that is allowed to be absent.
+ *
+ * N() folds a missing value into 0, which is right for a total and wrong for
+ * a tender: "no cash was recorded" and "the customer handed over nothing" have
+ * to stay different, or every card sale ever pulled prints a change block.
+ */
+const NN = (v: any) => {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 const B = (v: any) => (v ? 1 : 0); // boolean → 0/1
 
 function normItem(it: any) {
@@ -646,6 +721,12 @@ export function normPullOrder(o: any) {
     discount_pr: N(tot.discount_pr),
     delivery_fee: N(tot.delivery_fee),
     grand_total: N(tot.grand_total),
+    // Null on the vast majority of orders — only a cash sale at a branch that
+    // captures the tender carries either. change_due arrives already rounded
+    // to 5 fils by the server, and is kept so a reprint can show what the
+    // original slip said rather than recomputing a figure that has to match.
+    amount_tendered: NN(tot.amount_tendered),
+    change_due: NN(tot.change_due),
     promocode: S(tot.promocode),
     created_at: normalizeServerCreatedAt(o.created_at, o.created_at_ms),
     opened_at: parseServerTime(o.created_at_ms ?? o.created_at),
@@ -805,6 +886,133 @@ export async function pairDevice(
     branchId: data.device.branch_id,
     device: data.device,
   };
+}
+
+/* ---------- Reclaim (silent re-pair) ---------- */
+
+/** Why a silent re-pair could not happen. Every one of these is survivable. */
+export type ReclaimReason =
+  | 'no_identity'
+  | 'disabled'
+  | 'mismatch'
+  | 'unknown'
+  | 'revoked'
+  | 'locked'
+  | 'input_missing'
+  | 'rate_limited'
+  | 'machine_in_use'
+  | 'unreachable';
+
+export type ReclaimResult =
+  | { ok: true; device: any }
+  | { ok: false; reason: ReclaimReason; retry_after?: number };
+
+const RECLAIM_REASONS: Record<string, ReclaimReason> = {
+  POS_RECLAIM_DISABLED: 'disabled',
+  POS_RECLAIM_INPUT_MISSING: 'input_missing',
+  POS_RECLAIM_MACHINE_MISMATCH: 'mismatch',
+  POS_RECLAIM_DEVICE_UNKNOWN: 'unknown',
+  POS_DEVICE_REVOKED: 'revoked',
+  POS_DEVICE_LOCKED: 'locked',
+  POS_DEVICE_KILLSWITCH: 'locked',
+  POS_RECLAIM_RATE_LIMITED: 'rate_limited',
+  // 409, and only ever for a machine-only claim: the device this machine
+  // resolves to was syncing minutes ago, so it has not lost anything. A
+  // caller that supplied device_id is exempt — it produced something the
+  // registry cannot compute. Expected, not alarming: a till that restarts
+  // quickly can still look online to the server.
+  POS_RECLAIM_MACHINE_IN_USE: 'machine_in_use',
+  POS_RATE_LIMITED: 'rate_limited',
+};
+
+/**
+ * Ask the server for a new token using the identity the till still holds.
+ *
+ * This is the answer to "the device was paired and active, why is it asking
+ * for a code again". A till that lost only its token still knows its
+ * device_id and the machine_id it paired from, and the backend will trade
+ * those for a fresh token — so nobody has to read a pairing code out of the
+ * back office mid-service.
+ *
+ * Unauthenticated by definition, so it runs on its own axios instance: there
+ * is no token to send, and the shared client's interceptor has no business
+ * here.
+ *
+ * `branch_id` is sent for the audit log only. The device row is authoritative
+ * on the server, so a till the office moved to another branch comes back on
+ * the branch the office chose — which is why the response's branch_id is what
+ * gets stored, never the one we asked with.
+ */
+export async function reclaimDevice(
+  baseUrl: string,
+  deviceId: string,
+  machineId: string,
+  branchId?: number
+): Promise<ReclaimResult> {
+  // machine_id is the one value that must be present. device_id is sent when
+  // the till still has it, but a till blanked before its first sale has
+  // neither copy — no meta row and no order of its own to recover one from —
+  // and machine_uid is UNIQUE on the server, so it can resolve the device
+  // from the machine alone. Servers that still require both answer
+  // POS_RECLAIM_INPUT_MISSING, which falls through to the pairing code
+  // exactly as before, so this is safe to send ahead of that landing.
+  if (!baseUrl || !machineId) {
+    return { ok: false, reason: 'no_identity' };
+  }
+
+  const reclaimApi = axios.create({
+    baseURL: baseUrl.replace(/\/+$/, '') + '/api/pos',
+    timeout: 15000,
+    headers: { ...versionHeaders() },
+  });
+
+  let data: any;
+  try {
+    ({ data } = await reclaimApi.post('/reclaim', {
+      // Omitted rather than sent empty: '' is a claim to be a device with no
+      // id, and the server should read this as "resolve me from the machine".
+      device_id: deviceId || undefined,
+      machine_id: machineId,
+      branch_id: branchId,
+    }));
+  } catch (err: any) {
+    const code = String(err?.response?.data?.code ?? '');
+    const reason = RECLAIM_REASONS[code];
+    if (reason) {
+      const retryAfter =
+        Number(
+          err?.response?.headers?.['retry-after'] ??
+            err?.response?.data?.retry_after ??
+            0
+        ) || undefined;
+      console.warn('[SYNC] reclaim refused', { code, reason });
+      return { ok: false, reason, retry_after: retryAfter };
+    }
+
+    // An unrecognised refusal, a proxy, or no network at all. The till keeps
+    // everything it has and the cashier falls back to the pairing code.
+    console.warn('[SYNC] reclaim unavailable', {
+      status: err?.response?.status,
+      code,
+    });
+    return { ok: false, reason: 'unreachable' };
+  }
+
+  if (!data?.device?.id || !data?.token) {
+    console.warn('[SYNC] reclaim returned an unusable envelope');
+    return { ok: false, reason: 'unreachable' };
+  }
+
+  setMeta('device_id', data.device.id);
+  setMeta('server.base_url', baseUrl);
+  // The server's branch wins — see the note above.
+  if (data.device.branch_id != null) {
+    setMeta('branch_id', String(data.device.branch_id));
+    setMeta('branch.id', String(data.device.branch_id));
+  }
+  await saveSecret('device_token', data.token);
+
+  return { ok: true, device: data.device };
 }
 
 /**
@@ -1430,13 +1638,15 @@ function buildOrderSyncOps() {
       id, number, reference_no, branch_id, order_type, status, status_code,
       full_name, mobile, email, payment_type, payment_method_id,
       payment_method_slug, subtotal, discount_amount,
-      discount_pr, delivery_fee, grand_total, promocode, created_at,
+      discount_pr, delivery_fee, grand_total, amount_tendered, change_due,
+      promocode, created_at,
       opened_at, updated_at, server_id
     ) VALUES (
       @id, @number, @reference_no, @branch_id, @order_type, @status,
       @status_code, @full_name, @mobile, @email, @payment_type,
       @payment_method_id, @payment_method_slug, @subtotal,
       @discount_amount, @discount_pr, @delivery_fee, @grand_total,
+      @amount_tendered, @change_due,
       @promocode, @created_at, @opened_at, @updated_at, @server_id
     )
     ON CONFLICT(id) DO UPDATE SET
@@ -1458,6 +1668,11 @@ function buildOrderSyncOps() {
       discount_pr     = excluded.discount_pr,
       delivery_fee    = excluded.delivery_fee,
       grand_total     = excluded.grand_total,
+      -- COALESCE, not a plain overwrite: a feed row from a server that has not
+      -- shipped the cash block yet sends neither field, and a NULL from it must
+      -- not erase a tender this till recorded at the counter.
+      amount_tendered = COALESCE(excluded.amount_tendered, amount_tendered),
+      change_due      = COALESCE(excluded.change_due, change_due),
       promocode       = COALESCE(excluded.promocode, promocode),
       opened_at       = COALESCE(excluded.opened_at, opened_at),
       updated_at      = excluded.updated_at,
