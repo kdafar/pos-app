@@ -217,7 +217,7 @@ export function TablePickerModal({
                           </div>
                           <Chip
                             size='sm'
-                            variant='flat'
+                            variant='solid'
                             color={STATUS_COLOR[tbl.status]}
                             className='shrink-0 font-semibold'
                           >

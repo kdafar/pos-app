@@ -146,7 +146,7 @@ export function PromoDialog({
                           </span>
                           <Chip
                             size='sm'
-                            variant='flat'
+                            variant='solid'
                             color='primary'
                             className='shrink-0 font-semibold'
                           >

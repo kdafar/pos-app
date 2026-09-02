@@ -72,7 +72,7 @@ function PaymentChip({ status }: { status?: string | null }) {
           : String(status);
 
   return (
-    <Chip size='sm' variant='flat' color={tone} className='font-semibold'>
+    <Chip size='sm' variant='solid' color={tone} className='font-semibold'>
       {label}
     </Chip>
   );

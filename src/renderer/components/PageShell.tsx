@@ -59,7 +59,7 @@ export function PageShell({
               {title}
             </h1>
             {typeof count === 'number' && (
-              <Chip size='sm' color='primary' variant='flat' className='shrink-0 font-semibold'>
+              <Chip size='sm' color='primary' variant='solid' className='shrink-0 font-semibold'>
                 <span className='money'>{count}</span>
               </Chip>
             )}

@@ -443,7 +443,7 @@ function ToastCard({
                 <Button
                   size='sm'
                   variant='light'
-                  className='h-11 text-base text-default-600'
+                  className='h-11 text-base text-default-700'
                   endContent={
                     <ChevronDown
                       className={`h-4 w-4 transition-transform ${showDetail ? 'rotate-180' : ''}`}
@@ -468,20 +468,20 @@ function ToastCard({
               >
                 <div className='mt-2 rounded-lg bg-default-100 p-2.5'>
                   {toast.code && (
-                    <div className='mb-1 text-base font-bold tracking-wide text-default-500'>
+                    <div className='mb-1 text-base font-bold tracking-wide text-default-700'>
                       {t('error.code')}: {toast.code}
                     </div>
                   )}
                   {/* dir=ltr: the raw text is English, and mirroring it in an
                       Arabic UI makes it unreadable to whoever is on the phone
                       to support. */}
-                  <div dir='ltr' className='break-words text-start text-base text-default-600'>
+                  <div dir='ltr' className='break-words text-start text-base text-default-700'>
                     {toast.detail}
                   </div>
                   <Button
                     size='sm'
                     variant='light'
-                    className='mt-1 h-11 text-base text-default-600'
+                    className='mt-1 h-11 text-base text-default-700'
                     startContent={
                       copied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />
                     }
@@ -504,7 +504,7 @@ function ToastCard({
           aria-label={t('toast.dismiss')}
           onPress={onDismiss}
         >
-          <X className='h-5 w-5 text-default-600' />
+          <X className='h-5 w-5 text-default-700' />
         </Button>
       </div>
 
@@ -597,7 +597,7 @@ function BlockerDialog({
           )}
         </div>
 
-        <div className='mt-5 text-base text-default-500'>
+        <div className='mt-5 text-base text-default-700'>
           {t('error.code')}: <span dir='ltr'>{blocker.code}</span>
         </div>
       </motion.div>

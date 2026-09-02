@@ -78,6 +78,18 @@ export function parseHex(input: string | null | undefined): Hsl | null {
   return { h, s: s * 100, l: l * 100 };
 }
 
+/**
+ * WCAG contrast between two relative luminances, lighter over darker.
+ *
+ * Used to choose the text that sits on a solid brand fill. Both candidates are
+ * scored and the better one wins, which is the only way to stay legible across
+ * a palette the operator picks and we never see.
+ */
+function contrast(a: number, b: number): number {
+  const [hi, lo] = a >= b ? [a, b] : [b, a];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 /** Relative luminance, for deciding what text sits on top of a colour. */
 function luminance({ h, s, l }: Hsl): number {
   // Cheap but sufficient: convert back to RGB and use the sRGB coefficients.
@@ -124,17 +136,50 @@ const LIGHT_STOPS: Record<string, number> = {
 };
 
 /**
+ * The same ramp for the dark theme, mirrored.
+ *
+ * HeroUI inverts its ramp on dark: stock `primary-600` is #005bc4 (a dark
+ * blue) on the light theme and #66aaf9 (a light one) on the dark theme, and
+ * its components are written against that. `<Chip variant="flat">` renders
+ * `bg-primary/20 text-primary-600` in both themes and relies on the step
+ * itself flipping.
+ *
+ * Writing one light-oriented ramp for both themes is what put dark blue text
+ * on a dark 20%-opacity fill — the washed-out chip this table fixes. Every
+ * value is the light table read backwards, which reproduces HeroUI's own
+ * published dark ramp step for step.
+ */
+const DARK_STOPS: Record<string, number> = {
+  '50': 16,
+  '100': 24,
+  '200': 32,
+  '300': 40,
+  '400': 48,
+  '500': 58,
+  '600': 69,
+  '700': 80,
+  '800': 90,
+  '900': 95,
+};
+
+/**
  * Build the CSS variable map for one HeroUI colour role.
  *
  * `foreground` is computed from luminance rather than assumed white: a brand
  * that is yellow or pale mint gets black text on its buttons instead of white
  * on white, which is the usual way runtime theming produces an unreadable app.
  */
-export function buildRamp(role: string, base: Hsl): Record<string, string> {
+export function buildRamp(
+  role: string,
+  base: Hsl,
+  on: 'light' | 'dark' = 'light'
+): Record<string, string> {
   const out: Record<string, string> = {};
   const sat = Math.max(20, Math.min(96, base.s));
 
-  for (const [step, l] of Object.entries(LIGHT_STOPS)) {
+  for (const [step, l] of Object.entries(
+    on === 'dark' ? DARK_STOPS : LIGHT_STOPS
+  )) {
     out[`--heroui-${role}-${step}`] = `${base.h.toFixed(2)} ${sat.toFixed(
       2
     )}% ${l.toFixed(2)}%`;
@@ -144,8 +189,15 @@ export function buildRamp(role: string, base: Hsl): Record<string, string> {
   out[`--heroui-${role}`] = `${base.h.toFixed(2)} ${sat.toFixed(2)}% ${
     base.l.toFixed(2)
   }%`;
-  const onDark = luminance(base) < 0.45;
-  out[`--heroui-${role}-foreground`] = onDark ? '0 0% 100%' : '0 0% 0%';
+  // Whichever of black or white actually contrasts better, measured, rather
+  // than a fixed luminance cutoff. The cutoff put white on the dark theme's
+  // lifted brand at 4.34:1 — under the 4.5:1 that small chip text needs —
+  // where black scores 4.84:1. Same answer as before for a pale brand (black
+  // on yellow), just arrived at by measurement.
+  out[`--heroui-${role}-foreground`] =
+    contrast(luminance(base), 1) >= contrast(luminance(base), 0)
+      ? '0 0% 100%'
+      : '0 0% 0%';
 
   return out;
 }
@@ -173,10 +225,14 @@ export function readableL(l: number, on: 'light' | 'dark'): number {
 /**
  * Apply brand colours to the running app.
  *
- * The ramp goes on <html> so it cascades into portalled modals and toasts. The
- * text-safe value is emitted as a stylesheet instead, because it needs two
- * different values for `:root` and `.dark` and an inline style can only hold
- * one.
+ * Everything is emitted as a STYLESHEET, never as an inline style on <html>.
+ * That is not a preference: `.dark` is a class on <html> too, and an inline
+ * declaration outranks any selector matching the same element. The previous
+ * version set the ramp inline and then tried to correct it per theme with a
+ * `:root` / `.dark` rule, so the correction could never win and the dark theme
+ * silently kept the light ramp.
+ *
+ * The rules go on <html> so they cascade into portalled modals and toasts.
  */
 export function applyBrandTheme(colors: BrandColors): void {
   const root = document.documentElement;
@@ -185,32 +241,60 @@ export function applyBrandTheme(colors: BrandColors): void {
   const secondary =
     parseHex(colors.secondary) ?? parseHex(FALLBACK_BRAND.secondary)!;
 
-  const vars = {
-    ...buildRamp('primary', primary),
+  const lightVars = {
+    ...buildRamp('primary', primary, 'light'),
     // HeroUI calls it "secondary"; the app uses it for accents and highlights.
-    ...buildRamp('secondary', secondary),
+    ...buildRamp('secondary', secondary, 'light'),
   };
 
-  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  // The brand at its true lightness on BOTH themes.
+  //
+  // It used to be lifted here on dark, so a navy brand could still be read as
+  // bare `text-primary`. But `--heroui-<role>` backs the solid FILL as well,
+  // and lifting it made the fill pale enough that the computed foreground
+  // flipped to black — black text on a blue chip. The lift belongs to the text
+  // case only, and is applied as a scoped rule below instead.
+  const darkVars = {
+    ...buildRamp('primary', primary, 'dark'),
+    ...buildRamp('secondary', secondary, 'dark'),
+  };
 
-  // Per-theme override for the value `text-primary` resolves to.
-  const band = (c: Hsl, on: 'light' | 'dark') =>
-    `${c.h.toFixed(2)} ${Math.max(20, Math.min(96, c.s)).toFixed(2)}% ${readableL(
+  // An older build of this function wrote these inline, and an inline value
+  // would outrank everything below. Clear them before the rules are installed,
+  // or a till that upgrades mid-session keeps the washed-out palette.
+  for (const key of Object.keys(lightVars)) root.style.removeProperty(key);
+
+  const decls = (vars: Record<string, string>) =>
+    Object.entries(vars)
+      .map(([k, v]) => `${k}:${v}`)
+      .join(';');
+
+  /**
+   * Bare `text-primary` on the dark theme's own surface — sort arrows, active
+   * nav, prices — with no fill of its own to sit on. A brand dark enough to
+   * work on the light theme vanishes here, so lightness (and only lightness)
+   * is pulled into a readable band; the hue and saturation stay the brand's.
+   *
+   * Scoped to `.dark <utility>` so it beats Tailwind's own `.text-primary`
+   * (two classes to one) without touching `bg-primary`, which needs the true
+   * brand colour and computes its own foreground against it.
+   */
+  const textOnDark = (c: Hsl) =>
+    `hsl(${c.h.toFixed(2)} ${Math.max(20, Math.min(96, c.s)).toFixed(2)}% ${readableL(
       c.l,
-      on
-    ).toFixed(2)}%`;
+      'dark'
+    ).toFixed(2)}%)`;
 
-  const css = `
-:root{--heroui-primary:${band(primary, 'light')};--heroui-secondary:${band(
-    secondary,
-    'light'
-  )};}
-.dark{--heroui-primary:${band(primary, 'dark')};--heroui-secondary:${band(
-    secondary,
-    'dark'
-  )};}`;
+  const css = `:root{${decls(lightVars)}}
+.dark{${decls(darkVars)}}
+.dark .text-primary{color:${textOnDark(primary)}}
+.dark .text-secondary{color:${textOnDark(secondary)}}`;
 
-  const ID = 'brand-theme-contrast';
+  const ID = 'brand-theme';
+  // The rules used to live under a different id. Left in place it would still
+  // be in the document, setting a stale DEFAULT after ours in source order.
+  document.getElementById('brand-theme-contrast')?.remove();
+
   let el = document.getElementById(ID) as HTMLStyleElement | null;
   if (!el) {
     el = document.createElement('style');

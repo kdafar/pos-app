@@ -44,7 +44,7 @@ function VisibleChip({ value }: { value: any }) {
   return (
     <Chip
       size='sm'
-      variant='flat'
+      variant='solid'
       color={on ? 'success' : 'default'}
       className='font-semibold'
       startContent={on ? <Check size={13} /> : <Minus size={13} />}
@@ -266,7 +266,7 @@ export function CategoriesPage() {
                 // does not say so is how a subcategory looks deleted.
                 <Chip
                   color='primary'
-                  variant='flat'
+                  variant='solid'
                   className='font-semibold'
                   endContent={
                     <button
@@ -283,7 +283,7 @@ export function CategoriesPage() {
                   {localName(selectedCat)}
                 </Chip>
               ) : (
-                <Chip variant='flat' className='font-semibold'>
+                <Chip variant='solid' className='font-semibold'>
                   {t('admin.subs.all')}
                 </Chip>
               )}

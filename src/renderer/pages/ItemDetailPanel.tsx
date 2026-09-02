@@ -169,14 +169,14 @@ export function ItemDetailPanel({
                     </span>
                     <Chip
                       size='sm'
-                      variant='flat'
+                      variant='solid'
                       color={g.is_required ? 'warning' : 'default'}
                       className='font-semibold'
                     >
                       {g.is_required ? t('common.required') : t('common.optional')}
                     </Chip>
                     {g.max_select && Number(g.max_select) > 0 && (
-                      <Chip size='sm' variant='flat'>
+                      <Chip size='sm' variant='solid'>
                         {t('opts.maxChoices', { n: String(g.max_select) })}
                       </Chip>
                     )}

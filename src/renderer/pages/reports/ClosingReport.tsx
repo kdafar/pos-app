@@ -269,7 +269,7 @@ export default function ClosingReport() {
             <div className='flex flex-col items-start gap-1'>
               <Chip
                 size='sm'
-                variant='flat'
+                variant='solid'
                 color={isCancelled(row.original) ? 'danger' : 'default'}
                 className='font-semibold'
               >
@@ -301,7 +301,7 @@ export default function ClosingReport() {
           return (
             <Chip
               size='sm'
-              variant='flat'
+              variant='solid'
               color={inside ? 'success' : 'warning'}
               className='font-semibold'
             >
@@ -723,7 +723,7 @@ ${errLine(error, lang)}`); }
           <div className='flex flex-wrap items-center gap-2 no-print'>
             <Chip
               size='sm'
-              variant='flat'
+              variant='solid'
               color='primary'
               startContent={<Clock size={14} className='ms-1' />}
               className='font-semibold'

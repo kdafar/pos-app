@@ -417,7 +417,7 @@ export function LoginScreen() {
                       <Chip
                         key={u.id}
                         size='sm'
-                        variant='flat'
+                        variant='solid'
                         className='cursor-pointer bg-slate-100 hover:bg-slate-200 transition'
                         onClick={() => handleQuickUserClick(u)}
                       >
@@ -464,7 +464,7 @@ export function LoginScreen() {
                     <span className='opacity-80'>{t('auth.outbox')}</span>
                     <Chip
                       size='sm'
-                      variant='flat'
+                      variant='solid'
                       color={unsynced > 0 ? 'warning' : 'success'}
                       className='text-[11px]'
                     >

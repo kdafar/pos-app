@@ -66,7 +66,7 @@ function StatusChip({ active }: { active: any }) {
   return (
     <Chip
       size='sm'
-      variant='flat'
+      variant='solid'
       color={on ? 'success' : 'default'}
       className='font-semibold'
     >

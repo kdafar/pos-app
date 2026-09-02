@@ -111,7 +111,7 @@ const StatusBadge = ({ order }: { order: Order }) => {
     : null;
 
   return (
-    <Chip size='sm' color={tone} variant='flat' className='font-semibold'>
+    <Chip size='sm' color={tone} variant='solid' className='font-semibold'>
       {label || '—'}
     </Chip>
   );

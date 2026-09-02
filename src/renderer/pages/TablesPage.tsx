@@ -222,7 +222,7 @@ export default function TablesPage() {
           return (
             <Chip
               size='sm'
-              variant='flat'
+              variant='solid'
               color={STATUS_COLOR[s] ?? 'default'}
               className='font-semibold'
             >

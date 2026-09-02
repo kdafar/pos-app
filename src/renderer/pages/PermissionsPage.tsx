@@ -143,7 +143,7 @@ export default function PermissionsPage() {
                 </div>
                 <div className='min-w-0'>
                   <p className='font-semibold capitalize'>{roleLabel(role.role)}</p>
-                  <p className='truncate text-xs text-default-500'>
+                  <p className='truncate text-xs text-default-700'>
                     {role.users.length
                       ? t('permissions.appliesTo', { n: role.users.length })
                       : t('permissions.appliesToNobody')}
@@ -151,7 +151,7 @@ export default function PermissionsPage() {
                 </div>
               </div>
               <div className='text-end'>
-                <Chip size='sm' color='primary' variant='flat'>
+                <Chip size='sm' color='primary' variant='solid'>
                   {t('permissions.enabled', {
                     allowed: allowed.size,
                     total: PERMISSIONS.length,
@@ -160,7 +160,7 @@ export default function PermissionsPage() {
               </div>
             </div>
           ) : (
-            <div className='rounded-lg border border-dashed border-default-300 p-4 text-sm text-default-500'>
+            <div className='rounded-lg border border-dashed border-default-300 p-4 text-sm text-default-700'>
               {t('permissions.noRoles')}
             </div>
           )}
@@ -203,7 +203,7 @@ export default function PermissionsPage() {
                   </div>
                   <div className='flex flex-wrap gap-1.5'>
                     {role.users.map((u) => (
-                      <Chip key={u.id} size='sm' variant='flat'>
+                      <Chip key={u.id} size='sm' variant='solid'>
                         {u.name}
                       </Chip>
                     ))}
@@ -220,7 +220,7 @@ export default function PermissionsPage() {
                     <div className='mb-3 flex justify-between'>
                       <div>
                         <h2 className='font-semibold'>{t(group.title)}</h2>
-                        <p className='text-xs text-default-500'>{t(group.help)}</p>
+                        <p className='text-xs text-default-700'>{t(group.help)}</p>
                       </div>
                       <ShieldCheck size={19} className='text-primary' />
                     </div>
@@ -259,7 +259,7 @@ export default function PermissionsPage() {
                     {t('permissions.saved')}
                   </span>
                 ) : (
-                  <span className='text-sm text-default-500'>
+                  <span className='text-sm text-default-700'>
                     {changed ? t('permissions.unsaved') : t('permissions.current')}
                   </span>
                 )}

@@ -64,7 +64,7 @@ export function TableQuickBar({
             >
               {t.name}
               {t.seats ? (
-                <span className="ms-1 opacity-70 text-[10px] money">({t.seats})</span>
+                <span className="ms-1 text-[10px] money">({t.seats})</span>
               ) : null}
             </button>
           );

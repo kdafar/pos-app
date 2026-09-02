@@ -118,7 +118,7 @@ export function OrderLineItem({
           <div className='mt-1 space-y-1'>
             {hasVariation && (
               <div className='flex flex-wrap items-center gap-1'>
-                <Chip size='sm' variant='flat' color='primary' className='font-semibold'>
+                <Chip size='sm' variant='solid' color='primary' className='font-semibold'>
                   {line.variation}
                 </Chip>
               </div>
@@ -130,7 +130,7 @@ export function OrderLineItem({
                   <Chip
                     key={idx}
                     size='sm'
-                    variant='flat'
+                    variant='solid'
                     color='success'
                     className='font-semibold'
                   >

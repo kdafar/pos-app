@@ -380,7 +380,7 @@ export default function OrderSide({
               <div className='flex flex-col items-end gap-1.5'>
                 <Chip
                   size='md'
-                  variant='flat'
+                  variant='solid'
                   color='primary'
                   className='font-semibold'
                 >
@@ -392,7 +392,7 @@ export default function OrderSide({
                     {/* Main order locked badge */}
                     <Chip
                       size='sm'
-                      variant='flat'
+                      variant='solid'
                       color='warning'
                       className='font-semibold'
                       startContent={<Lock size={14} />}
@@ -404,7 +404,7 @@ export default function OrderSide({
                     {hasPendingNewItems && (
                       <Chip
                         size='sm'
-                        variant='flat'
+                        variant='solid'
                         color='success'
                         className='font-semibold'
                         startContent={

@@ -105,7 +105,7 @@ function StatusBadge({ promo }: { promo: Promo }) {
     : { label: t('admin.promos.expired'), color: 'danger' as const };
 
   return (
-    <Chip size='sm' variant='flat' color={color} className='font-semibold'>
+    <Chip size='sm' variant='solid' color={color} className='font-semibold'>
       {label}
     </Chip>
   );

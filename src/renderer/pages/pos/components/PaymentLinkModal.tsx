@@ -157,7 +157,7 @@ export function PaymentLinkModal({
             {status === 'paid' && (
               <Chip
                 size='sm'
-                variant='flat'
+                variant='solid'
                 color='success'
                 className='font-semibold'
               >
@@ -167,7 +167,7 @@ export function PaymentLinkModal({
             {status === 'failed' && (
               <Chip
                 size='sm'
-                variant='flat'
+                variant='solid'
                 color='danger'
                 className='font-semibold'
               >

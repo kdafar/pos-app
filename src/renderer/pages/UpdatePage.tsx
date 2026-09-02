@@ -4,9 +4,16 @@
 // checks, downloads and applies on quit (src/main/updater.ts); this screen
 // makes that visible and gives the operator the two decisions that are
 // genuinely theirs: check now, and restart now instead of at closing time.
+//
+// Built from the same pieces as every other admin screen — PageShell for the
+// frame, Card/CardBody for sections — rather than the hand-rolled header and
+// rounded-2xl panels this page grew on its own. It also drops the tinted
+// surfaces (`bg-primary/10`, `bg-success/15`) it used to signal state with:
+// per StatCard, the accent is a border and an icon on a neutral surface, so a
+// status reads at a glance instead of washing out at arm's length.
 
-import { useMemo } from 'react';
-import { Button } from '@heroui/react';
+import { useMemo, type ReactNode } from 'react';
+import { Button, Card, CardBody, Chip } from '@heroui/react';
 import {
   RefreshCw,
   Download,
@@ -23,24 +30,39 @@ import { useI18n } from '../i18n';
 import { useUpdate, type UpdateState } from '../hooks/useUpdate';
 import { useToast } from '../components/ToastProvider';
 import { useConfirmDialog } from '../components/ConfirmDialogProvider';
+import { PageShell } from '../components/PageShell';
 
 type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
-const TONE_RING: Record<Tone, string> = {
-  neutral: 'border-default-200',
-  info: 'border-primary/40',
-  success: 'border-success/40',
-  warning: 'border-warning/40',
-  danger: 'border-danger/40',
+/**
+ * One accent per tone, as a border and an icon colour.
+ *
+ * Never a fill: a tinted panel is the thing that made this page unreadable on
+ * the dark theme, and a status the operator has to lean in to read is a status
+ * they will miss.
+ */
+const TONE: Record<Tone, { border: string; icon: string }> = {
+  neutral: { border: 'border-s-default-300', icon: 'text-default-700' },
+  info: { border: 'border-s-primary', icon: 'text-primary' },
+  success: { border: 'border-s-success', icon: 'text-success' },
+  warning: { border: 'border-s-warning', icon: 'text-warning' },
+  danger: { border: 'border-s-danger', icon: 'text-danger' },
 };
 
-const TONE_ICON: Record<Tone, string> = {
-  neutral: 'bg-default-100 text-default-700',
-  info: 'bg-primary/15 text-primary',
-  success: 'bg-success/15 text-success',
-  warning: 'bg-warning/15 text-warning',
-  danger: 'bg-danger/15 text-danger',
-};
+/** Section heading, one size, so the page has a single visual rhythm. */
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <h2 className='text-base font-bold text-foreground'>{children}</h2>;
+}
+
+/**
+ * A label above a value. Was `text-[10px]` with wide letter-spacing, which is
+ * unreadable across a counter — the shared StatCard label size instead.
+ */
+function FieldLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className='text-sm font-semibold text-default-700'>{children}</div>
+  );
+}
 
 function formatBytes(n: number): string {
   if (!n || n < 0) return '—';
@@ -82,6 +104,8 @@ export function UpdatePage() {
     state.status !== 'downloading' &&
     state.status !== 'disabled';
 
+  const checking = busy || state.status === 'checking';
+
   const onInstall = async () => {
     if (!readyVersion) return;
     const ok = await confirm({
@@ -100,160 +124,239 @@ export function UpdatePage() {
     }
   };
 
+  const steps: [number, typeof RefreshCw, string, string][] = [
+    [1, RefreshCw, t('update.stepCheck'), t('update.stepCheckHelp')],
+    [2, Download, t('update.stepDownload'), t('update.stepDownloadHelp')],
+    [3, Rocket, t('update.stepInstall'), t('update.stepInstallHelp')],
+  ];
+
+  const tips: [typeof Wifi, string][] = [
+    [Wifi, t('update.helpInternet')],
+    [Clock3, t('update.helpOrders')],
+    [Power, t('update.helpPower')],
+  ];
+
   return (
-    <div className='max-w-5xl mx-auto p-4 md:p-6 space-y-5'>
-      {/* Header */}
-      <header className='rounded-2xl border border-default-200 bg-content1 p-5 md:p-7 shadow-sm'>
-        <div className='relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between'>
-          <div className='max-w-2xl'>
-            <div className='mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary'>
-              <ShieldCheck size={14} /> {t('update.safeBadge')}
+    <PageShell
+      title={t('update.title')}
+      subtitle={t('update.subtitle')}
+      primaryAction={
+        <Button
+          color={state.status === 'error' ? 'primary' : 'default'}
+          variant={state.status === 'error' ? 'solid' : 'flat'}
+          onPress={check}
+          isLoading={checking}
+          isDisabled={!canCheck}
+          startContent={checking ? undefined : <RefreshCw size={17} />}
+        >
+          {state.status === 'error' ? t('update.tryAgain') : t('update.checkNow')}
+        </Button>
+      }
+    >
+      <div className='space-y-4 min-w-0'>
+        {/* Status — the reason the page exists, so it leads. */}
+        <Card
+          shadow='none'
+          className={`border border-default-200 border-s-4 ${TONE[view.tone].border} bg-content1`}
+        >
+          <CardBody className='gap-0' aria-live='polite'>
+            {/* Wraps on a narrow till: the icon and text stop being a row
+                before the title has to hyphenate. */}
+            <div className='flex items-start gap-3 min-w-0'>
+              <view.Icon
+                size={26}
+                className={`shrink-0 mt-0.5 ${TONE[view.tone].icon} ${
+                  state.status === 'checking' ? 'animate-spin' : ''
+                }`}
+              />
+
+              <div className='min-w-0 flex-1'>
+                <div className='text-lg font-bold text-foreground'>
+                  {view.title}
+                </div>
+                {view.hint && (
+                  <div className='mt-0.5 text-sm text-default-700'>
+                    {view.hint}
+                  </div>
+                )}
+
+                {state.status === 'downloading' && (
+                  <div className='mt-3'>
+                    <div
+                      className='h-3 w-full rounded-full bg-default-200 overflow-hidden'
+                      role='progressbar'
+                      aria-valuenow={state.percent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <div
+                        className='h-full bg-primary transition-[width] duration-300'
+                        style={{
+                          width: `${Math.min(100, Math.max(0, state.percent))}%`,
+                        }}
+                      />
+                    </div>
+                    <div
+                      className='mt-1 text-sm font-semibold text-default-700 money'
+                      dir='ltr'
+                    >
+                      {state.percent}%
+                    </div>
+                  </div>
+                )}
+
+                {/* Raw error text from the network stack — never translated. */}
+                {state.status === 'error' && (
+                  <pre
+                    className='mt-3 max-h-32 overflow-auto rounded-lg border border-default-200 bg-default-100 p-2 text-xs whitespace-pre-wrap break-all'
+                    dir='ltr'
+                  >
+                    {state.message}
+                  </pre>
+                )}
+
+                {view.notes && (
+                  <div className='mt-3'>
+                    <FieldLabel>{t('update.releaseNotes')}</FieldLabel>
+                    <pre className='mt-1 max-h-48 overflow-auto rounded-lg border border-default-200 bg-default-100 p-2 text-xs whitespace-pre-wrap'>
+                      {view.notes}
+                    </pre>
+                  </div>
+                )}
+
+                {/* The restart decision belongs with the status that prompts
+                    it, not stranded at the bottom of the page. */}
+                {readyVersion && (
+                  <Button
+                    color='primary'
+                    className='mt-4 w-full sm:w-auto'
+                    onPress={onInstall}
+                    startContent={<Rocket size={16} />}
+                  >
+                    {t('update.installNow')}
+                  </Button>
+                )}
+              </div>
             </div>
-            <h1 className='text-2xl md:text-3xl font-bold'>{t('update.title')}</h1>
-            <p className='mt-2 text-sm md:text-base text-default-700'>{t('update.subtitle')}</p>
-          </div>
-          <Button color={state.status === 'error' ? 'primary' : 'default'} variant={state.status === 'error' ? 'solid' : 'flat'} onPress={check} isLoading={busy || state.status === 'checking'} isDisabled={!canCheck} startContent={busy || state.status === 'checking' ? undefined : <RefreshCw size={17} />}>
-            {state.status === 'error' ? t('update.tryAgain') : t('update.checkNow')}
-          </Button>
-        </div>
-      </header>
+          </CardBody>
+        </Card>
 
-      {/* Version / last check */}
-      <section className='rounded-2xl border border-default-200 bg-content1 p-4 flex flex-wrap items-center justify-between gap-4 shadow-sm'>
-        <div>
-          <div className='text-[10px] uppercase tracking-[0.18em] text-default-700'>
-            {t('update.installedVersion')}
-          </div>
-          {/* Versions are identifiers — always Latin, always LTR. */}
-          <div className='font-mono text-lg font-semibold' dir='ltr'>
-            v{currentVersion || '—'}
-          </div>
-        </div>
-
-        <div className='text-end'>
-          <div className='text-[10px] uppercase tracking-[0.18em] text-default-700'>
-            {t('update.lastChecked')}
-          </div>
-          <div className='text-sm'>{lastCheckedText}</div>
-        </div>
-      </section>
-
-      <div className='grid gap-5 lg:grid-cols-[minmax(0,1fr)_290px]'>
-      <main className='space-y-5'>
-      {/* Status */}
-      <section
-        className={`rounded-2xl border bg-content1 p-5 md:p-6 shadow-sm ${TONE_RING[view.tone]}`}
-        aria-live='polite'
-      >
-        <div className='flex items-start gap-3'>
-          <div
-            className={`shrink-0 h-12 w-12 rounded-xl flex items-center justify-center ${
-              TONE_ICON[view.tone]
-            }`}
+        {/* Facts. Two up from the smallest breakpoint — they are short. */}
+        <div className='grid gap-4 sm:grid-cols-2 min-w-0'>
+          <Card
+            shadow='none'
+            className='border border-default-200 bg-content1 min-w-0'
           >
-            <view.Icon
-              size={22}
-              className={state.status === 'checking' ? 'animate-spin' : ''}
-            />
-          </div>
-
-          <div className='min-w-0 flex-1'>
-            <div className='text-lg font-bold'>{view.title}</div>
-            {view.hint && (
-              <div className='mt-0.5 text-sm text-default-700'>
-                {view.hint}
-              </div>
-            )}
-
-            {/* Download progress */}
-            {state.status === 'downloading' && (
-              <div className='mt-3'>
-                <div className='h-3 w-full rounded-full bg-default-100 overflow-hidden'>
-                  <div
-                    className='h-full bg-primary transition-[width] duration-300'
-                    style={{
-                      width: `${Math.min(100, Math.max(0, state.percent))}%`,
-                    }}
-                  />
-                </div>
-                <div className='mt-1 text-xs text-default-700 font-mono' dir='ltr'>
-                  {state.percent}%
-                </div>
-              </div>
-            )}
-
-            {/* Raw error text from the network stack — never translated. */}
-            {state.status === 'error' && (
-              <pre
-                className='mt-3 max-h-32 overflow-auto rounded-lg bg-default-100 p-2 text-xs whitespace-pre-wrap break-all'
+            <CardBody className='gap-1'>
+              <FieldLabel>{t('update.installedVersion')}</FieldLabel>
+              {/* Versions are identifiers — always Latin, always LTR. */}
+              <div
+                className='font-mono text-xl font-bold text-foreground truncate'
                 dir='ltr'
               >
-                {state.message}
-              </pre>
-            )}
-
-            {/* Release notes */}
-            {view.notes && (
-              <div className='mt-3'>
-                <div className='text-[10px] uppercase tracking-[0.18em] text-default-700 mb-1'>
-                  {t('update.releaseNotes')}
-                </div>
-                <pre className='max-h-48 overflow-auto rounded-lg bg-default-100 p-2 text-xs whitespace-pre-wrap'>
-                  {view.notes}
-                </pre>
+                v{currentVersion || '—'}
               </div>
-            )}
-          </div>
-        </div>
-      </section>
+            </CardBody>
+          </Card>
 
-      <section className='rounded-2xl border border-default-200 bg-content1 p-5 shadow-sm'>
-        <h2 className='font-bold'>{t('update.howItWorks')}</h2>
-        <div className='mt-4 grid gap-3 sm:grid-cols-3'>
-          {[
-            [1, RefreshCw, t('update.stepCheck'), t('update.stepCheckHelp')],
-            [2, Download, t('update.stepDownload'), t('update.stepDownloadHelp')],
-            [3, Rocket, t('update.stepInstall'), t('update.stepInstallHelp')],
-          ].map(([n, Icon, title, help]: any) => (
-            <div key={n} className={`rounded-xl border p-3 ${stage >= n ? 'border-primary/40 bg-primary/5' : 'border-default-200'}`}>
-              <div className='flex items-center gap-2'>
-                <div className={`grid h-8 w-8 place-items-center rounded-full ${stage >= n ? 'bg-primary text-primary-foreground' : 'bg-default-100 text-default-700'}`}><Icon size={15} /></div>
-                <span className='font-semibold'>{title}</span>
-              </div>
-              <p className='mt-2 text-xs leading-5 text-default-700'>{help}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Actions */}
-      <div className='flex flex-wrap items-center gap-2'>
-        {readyVersion && (
-          <Button
-            color='primary'
-            onClick={onInstall}
-            startContent={<Rocket size={16} />}
+          <Card
+            shadow='none'
+            className='border border-default-200 bg-content1 min-w-0'
           >
-            {t('update.installNow')}
-          </Button>
-        )}
+            <CardBody className='gap-1'>
+              <FieldLabel>{t('update.lastChecked')}</FieldLabel>
+              <div className='text-base font-semibold text-foreground'>
+                {lastCheckedText}
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+
+        {/* The two explainers sit side by side only once there is genuinely
+            room for two columns of prose. */}
+        <div className='grid gap-4 xl:grid-cols-2 min-w-0'>
+          <Card
+            shadow='none'
+            className='border border-default-200 bg-content1 min-w-0'
+          >
+            <CardBody className='gap-4'>
+              <SectionTitle>{t('update.howItWorks')}</SectionTitle>
+
+              <div className='grid gap-3 sm:grid-cols-3 xl:grid-cols-1 min-w-0'>
+                {steps.map(([n, Icon, title, help]) => {
+                  const done = stage >= n;
+                  return (
+                    <div
+                      key={n}
+                      className={`rounded-lg border p-3 min-w-0 ${
+                        done ? 'border-primary' : 'border-default-200'
+                      }`}
+                    >
+                      <div className='flex items-center gap-2 min-w-0'>
+                        <div
+                          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${
+                            done
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-default-200 text-default-700'
+                          }`}
+                        >
+                          <Icon size={15} />
+                        </div>
+                        <span className='font-semibold text-foreground truncate'>
+                          {title}
+                        </span>
+                      </div>
+                      <p className='mt-2 text-sm leading-5 text-default-700'>
+                        {help}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card
+            shadow='none'
+            className='border border-default-200 bg-content1 min-w-0'
+          >
+            <CardBody className='gap-4'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <SectionTitle>{t('update.beforeRestart')}</SectionTitle>
+                <Chip
+                  size='sm'
+                  color='primary'
+                  variant='solid'
+                  className='font-semibold'
+                  startContent={<ShieldCheck size={14} />}
+                >
+                  {t('update.safeBadge')}
+                </Chip>
+              </div>
+
+              <div className='space-y-3'>
+                {tips.map(([Icon, text]) => (
+                  <div
+                    key={text}
+                    className='flex gap-3 text-sm text-default-700 min-w-0'
+                  >
+                    <Icon
+                      className='mt-0.5 shrink-0 text-primary'
+                      size={18}
+                    />
+                    <span className='min-w-0'>{text}</span>
+                  </div>
+                ))}
+              </div>
+
+              <p className='text-sm leading-5 text-default-700 border-t border-default-200 pt-3'>
+                {t('update.autoNote')}
+              </p>
+            </CardBody>
+          </Card>
+        </div>
       </div>
-      </main>
-      <aside className='space-y-4'>
-        <section className='rounded-2xl border border-default-200 bg-content1 p-5 shadow-sm'>
-          <h2 className='font-bold'>{t('update.beforeRestart')}</h2>
-          <div className='mt-4 space-y-4'>
-            {[[Wifi, t('update.helpInternet')], [Clock3, t('update.helpOrders')], [Power, t('update.helpPower')]].map(([Icon, text]: any) => (
-              <div key={text} className='flex gap-3 text-sm text-default-700'><Icon className='mt-0.5 shrink-0 text-primary' size={18} /><span>{text}</span></div>
-            ))}
-          </div>
-        </section>
-        <section className='rounded-2xl border border-default-200 bg-default-50 p-4'>
-          <div className='text-xs leading-5 text-default-700'>{t('update.autoNote')}</div>
-        </section>
-      </aside>
-      </div>
-    </div>
+    </PageShell>
   );
 }
 

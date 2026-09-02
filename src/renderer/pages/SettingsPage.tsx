@@ -440,7 +440,7 @@ export function SettingsPage() {
           return (
             <Chip
               size='sm'
-              variant='flat'
+              variant='solid'
               color={s === 'meta' ? 'primary' : 'warning'}
               className='font-semibold'
             >
@@ -529,7 +529,7 @@ export function SettingsPage() {
       onRefresh={refresh}
       refreshing={loading}
       primaryAction={
-        <Chip color='warning' variant='flat' className='font-semibold'>
+        <Chip color='warning' variant='solid' className='font-semibold'>
           {t('admin.readOnly')}
         </Chip>
       }
@@ -646,7 +646,7 @@ export function SettingsPage() {
                   value={widthDraft}
                   onValueChange={setWidthDraft}
                   onBlur={commitPaper}
-                  endContent={<span className='text-sm text-default-500'>mm</span>}
+                  endContent={<span className='text-sm text-default-700'>mm</span>}
                   className='w-40'
                   min={10}
                   max={210}
@@ -658,7 +658,7 @@ export function SettingsPage() {
                   value={heightDraft}
                   onValueChange={setHeightDraft}
                   onBlur={commitPaper}
-                  endContent={<span className='text-sm text-default-500'>mm</span>}
+                  endContent={<span className='text-sm text-default-700'>mm</span>}
                   className='w-40'
                   min={0}
                   max={2000}

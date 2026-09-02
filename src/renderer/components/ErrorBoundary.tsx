@@ -65,12 +65,12 @@ function CrashScreen({ error, onReset }: { error: Error; onReset: () => void }) 
         {/* English, LTR, small: this is for whoever is on the phone to support,
             not for the person serving the queue. */}
         <details className='mt-5 text-start'>
-          <summary className='cursor-pointer text-sm font-semibold text-default-600'>
+          <summary className='cursor-pointer text-sm font-semibold text-default-700'>
             {t('error.details')}
           </summary>
           <pre
             dir='ltr'
-            className='mt-2 max-h-40 overflow-auto rounded-lg bg-default-100 p-3 text-start text-xs text-default-600'
+            className='mt-2 max-h-40 overflow-auto rounded-lg bg-default-100 p-3 text-start text-xs text-default-700'
           >
             {stripIpcWrapper(error.message || String(error))}
             {error.stack ? `\n\n${error.stack}` : ''}

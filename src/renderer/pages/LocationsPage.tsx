@@ -56,7 +56,7 @@ function ActiveChip({ value }: { value: any }) {
   return (
     <Chip
       size='sm'
-      variant='flat'
+      variant='solid'
       color={on ? 'success' : 'default'}
       className='font-semibold'
     >
@@ -83,7 +83,7 @@ function SectionHeading({
       {filterLabel && (
         <Chip
           color='primary'
-          variant='flat'
+          variant='solid'
           className='font-semibold'
           endContent={
             <button

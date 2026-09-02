@@ -160,12 +160,12 @@ export function DeliveryFeeRow({
       <span className={`text-[13px] ${muted} flex-1 min-w-0 truncate`}>
         {t('cart.deliveryFee')}
         {isWaived && (
-          <span className='ms-1 text-[10px] uppercase tracking-wide opacity-70'>
+          <span className='ms-1 text-[10px] uppercase tracking-wide font-semibold'>
             {t('cart.waived')}
           </span>
         )}
         {isManual && !isWaived && (
-          <span className='ms-1 text-[10px] uppercase tracking-wide opacity-70'>
+          <span className='ms-1 text-[10px] uppercase tracking-wide font-semibold'>
             {t('cart.manual')}
           </span>
         )}

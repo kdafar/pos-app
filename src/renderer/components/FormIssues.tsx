@@ -178,7 +178,7 @@ export function ValidationSummary({
                     ? t('error.oneLeft')
                     : t('error.manyLeft', { count: issues.length })}
                 </div>
-                <div className='text-[14px] font-medium leading-tight text-default-600'>
+                <div className='text-[14px] font-medium leading-tight text-default-700'>
                   {t('error.fixToContinue')}
                 </div>
               </div>
@@ -187,7 +187,7 @@ export function ValidationSummary({
                   type='button'
                   onClick={onDismiss}
                   aria-label={t('toast.dismiss')}
-                  className='grid h-8 w-8 shrink-0 place-items-center rounded-lg text-default-500 hover:bg-default-100 hover:text-foreground'
+                  className='grid h-8 w-8 shrink-0 place-items-center rounded-lg text-default-700 hover:bg-default-100 hover:text-foreground'
                 >
                   <X className='h-4 w-4' />
                 </button>

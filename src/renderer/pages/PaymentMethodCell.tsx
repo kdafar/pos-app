@@ -182,7 +182,7 @@ export function PaymentMethodCell({
       <ModalContent>
         <ModalHeader>{t('admin.orders.sendPayLink')}</ModalHeader>
         <ModalBody>
-          <p className='text-sm text-default-600'>{t('admin.orders.sendPayLinkHelp')}</p>
+          <p className='text-sm text-default-700'>{t('admin.orders.sendPayLinkHelp')}</p>
           <Input
             label={t('cust.mobile')}
             value={mobileValue}
@@ -191,7 +191,7 @@ export function PaymentMethodCell({
             isInvalid={!!error}
             errorMessage={error}
           />
-          <div className='text-sm text-default-600'>
+          <div className='text-sm text-default-700'>
             {orderNumber ? `#${orderNumber} · ` : ''}{amount.toFixed(3)} KWD
           </div>
         </ModalBody>

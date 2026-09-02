@@ -105,7 +105,7 @@ export function ItemsPage() {
               {v && (
                 <Chip
                   size='sm'
-                  variant='flat'
+                  variant='solid'
                   color='warning'
                   className='font-semibold'
                 >
@@ -115,7 +115,7 @@ export function ItemsPage() {
               {a && (
                 <Chip
                   size='sm'
-                  variant='flat'
+                  variant='solid'
                   color='secondary'
                   className='font-semibold'
                 >
@@ -161,7 +161,7 @@ export function ItemsPage() {
           return (
             <Chip
               size='sm'
-              variant='flat'
+              variant='solid'
               color={out ? 'danger' : 'success'}
               className='font-semibold'
             >

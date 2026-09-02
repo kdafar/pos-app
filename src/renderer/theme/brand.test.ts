@@ -75,6 +75,95 @@ describe('buildRamp', () => {
   });
 });
 
+/**
+ * The dark ramp is not a style choice — HeroUI's own components are written
+ * against it. `<Chip variant="flat">` renders `bg-primary/20 text-primary-600`
+ * in BOTH themes and depends on step 600 flipping from dark to light. Serving
+ * one light-oriented ramp to both is what put unreadable dark-blue text on a
+ * dark fill.
+ */
+describe('dark ramp', () => {
+  const base = parseHex('#2563eb')!;
+  const L = (vars: Record<string, string>, step: string) =>
+    Number(vars[`--heroui-primary-${step}`].split(' ')[2].replace('%', ''));
+
+  it('lightens monotonically from 50 to 900, the reverse of light', () => {
+    const dark = buildRamp('primary', base, 'dark');
+    const steps = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900'];
+    for (let i = 1; i < steps.length; i++) {
+      expect(L(dark, steps[i])).toBeGreaterThan(L(dark, steps[i - 1]));
+    }
+  });
+
+  it('mirrors the light ramp step for step', () => {
+    const light = buildRamp('primary', base, 'light');
+    const dark = buildRamp('primary', base, 'dark');
+    const steps = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900'];
+    steps.forEach((step, i) => {
+      expect(L(dark, step)).toBe(L(light, steps[steps.length - 1 - i]));
+    });
+  });
+
+  /**
+   * The exact case from the bug report: a "Pickup" chip and a price badge
+   * rendered as dark blue on a dark fill. Step 600 is the label colour a flat
+   * chip uses, so on the dark theme it has to be light enough to read.
+   */
+  it('gives a flat chip a label that reads on a dark surface', () => {
+    expect(L(buildRamp('primary', base, 'dark'), '600')).toBeGreaterThanOrEqual(58);
+    expect(L(buildRamp('primary', base, 'light'), '600')).toBeLessThanOrEqual(46);
+  });
+
+  it('defaults to the light ramp when no theme is named', () => {
+    expect(buildRamp('primary', base)).toEqual(buildRamp('primary', base, 'light'));
+  });
+
+  /**
+   * HeroUI's published dark ramp for its default blue, as a sanity anchor:
+   * 500 #338ef7 (L 58%), 600 #66aaf9 (L 69%), 700 #99c7fb (L 79%).
+   */
+  it("tracks HeroUI's own published dark steps", () => {
+    const dark = buildRamp('primary', base, 'dark');
+    expect(L(dark, '500')).toBe(58);
+    expect(L(dark, '600')).toBe(69);
+    expect(L(dark, '700')).toBeCloseTo(80, 0);
+  });
+});
+
+/**
+ * A solid chip is `bg-primary` + `text-primary-foreground`. The foreground has
+ * to stay WHITE on an ordinary brand in both themes: lifting the dark theme's
+ * fill for text legibility once made it pale enough to flip to black, which
+ * shipped as black text on a blue "Pickup" badge.
+ */
+describe('solid fill foreground', () => {
+  const fgOf = (hex: string, on: 'light' | 'dark') =>
+    buildRamp('primary', parseHex(hex)!, on)['--heroui-primary-foreground'];
+
+  const WHITE = '0 0% 100%';
+  const BLACK = '0 0% 0%';
+
+  it('is white on the brand blue, on both themes', () => {
+    expect(fgOf('#2563eb', 'light')).toBe(WHITE);
+    expect(fgOf('#2563eb', 'dark')).toBe(WHITE);
+  });
+
+  it('does not depend on the theme — the fill is the same colour in both', () => {
+    for (const hex of ['#2563eb', '#f97316', '#0f172a', '#ffd60a']) {
+      expect(fgOf(hex, 'dark')).toBe(fgOf(hex, 'light'));
+    }
+  });
+
+  it('still puts black on a brand too pale to carry white', () => {
+    expect(fgOf('#ffd60a', 'dark')).toBe(BLACK); // yellow
+    expect(fgOf('#7fffd4', 'dark')).toBe(BLACK); // aquamarine
+  });
+
+  it('puts white on a brand too dark to carry black', () => {
+    expect(fgOf('#0f172a', 'light')).toBe(WHITE); // navy
+  });
+});
+
 describe('readableL', () => {
   it('lifts a dark brand so it can be read on the dark theme', () => {
     // A navy brand (~20% lightness) as bare text-primary on a dark surface is

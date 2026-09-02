@@ -162,7 +162,7 @@ export function DataTable<T>({
                         ) : (
                           <ChevronsUpDown
                             size={14}
-                            className='text-default-400'
+                            className='text-default-700'
                           />
                         )}
                       </button>

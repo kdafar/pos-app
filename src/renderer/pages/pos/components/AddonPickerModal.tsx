@@ -294,7 +294,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                         <div className='flex flex-wrap items-center gap-2'>
                           <Chip
                             size='sm'
-                            variant='flat'
+                            variant='solid'
                             color='danger'
                             className='font-semibold'
                           >
@@ -366,7 +366,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                             <div className='flex flex-wrap items-center gap-2'>
                               <Chip
                                 size='sm'
-                                variant='flat'
+                                variant='solid'
                                 color={isRequired ? 'danger' : 'success'}
                                 className='font-semibold'
                               >
@@ -385,7 +385,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                           {selectedCount > 0 && (
                             <Chip
                               size='sm'
-                              variant='flat'
+                              variant='solid'
                               color='primary'
                               className='shrink-0 font-semibold'
                               startContent={<Check size={13} />}
