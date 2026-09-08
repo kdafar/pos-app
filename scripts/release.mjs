@@ -7,7 +7,8 @@
  * Asks what to build, then does the whole sequence in the right order and
  * verifies the result — so none of it has to be remembered:
  *
- *   version bump → tests → typecheck diff → build → package → verify artifacts
+ *   version bump → tests → typecheck diff → GitHub release → build → package
+ *   → verify artifacts → verify the release is complete
  *
  * Everything is guarded. It refuses to package if tests fail, it defaults to
  * --publish never (publishing reaches every till within ~6h via auto-update),
@@ -75,6 +76,80 @@ function bump(v, kind) {
   if (kind === 'major') return `${maj + 1}.0.0`;
   if (kind === 'minor') return `${maj}.${min + 1}.0`;
   return `${maj}.${min}.${pat + 1}`;
+}
+
+/* ------------------------------- GitHub -------------------------------- */
+// Why this exists: electron-builder creates one publisher per artifact, and
+// PublishManager's publisher cache is written *after* an await — so two
+// artifacts entering getOrCreatePublisher in the same tick each end up with
+// their own publisher. Each then runs getOrCreateRelease(), each sees no
+// release, and each POSTs /releases for the same tag. One wins; the loser gets
+//   422 Validation Failed — "Published releases must have a valid tag"
+// which kills the run mid-upload and leaves a *published* release on GitHub
+// holding only a .blockmap — no installer, no latest.yml. Every paired till
+// then 404s on its update check until somebody notices.
+//
+// Creating the release before electron-builder runs removes the race: both
+// publishers find it on the GET, so neither one POSTs.
+
+const ghToken = () => process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '';
+
+/** owner/repo from build.publish, so this cannot drift from what the builder uses. */
+function ghTarget() {
+  const cfg = (readPkg().build?.publish || []).find((c) => c.provider === 'github');
+  return cfg?.owner && cfg?.repo ? { owner: cfg.owner, repo: cfg.repo } : null;
+}
+
+async function gh(pathname, { method = 'GET', body } = {}) {
+  const res = await fetch(`https://api.github.com${pathname}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${ghToken()}`,
+      accept: 'application/vnd.github+json',
+      'x-github-api-version': '2022-11-28',
+      'user-agent': 'pos-app-release',
+      ...(body ? { 'content-type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    /* GitHub error bodies are not always JSON */
+  }
+  if (!res.ok) {
+    throw new Error(
+      `GitHub ${method} ${pathname} → ${res.status} ${json?.message || text.slice(0, 300)}`
+    );
+  }
+  return json;
+}
+
+/** The release electron-builder will upload into. Created if it is not there yet. */
+async function ensureRelease(owner, repo, version) {
+  const tag = `v${version}`;
+  // The same lookup electron-builder does: list releases and match tag_name
+  // against both `v<version>` and `<version>`. It never GETs by tag, because a
+  // draft release has no git tag to GET by.
+  const releases = await gh(`/repos/${owner}/${repo}/releases?per_page=100`);
+  const found = releases.find((r) => r.tag_name === tag || r.tag_name === version);
+  if (found) return { release: found, created: false };
+  // draft/prerelease false to match build.publish[].releaseType === 'release'.
+  // On a mismatch electron-builder decides the existing release is not
+  // compatible with what it is publishing and uploads nothing at all.
+  const release = await gh(`/repos/${owner}/${repo}/releases`, {
+    method: 'POST',
+    body: { tag_name: tag, name: tag, draft: false, prerelease: false },
+  });
+  return { release, created: true };
+}
+
+/** Names of the assets actually on the release. */
+async function releaseAssets(owner, repo, version) {
+  const r = await gh(`/repos/${owner}/${repo}/releases/tags/v${version}`);
+  return (r.assets || []).map((a) => a.name);
 }
 
 /* --------------------------- release contents -------------------------- */
@@ -216,8 +291,28 @@ async function main() {
   }
   rl?.close();
 
+  // Resolve publishing prerequisites before the expensive part, not after a
+  // ten-minute build.
+  let ghRepo = null;
+  if (publish) {
+    ghRepo = ghTarget();
+    if (!ghRepo) {
+      fail('build.publish has no github provider with owner/repo — cannot publish.');
+      process.exitCode = 1;
+      return;
+    }
+    if (!ghToken()) {
+      fail(
+        'GH_TOKEN (or GITHUB_TOKEN) is not set — electron-builder cannot publish.\n' +
+          '       Set it in this shell and re-run.'
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   /* ---- execution ---- */
-  const total = 6;
+  const total = publish ? 8 : 6;
   let n = 0;
 
   step(++n, total, 'Pre-flight');
@@ -307,6 +402,24 @@ async function main() {
     ok(`package.json set to ${version}`);
   } else ok(`kept at ${version}`);
 
+  if (publish) {
+    step(++n, total, 'GitHub release');
+    const { release, created } = await ensureRelease(ghRepo.owner, ghRepo.repo, version);
+    ok(
+      `${created ? 'created' : 'reusing'} ${release.tag_name}  ${C.dim(release.html_url)}`
+    );
+    // electron-builder refuses to upload into a release published more than two
+    // hours ago: it logs a warning, skips every asset, and still exits 0.
+    const age = Date.now() - Date.parse(release.published_at || release.created_at);
+    if (!created && age > 2 * 3600 * 1000) {
+      warn(
+        'that release is over 2 hours old — electron-builder will skip every\n' +
+          '       upload and still exit 0. Delete it on GitHub and re-run, or set\n' +
+          '       EP_GH_IGNORE_TIME=true.'
+      );
+    }
+  }
+
   step(++n, total, 'Build & package');
   const outDir = path.join(ROOT, 'release', version);
   if (fs.existsSync(outDir)) {
@@ -395,6 +508,31 @@ async function main() {
     }
     ok('electron-updater packaged (auto-update can run)');
   } else warn('app.asar not found — skipped content check');
+
+  if (publish) {
+    step(++n, total, 'Verify published assets');
+    // The failure this catches: the run dies after the release exists but
+    // before the installer and latest.yml are uploaded, leaving a live release
+    // that no till can update from. A zero exit code is not evidence.
+    const names = await releaseAssets(ghRepo.owner, ghRepo.repo, version);
+    // electron-builder replaces spaces with '-' in uploaded asset names.
+    const expected = exes.map((f) => f.replace(/ /g, '-'));
+    // latest.yml is the file the updater actually reads, and only NSIS emits it.
+    if (expected.some((f) => /Setup/i.test(f))) expected.push('latest.yml');
+    for (const f of expected.filter((f) => names.includes(f))) ok(`uploaded  ${f}`);
+    const missing = expected.filter((f) => !names.includes(f));
+    if (missing.length) {
+      fail(
+        `NOT uploaded: ${missing.join(', ')}\n` +
+          '       The release is live but incomplete — every till will fail its\n' +
+          '       update check. Delete the release on GitHub and re-run before\n' +
+          '       anyone pulls from it.'
+      );
+      process.exitCode = 1;
+      return;
+    }
+    ok('release is complete — tills can update');
+  }
 
   console.log(`\n${C.green(C.bold('  Done.'))}  release/${version}\n`);
   for (const f of exes) console.log(`    ${path.join('release', version, f)}`);

@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron';
 import https from 'node:https';
+import os from 'node:os';
 import { URL } from 'node:url';
 import axios from 'axios';
 import db, {
@@ -25,7 +26,10 @@ import { safePushStatus } from '../utils/serverStatus';
 import { loadSecretWithRetry } from '../secureStore';
 import { isCashPayment, tenderForWire } from '../../shared/cashChange';
 import { readOrCreateMachineId } from '../machineId';
-import { recoverDeviceIdFromOrders } from '../utils/deviceIdentity';
+import {
+  recoverDeviceIdFromOrders,
+  shouldAttemptReclaim,
+} from '../utils/deviceIdentity';
 import {
   backfillPaymentMethods,
   bootstrap,
@@ -49,6 +53,31 @@ import {
 import type { MainServices } from '../types/common';
 
 import { posError } from '../../shared/errorCodes';
+import { toAppError } from '../../shared/errors';
+
+/**
+ * Send whatever went wrong across IPC as a code rather than as a sentence.
+ *
+ * Without this an axios rejection reaches the renderer as
+ * "Error invoking remote method 'sync:pair': Request failed with status code
+ * 403" — a string with no status left on it to classify — and the renderer
+ * has nothing to show but "Something went wrong. Try again." Wrapping the
+ * handler is what lets a burnt pairing code say it is burnt.
+ */
+function classified<A extends unknown[], R>(
+  fn: (...args: A) => Promise<R>
+): (...args: A) => Promise<R> {
+  return async (...args: A) => {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      // Logged whole here because the envelope carries only the code and one
+      // sentence; the stack and the response body exist nowhere else.
+      console.error('[sync] handler failed:', err);
+      throw toAppError(err);
+    }
+  };
+}
 /* ------------------------------------------------------------------
  * 🛡️ ROBUST LOCAL HELPERS
  * ------------------------------------------------------------------ */
@@ -400,13 +429,56 @@ async function getSyncStatus(): Promise<SyncStatus> {
   };
 }
 
+/**
+ * What to put in the `name` field of a pairing request.
+ *
+ * Nobody types this any more. A branch code names the till on the server —
+ * "… — Till 1" — and whatever the device sends is ignored, so asking a cashier
+ * for a name was one more control that looked like it decided something and
+ * did not.
+ *
+ * The field is still filled rather than dropped: the older chain-wide codes
+ * are live until the last till on that path is re-paired, and they do read it.
+ * The machine's own hostname is the honest answer for a till that has never
+ * paired — it is what the PC is already called on the shop's network — and a
+ * till being re-paired keeps the name it went by before.
+ */
+function resolveDeviceName(supplied?: string): string {
+  const explicit = (supplied ?? '').trim();
+  if (explicit) return explicit;
+
+  const remembered = (getMeta('tmp.device_name') || '').trim();
+  if (remembered) return remembered;
+
+  try {
+    const host = os.hostname().trim();
+    if (host) return host;
+  } catch {
+    // Never worth failing an enrolment over.
+  }
+  return 'POS till';
+}
+
 /* ------------------------------------------------------------------
  * Register sync-related IPC handlers
  * ------------------------------------------------------------------ */
 
 export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
   const { store } = services;
-  ipcMain.handle('sync:configure', async (_e, baseUrl: string) => {
+
+  /**
+   * Register a handler whose failures cross IPC as codes.
+   *
+   * Every channel in this module talks to the server, so every one of them can
+   * fail in a way the renderer has copy for and no way to reach it. Going
+   * through here rather than ipcMain.handle directly is what makes that copy
+   * reachable.
+   */
+  const handle = (
+    channel: string,
+    fn: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => Promise<any>
+  ) => ipcMain.handle(channel, classified(fn));
+  handle('sync:configure', async (_e, baseUrl: string) => {
     const device_id =
       getMeta('device_id') ||
       store.get('device_id') ||
@@ -420,7 +492,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     configureApi(baseUrl, { id: device_id, branch_id }, token);
   });
 
-  ipcMain.handle(
+  handle(
     'sync:pair',
     async (
       _e,
@@ -436,7 +508,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         baseUrl,
         pairCode,
         branchId,
-        deviceName,
+        resolveDeviceName(deviceName),
         mid
       );
 
@@ -496,9 +568,16 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
    * here destroys local state except the one case that already would: a server
    * that says this device was revoked.
    */
-  ipcMain.handle('sync:reclaim', async () => {
+  handle('sync:reclaim', async () => {
     const base = getMeta('server.base_url') || '';
     if (!base) return { ok: false, reason: 'no_identity' as const };
+
+    // Somebody unpaired this till on purpose. Silently pairing it back is not
+    // a rescue, it is undoing what they did — see shouldAttemptReclaim.
+    if (!shouldAttemptReclaim(getMeta('pos.unpaired_reason'))) {
+      console.log('[SYNC] reclaim skipped: this till was unpaired on purpose');
+      return { ok: false, reason: 'manual_unpair' as const };
+    }
 
     // Stable per physical machine, and recomputed identically if the meta row
     // is missing — so a till that kept nothing else can still prove which
@@ -561,7 +640,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     };
   });
 
-  ipcMain.handle('sync:bootstrap', async (_e, baseUrl?: string) => {
+  handle('sync:bootstrap', async (_e, baseUrl?: string) => {
     ensureOrderNumberDedupeTriggers();
     const url = baseUrl || getMeta('server.base_url') || '';
     if (!url) throw posError('POS_CFG_BASE_URL_MISSING');
@@ -713,12 +792,12 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
    * had — offline, or a server that will not take an incomplete order — and the
    * caller simply keeps showing the local number.
    */
-  ipcMain.handle('sync:reserveReference', async (_e, orderId: string) => {
+  handle('sync:reserveReference', async (_e, orderId: string) => {
     if (!orderId) return null;
     return reserveOrderReference(String(orderId));
   });
 
-  ipcMain.handle('sync:run', async () => {
+  handle('sync:run', async () => {
     console.log('[Sync] Manual sync:run triggered');
 
     const mode = getMeta('pos.mode') || 'live';
@@ -919,19 +998,19 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     return { ok: true, pulled: true, pushed: pushedCount, failed: pushFailed };
   });
 
-  ipcMain.handle('sync:pull', async () => {
+  handle('sync:pull', async () => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
       throw posError('POS_NET_OFFLINE');
     return pullChanges();
   });
 
-  ipcMain.handle('sync:push', async (_e, envelope, batch) => {
+  handle('sync:push', async (_e, envelope, batch) => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
       throw posError('POS_NET_OFFLINE');
     return pushOutbox(envelope, batch);
   });
 
-  ipcMain.handle('app:ensureBootstrap', async () => {
+  handle('app:ensureBootstrap', async () => {
     const itemsCount =
       (db.prepare('SELECT COUNT(*) FROM items').pluck().get() as number) || 0;
 
@@ -959,16 +1038,16 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     return { bootstrapped: true, itemsCount: after };
   });
 
-  ipcMain.handle('sync:setMode', async (_e, mode: 'live' | 'offline') => {
+  handle('sync:setMode', async (_e, mode: 'live' | 'offline') => {
     setMeta('pos.mode', mode);
     return await getSyncStatus();
   });
 
-  ipcMain.handle('sync:status', async () => {
+  handle('sync:status', async () => {
     return await getSyncStatus();
   });
 
-  ipcMain.handle('orders:unsyncedCount', async () => {
+  handle('orders:unsyncedCount', async () => {
     const n =
       (db
         .prepare(
@@ -979,7 +1058,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     return { count: n };
   });
 
-  ipcMain.handle('orders:pushOne', async (_e, orderId: string) => {
+  handle('orders:pushOne', async (_e, orderId: string) => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
       throw posError('POS_NET_OFFLINE');
 
@@ -1026,7 +1105,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     configureApi(base, { id: String(device_id), branch_id }, token);
   };
 
-  ipcMain.handle('sync:backfillPaymentMethods', async (_e, limit = 200) => {
+  handle('sync:backfillPaymentMethods', async (_e, limit = 200) => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
       throw posError('POS_NET_OFFLINE');
     // The axios client is built by configureApi() during sync or login, so a
@@ -1040,7 +1119,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     return backfillPaymentMethods(capped);
   });
 
-  ipcMain.handle('sync:flushOrders', async (_e, limit = 20) => {
+  handle('sync:flushOrders', async (_e, limit = 20) => {
     if ((getMeta('pos.mode') || 'live') !== 'live')
       throw posError('POS_NET_OFFLINE');
 

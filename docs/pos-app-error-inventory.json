@@ -43,7 +43,7 @@
       "raised_at": [
         {
           "file": "src/main/sync.ts",
-          "line": 872,
+          "line": 880,
           "trigger": "throw posError('POS_PAIR_RESPONSE_INVALID');"
         }
       ],
@@ -909,7 +909,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1312,
+          "line": 1366,
           "trigger": "throw posError('POS_PRINT_NO_PRINTER');"
         }
       ],
@@ -937,7 +937,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1335,
+          "line": 1393,
           "trigger": "? posError('POS_PRINT_PRINTER_MISSING', {"
         }
       ],
@@ -963,7 +963,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1338,
+          "line": 1396,
           "trigger": ": posError('POS_PRINT_PRINTER_NOT_SET');"
         }
       ],
@@ -989,7 +989,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1829,
+          "line": 1914,
           "trigger": "throw posError('POS_PRINT_ORDER_NOT_LOCAL');"
         }
       ],
@@ -1015,7 +1015,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 377,
+          "line": 378,
           "trigger": "throw posError('POS_PRINT_LOGO_URL_INVALID', { params: { key: String(key) } });"
         }
       ],
@@ -1041,7 +1041,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 381,
+          "line": 382,
           "trigger": "if (!cached) throw posError('POS_PRINT_LOGO_DOWNLOAD_FAILED', { params: { url: String(remoteUrl) } });"
         }
       ],
@@ -1067,7 +1067,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 385,
+          "line": 386,
           "trigger": "throw posError('POS_PRINT_LOGO_NOT_CONFIGURED');"
         }
       ],
@@ -1230,7 +1230,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 567,
+          "line": 636,
           "trigger": "if (!url) throw posError('POS_CFG_BASE_URL_MISSING');"
         }
       ],
@@ -1256,7 +1256,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1025,
+          "line": 1094,
           "trigger": "if (!base || !device_id || !token) throw posError('POS_CFG_API_NOT_READY');"
         },
         {
@@ -1266,12 +1266,12 @@
         },
         {
           "file": "src/main/sync.ts",
-          "line": 1799,
+          "line": 1807,
           "trigger": "if (!api) throw posError('POS_CFG_API_NOT_READY');"
         },
         {
           "file": "src/main/sync.ts",
-          "line": 1898,
+          "line": 1906,
           "trigger": "if (!api) throw posError('POS_CFG_API_NOT_READY');"
         }
       ],

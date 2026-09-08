@@ -15,7 +15,11 @@
 // preserves), wrapped in delimiters that survive the stack text Electron
 // appends. The renderer decodes it and looks the code up in the catalogue.
 
-import { ERROR_CATALOG } from './errorCatalog';
+// The catalogue is no longer consulted here. A code the server declares is
+// honoured whether or not this build has copy for it — describeError() renders
+// the generic sentence for one it does not know, while still reporting the
+// real code, which is what a till running an older build should do with a code
+// that shipped after it.
 
 export const ERR_OPEN = '@@POSERR@@';
 export const ERR_CLOSE = '@@ENDPOSERR@@';
@@ -32,6 +36,18 @@ export type PosErrorPayload = {
   fallback: string;
   /** Form field this error belongs to, so a modal can highlight the input. */
   field?: string;
+  /**
+   * What actually happened, in the words of whatever failed: a status, a
+   * socket code, the endpoint, the server's own sentence.
+   *
+   * Never rendered on its own — it goes behind "technical details", next to
+   * the code, for the person on the phone to support. The translated sentence
+   * above it is still the only thing anyone reads by default. Without this a
+   * mapped error carried nothing at all behind that disclosure: the till would
+   * say "No connection to the server" and could not say which server, or that
+   * the name had failed to resolve.
+   */
+  technical?: string;
 };
 
 /**
@@ -44,18 +60,33 @@ export class AppError extends Error {
   readonly params?: ErrorParams;
   readonly field?: string;
   readonly fallback: string;
+  readonly technical?: string;
 
   constructor(
     code: string,
     fallback: string,
-    opts: { params?: ErrorParams; field?: string; cause?: unknown } = {}
+    opts: {
+      params?: ErrorParams;
+      field?: string;
+      technical?: string;
+      cause?: unknown;
+    } = {}
   ) {
-    super(encodePosError({ code, fallback, params: opts.params, field: opts.field }));
+    super(
+      encodePosError({
+        code,
+        fallback,
+        params: opts.params,
+        field: opts.field,
+        technical: opts.technical,
+      })
+    );
     this.name = 'AppError';
     this.code = code;
     this.fallback = fallback;
     this.params = opts.params;
     this.field = opts.field;
+    this.technical = opts.technical;
     if (opts.cause !== undefined) (this as any).cause = opts.cause;
   }
 }
@@ -85,6 +116,8 @@ export function decodePosError(raw: string): PosErrorPayload | null {
       params: parsed.params ?? undefined,
       fallback: typeof parsed.fallback === 'string' ? parsed.fallback : parsed.code,
       field: typeof parsed.field === 'string' ? parsed.field : undefined,
+      technical:
+        typeof parsed.technical === 'string' ? parsed.technical : undefined,
     };
   } catch {
     return null;
@@ -139,14 +172,108 @@ export function toPosError(err: unknown): PosErrorPayload {
 }
 
 /**
+ * Classify an error while it can still be classified, on its way out of a
+ * main-process handler.
+ *
+ * Electron serialises a rejected `ipcMain.handle` into a plain string, so an
+ * axios error crossing that boundary arrives in the renderer with no
+ * `response.status`, no `code`, and no body — the very fields
+ * classifyServerError needs. Everything the server refused therefore reached
+ * the cashier as POS_UNKNOWN, "The action did not go through. Try again.",
+ * whatever it actually was: a burnt pairing code, a locked device, a wrong
+ * address. The whole per-status branch above was unreachable from the one
+ * direction that matters.
+ *
+ * Running it here, before the throw, is what puts the real code in the
+ * envelope. An `AppError` is returned untouched — a handler that already knew
+ * what went wrong does not get second-guessed by a status.
+ */
+export function toAppError(err: unknown): AppError {
+  if (err instanceof AppError) return err;
+  const payload = toPosError(err);
+  return new AppError(payload.code, payload.fallback, {
+    params: payload.params,
+    field: payload.field,
+    technical: technicalText(err),
+    cause: err,
+  });
+}
+
+/** Longer than this is a stack trace or an HTML error page, not a diagnosis. */
+const TECHNICAL_MAX = 300;
+
+/**
+ * Everything about a failure that the translated sentence deliberately leaves
+ * out, assembled once while the error object is still whole.
+ *
+ * Read off the axios error in the main process: none of these fields survive
+ * the trip to the renderer, so if they are not collected here they are gone.
+ */
+function technicalText(err: unknown): string | undefined {
+  const e = err as any;
+  const parts: string[] = [];
+
+  const status = Number(e?.response?.status ?? e?.status ?? 0);
+  if (status) parts.push(`HTTP ${status}`);
+
+  const netCode = String(e?.code ?? '').trim();
+  if (netCode) parts.push(netCode);
+
+  const method = String(e?.config?.method ?? '').toUpperCase();
+  const url = String(e?.config?.url ?? '');
+  const where = `${method} ${url}`.trim();
+  if (where) parts.push(where);
+
+  // The server's own sentence when there is one; otherwise whatever was
+  // thrown, minus Electron's wrapper.
+  const data = e?.response?.data;
+  const serverMsg = String(data?.message ?? data?.error ?? '').trim();
+  const raw = stripIpcWrapper(
+    e instanceof Error ? e.message : String(e?.message ?? e ?? '')
+  );
+  const said = serverMsg || raw;
+  if (said) parts.push(said);
+
+  const out = parts.join(' · ').trim();
+  if (!out) return undefined;
+  return out.length > TECHNICAL_MAX ? `${out.slice(0, TECHNICAL_MAX)}…` : out;
+}
+
+/** A code the server declares, rather than something else in the body. */
+const DECLARED_CODE = /^POS_[A-Z0-9_]+$/;
+
+/**
+ * Params a status carries that no code can: how long to wait, when the lock
+ * started. Merged onto a declared code so honouring the server's code never
+ * costs the numbers its own copy interpolates.
+ */
+function paramsForStatus(status: number, err: any, data: any): ErrorParams | undefined {
+  if (status === 429) {
+    const retry_after =
+      Number(err?.response?.headers?.['retry-after'] ?? data?.retry_after ?? 60) || 60;
+    return { retry_after };
+  }
+  if (status === 423) return { locked_at: formatLockedAt(data?.locked_at) };
+  if (status >= 500) return { status };
+  return undefined;
+}
+
+/**
  * Map a response from /api/pos/* onto a catalogue code.
  *
- * The backend does not send a machine code in the body yet (§7.1), so the
- * status alone is not enough: three different 401s and two different 423s mean
- * three and two different things to a cashier. Until `code` lands we
- * disambiguate on the server's English `message` — which is exactly the
- * brittleness §7.1 asks them to remove, hence the narrow matches and the safe
- * per-status fallback. The moment a `code` field appears it wins outright.
+ * `PosError::json()` puts `code` at the top level of the body for every
+ * /api/pos/* refusal, and always has — confirmed against production on
+ * 2026-09-08. So the code wins outright, including one this build has no copy
+ * for: rendering the generic sentence while reporting the server's real code
+ * is strictly better than inventing a different code from the status, and it
+ * is what stops an older till mislabelling a code that ships after it.
+ *
+ * The status branches below are the fallback for a refusal that carries no
+ * code at all — a proxy, a WAF, Laravel's own throttle. They no longer guess
+ * at pairing: POS_PAIR_BRANCH_INVALID ("that branch is gone") and
+ * POS_PAIR_BRANCH_REQUIRED ("ask for a branch code") both answer 422 with
+ * "branch_id" in the sentence and need opposite copy, so matching English
+ * could only ever get one of them right.
  */
 function classifyServerError(err: unknown, raw: string): PosErrorPayload | null {
   const e = err as any;
@@ -155,9 +282,13 @@ function classifyServerError(err: unknown, raw: string): PosErrorPayload | null 
   const serverMsg = String(data?.message ?? data?.error ?? '').toLowerCase();
   const netCode = String(e?.code ?? '');
 
-  const declared = typeof data?.code === 'string' ? data.code : null;
-  if (declared && Object.prototype.hasOwnProperty.call(ERROR_CATALOG, declared)) {
-    return { code: declared, fallback: String(data?.message ?? declared) };
+  const declared = typeof data?.code === 'string' ? data.code.trim() : '';
+  if (DECLARED_CODE.test(declared)) {
+    return {
+      code: declared,
+      fallback: String(data?.message ?? declared),
+      params: paramsForStatus(status, e, data),
+    };
   }
 
   if (status === 401) {
@@ -169,6 +300,10 @@ function classifyServerError(err: unknown, raw: string): PosErrorPayload | null 
     }
     return { code: 'POS_AUTH_MISSING', fallback: 'Unauthorized.' };
   }
+
+  // Pairing is deliberately absent from everything below. /register always
+  // declares its code, so a pairing failure never reaches these branches — and
+  // the rules that used to live here were wrong as often as they were right.
 
   if (status === 423) {
     // A 423 stops the sync loop; it is not a glitch to retry through.
@@ -209,15 +344,6 @@ function classifyServerError(err: unknown, raw: string): PosErrorPayload | null 
   }
 
   if (status === 403) {
-    if (serverMsg.includes('pair code')) {
-      return { code: 'POS_PAIR_CODE_INVALID', fallback: 'Invalid pair code.' };
-    }
-    if (serverMsg.includes('revoked')) {
-      return { code: 'POS_PAIR_DEVICE_REVOKED', fallback: 'Device revoked.' };
-    }
-    if (serverMsg.includes('locked')) {
-      return { code: 'POS_PAIR_DEVICE_LOCKED', fallback: 'Device locked.' };
-    }
     return { code: 'POS_PUSH_DEVICE_UNAUTHORIZED', fallback: 'Unauthorized device.' };
   }
 
@@ -228,9 +354,6 @@ function classifyServerError(err: unknown, raw: string): PosErrorPayload | null 
     }
     if (serverMsg.includes('payable total')) {
       return { code: 'POS_PAY_AMOUNT_UNKNOWN', fallback: detail ?? 'No payable total.' };
-    }
-    if (serverMsg.includes('branch_id')) {
-      return { code: 'POS_PAIR_BRANCH_INVALID', fallback: detail ?? 'Branch required.' };
     }
     if (serverMsg.includes('client_msg_id')) {
       return { code: 'POS_PUSH_MSGID_MISSING', fallback: detail ?? 'client_msg_id required.' };

@@ -359,7 +359,11 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
     // Persist config in KV store
     store.set('server.base_url', baseUrl);
     if (deviceName) store.set('tmp.device_name', deviceName);
-    if (branchId != null) {
+    // Only a real branch, never the 0 a machine with no history sends. The
+    // authoritative branch arrives in the /register response and is written by
+    // pairDevice(); this is just what the till already believed, kept so the
+    // older chain-wide codes still have something to send.
+    if (Number(branchId) > 0) {
       store.set('tmp.branch_id', String(branchId));
       store.set('branch.id', String(branchId));
       store.set('branch_id', String(branchId));

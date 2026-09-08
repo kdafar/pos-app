@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AppError,
   decodePosError,
+  toAppError,
   paymentStatusCode,
   promoRejectionCode,
   pushPartialCode,
@@ -288,13 +289,15 @@ describe('codes the server never sends', () => {
     expect(ERROR_CATALOG.POS_PUSH_PARTIAL.sent).toBe(false);
   });
 
-  it('mirrors 34 of the 44 codes the backend sends, with the gap pinned', () => {
+  it('mirrors 35 of the 45 codes the backend sends, with the gap pinned', () => {
     // Drift guard in both directions. The authority is the constants in
     // PosError.php, not this file — BACKEND_SENT_CODE_COUNT carries it.
     //
     // 27 → 33 on 2026-09-01 (POS_DEVICE_UNKNOWN, split out of
     // POS_DEVICE_REVOKED, plus the five POS_RECLAIM_* codes), then 34 on
-    // 2026-09-02 with POS_RECLAIM_MACHINE_IN_USE, the liveness guard. The remaining
+    // 2026-09-02 with POS_RECLAIM_MACHINE_IN_USE, the liveness guard, then 35
+    // on 2026-09-08 with POS_PAIR_BRANCH_REQUIRED, which arrived with the
+    // branch-code enrolment scheme. The remaining
     // ten are a known, deliberate gap rather than drift, so they are asserted
     // rather than described: closing any of them has to move both numbers.
     //
@@ -306,7 +309,7 @@ describe('codes the server never sends', () => {
     // otherwise complete at 3 and 8, so the shape is not what it looked like
     // from the other side. Awaiting their per-endpoint list to close it.
     const sent = CODES.filter((c) => ERROR_CATALOG[c].sent);
-    expect(sent).toHaveLength(34);
+    expect(sent).toHaveLength(35);
     expect(BACKEND_SENT_CODE_COUNT - sent.length).toBe(10);
 
     // Spot-check the classes that must never be marked as server-sent.
@@ -353,5 +356,153 @@ describe('codes the server never sends', () => {
     });
     expect(got.code).toBe('POS_RATE_LIMITED');
     expect(got.params?.retry_after).toBe(45);
+  });
+});
+
+/**
+ * The boundary that used to eat every server error.
+ *
+ * An axios rejection thrown out of an ipcMain.handle reaches the renderer as a
+ * plain string — no status, no body — so classifyServerError could never run
+ * on the one path that produces these errors, and a burnt pairing code arrived
+ * as "Something went wrong". Classifying before the throw is what fixes it,
+ * and what these pin.
+ */
+describe('classifying an error on its way out of the main process', () => {
+  it('carries a refused pairing code across as its own code', () => {
+    const wrapped = toAppError({
+      response: {
+        status: 403,
+        data: { code: 'POS_PAIR_CODE_INVALID', message: 'Invalid pair code' },
+      },
+    });
+    expect(wrapped).toBeInstanceOf(AppError);
+    expect(wrapped.code).toBe('POS_PAIR_CODE_INVALID');
+    // The envelope is the only field Electron preserves, so the code has to
+    // survive a round trip through the message and nothing else.
+    expect(decodePosError(wrapped.message)?.code).toBe('POS_PAIR_CODE_INVALID');
+  });
+
+  it('tells a branch that is gone from a code that needed one', () => {
+    // The two the old substring rule could not separate. Both are 422, both
+    // say "branch_id", and they need opposite copy: one is "that branch is
+    // gone", the other is "you used the old shared code, ask for a branch
+    // one". Only the declared code distinguishes them.
+    const gone = toAppError({
+      response: {
+        status: 422,
+        data: {
+          code: 'POS_PAIR_BRANCH_INVALID',
+          message: 'A valid branch_id is required',
+        },
+      },
+    });
+    const needed = toAppError({
+      response: {
+        status: 422,
+        data: {
+          code: 'POS_PAIR_BRANCH_REQUIRED',
+          message:
+            'This is the shared pairing code and this till does not know its branch yet',
+        },
+      },
+    });
+    expect(gone.code).toBe('POS_PAIR_BRANCH_INVALID');
+    expect(needed.code).toBe('POS_PAIR_BRANCH_REQUIRED');
+    expect(describeError(gone.message, 'en').title).not.toBe(
+      describeError(needed.message, 'en').title
+    );
+  });
+
+  it('reports a code this build has no copy for rather than inventing one', () => {
+    // A till running an older build meeting a code that shipped after it. The
+    // generic sentence is the honest answer; guessing a different code from
+    // the status is how POS_PAIR_BRANCH_REQUIRED would have been read as
+    // "that branch is gone".
+    const wrapped = toAppError({
+      response: {
+        status: 422,
+        data: { code: 'POS_PAIR_SOMETHING_NEW', message: 'Not shipped yet' },
+      },
+    });
+    expect(wrapped.code).toBe('POS_PAIR_SOMETHING_NEW');
+    const described = describeError(wrapped.message, 'en');
+    expect(described.code).toBe('POS_PAIR_SOMETHING_NEW');
+    expect(described.title).toBe(ERROR_CATALOG.POS_UNKNOWN.en.title);
+  });
+
+  it('keeps the numbers a status carries when the server declares a code', () => {
+    // Honouring `code` must not cost the retry window: POS_RATE_LIMITED's copy
+    // interpolates it, and without params it renders the placeholder.
+    const wrapped = toAppError({
+      response: {
+        status: 429,
+        headers: { 'retry-after': '45' },
+        data: { code: 'POS_RATE_LIMITED', message: 'Too many requests' },
+      },
+    });
+    expect(wrapped.params?.retry_after).toBe(45);
+    expect(describeError(wrapped.message, 'en').message).toContain('45');
+  });
+
+  it('classifies an unreachable server rather than shrugging', () => {
+    expect(toAppError({ code: 'ECONNREFUSED', message: 'connect ECONNREFUSED' }).code).toBe(
+      'POS_NET_OFFLINE'
+    );
+    expect(toAppError({ code: 'ETIMEDOUT', message: 'timeout of 15000ms' }).code).toBe(
+      'POS_NET_TIMEOUT'
+    );
+  });
+
+  it('does not second-guess a handler that already knew', () => {
+    const original = posError('POS_PAIR_RESPONSE_INVALID');
+    expect(toAppError(original)).toBe(original);
+  });
+
+  it('puts the status, the endpoint and the server sentence behind the details', () => {
+    // None of these fields survive the trip to the renderer, so a mapped error
+    // used to reach "technical details" carrying nothing at all: the till said
+    // "No connection to the server" and could not say which server.
+    const wrapped = toAppError({
+      response: {
+        status: 403,
+        data: { code: 'POS_PAIR_CODE_INVALID', message: 'Invalid pair code' },
+      },
+      config: { method: 'post', url: '/register' },
+    });
+    expect(wrapped.technical).toBe('HTTP 403 · POST /register · Invalid pair code');
+    expect(decodePosError(wrapped.message)?.technical).toBe(wrapped.technical);
+    // Still shown behind the disclosure, never in the sentence itself.
+    const described = describeError(wrapped.message, 'en');
+    expect(described.detail).toBe(wrapped.technical);
+    expect(described.message).not.toContain('HTTP 403');
+  });
+
+  it('names the socket failure a network error came from', () => {
+    const wrapped = toAppError({
+      code: 'ENOTFOUND',
+      message: 'getaddrinfo ENOTFOUND pos.example.com',
+      config: { method: 'get', url: '/bootstrap' },
+    });
+    expect(wrapped.code).toBe('POS_NET_OFFLINE');
+    expect(describeError(wrapped.message, 'en').detail).toContain('ENOTFOUND');
+    expect(describeError(wrapped.message, 'en').detail).toContain('pos.example.com');
+  });
+
+  it('truncates a server that answers with a whole HTML page', () => {
+    const wrapped = toAppError({
+      response: { status: 500, data: { message: 'x'.repeat(2000) } },
+    });
+    expect(wrapped.technical!.length).toBeLessThanOrEqual(301);
+  });
+
+  it('keeps an unclassifiable error readable instead of blank', () => {
+    // Nothing to map, so the code stays POS_UNKNOWN — but the original words
+    // ride along in the fallback, which is what the pairing screen shows under
+    // the generic sentence.
+    const wrapped = toAppError(new Error('socket hang up'));
+    expect(wrapped.code).toBe('POS_UNKNOWN');
+    expect(wrapped.fallback).toBe('socket hang up');
+    expect(describeError(wrapped.message, 'en').detail).toBe('socket hang up');
   });
 });

@@ -48,3 +48,29 @@ export function recoverDeviceIdFromOrders(db: OrdersReader): string {
     return '';
   }
 }
+
+/**
+ * Whether a silent re-pair should be attempted at all.
+ *
+ * Reclaim exists to rescue a till that lost its token by accident — a
+ * reinstall, a blanked meta row, the old interceptor bug. A *manual* unpair is
+ * not an accident: somebody stood at the till and said this machine is no
+ * longer that device, usually because it is about to be enrolled somewhere
+ * else. Trading its old identity back for a fresh token undoes that, and it
+ * undoes it on the next restart, when nobody is watching.
+ *
+ * It is also the case that produces the confusing refusal. After a manual
+ * unpair `device_id` is blank, so the claim falls through to the last device
+ * this machine rang a sale under — which, now that enrolment always creates a
+ * new device row, is by definition a device this machine no longer is. The
+ * server answers POS_RECLAIM_MACHINE_MISMATCH, correctly, and the log fills
+ * with a failure that was never going to succeed.
+ *
+ * Every other reason still reclaims: 'offline_too_long', 'server_locked', and
+ * the empty reason a till carries when something broke without recording why.
+ */
+export function shouldAttemptReclaim(
+  unpairedReason: string | null | undefined
+): boolean {
+  return (unpairedReason ?? '').trim() !== 'manual';
+}

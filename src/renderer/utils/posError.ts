@@ -53,13 +53,24 @@ export function describeError(err: unknown, lang: 'en' | 'ar'): DescribedError {
   // thrower supplied rather than showing "{detail}" to a cashier.
   const message = /^\{\w+\}$/.test(rendered.trim()) ? payload.fallback : rendered;
 
-  // The raw text is the only clue anyone will have for an unmapped code, so it
-  // is kept — but behind a disclosure, never in the sentence itself.
+  // What goes behind "technical details".
+  //
+  // `technical` is collected in the main process, where the status, the
+  // endpoint and the server's own sentence still exist — so a *mapped* error
+  // now has something to show there too. It used to be the unmapped case only,
+  // which meant every error the catalogue knew about offered no detail at all:
+  // "No connection to the server" with no way to learn which server, or that
+  // the address had failed to resolve.
+  //
+  // The unmapped fallback stays as the second choice, for anything thrown
+  // before it could be classified. Either way it lives behind a disclosure,
+  // never in the sentence itself.
   const unmapped = !isKnownCode(payload.code) || payload.code === 'POS_UNKNOWN';
-  const detail =
+  const fallbackDetail =
     unmapped && payload.fallback && payload.fallback !== message
       ? payload.fallback
       : undefined;
+  const detail = payload.technical || fallbackDetail;
 
   return {
     code: payload.code,

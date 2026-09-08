@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   RECOVER_DEVICE_ID_SQL,
   recoverDeviceIdFromOrders,
+  shouldAttemptReclaim,
   type OrdersReader,
 } from './deviceIdentity';
 
@@ -82,5 +83,21 @@ describe('the recovery query', () => {
     // neighbouring till's id. Any join added here would break that.
     expect(RECOVER_DEVICE_ID_SQL).toMatch(/FROM\s+orders\b/i);
     expect(RECOVER_DEVICE_ID_SQL).not.toMatch(/\bJOIN\b/i);
+  });
+});
+
+describe('deciding whether to re-pair silently at all', () => {
+  it('does not undo an unpair somebody performed on purpose', () => {
+    // Otherwise the Unpair button holds only until the next restart: reclaim
+    // runs before the pairing form is shown, trades the old identity for a
+    // fresh token, and the till is paired again with nobody watching.
+    expect(shouldAttemptReclaim('manual')).toBe(false);
+    expect(shouldAttemptReclaim('  manual  ')).toBe(false);
+  });
+
+  it('still rescues every till that lost its token by accident', () => {
+    for (const reason of ['', '   ', null, undefined, 'offline_too_long', 'server_locked']) {
+      expect(shouldAttemptReclaim(reason)).toBe(true);
+    }
   });
 });

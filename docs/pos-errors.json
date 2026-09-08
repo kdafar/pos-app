@@ -3,14 +3,14 @@
   "note": "Generated. Edit the TypeScript module, then run: node scripts/export-errors.mjs",
   "conventions": {
     "code_coverage": {
-      "backend_sends": 44,
-      "mirrored_here": 34,
+      "backend_sends": 45,
+      "mirrored_here": 35,
       "outstanding": 10,
-      "note": "backend_sends is the count of constants in PosError.php, their authority. POS_ORDER_NOT_FOUND is counted there but deliberately absent here: this client renders that condition as POS_VAL_ORDER_NOT_FOUND (their ALIASED_BY_THE_APP). The outstanding codes are believed to be the six permission-write codes, which this client has no names for and does not yet call, plus four the server sends in a 200 body rather than an error response — awaiting a per-endpoint list to confirm."
+      "note": "backend_sends is the count of constants in PosError.php, their authority. POS_ORDER_NOT_FOUND is counted there but deliberately absent here: this client renders that condition as POS_VAL_ORDER_NOT_FOUND (their ALIASED_BY_THE_APP). \"outstanding\" conflates two unlike things and is not a count of missing copy. Four of them — POS_PROMO_WRONG_BRANCH, POS_PAY_STATUS_FAILED, POS_PAY_STATUS_EXPIRED, POS_OK_PROMO_APPLIED — have full copy here and are listed with sent_by_server false because they arrive in a 200 body, classified by promoRejectionCode() and paymentStatusCode() rather than from an error response. Only the six permission-write codes for GET/PUT /users/{user}/permissions genuinely have no copy, and this client never calls that endpoint: permissions arrive as role_permissions on bootstrap/pull and are enforced locally. Every code on the enrolment and sync path is mirrored — pairing 5, reclaim 6, device 4, push 5. Still awaiting the constant names from PosError.php to turn this from inference into a diff."
     },
-    "total_codes": 105,
+    "total_codes": 106,
     "app_only": 47,
-    "server_side": 58
+    "server_side": 59
   },
   "severities": {
     "blocker": "Centred modal, dimmed backdrop, explicit dismissal. Work stops.",
@@ -18,7 +18,7 @@
     "inline": "Message under the control that is wrong. The cashier can fix it now.",
     "info": "Quiet. Queues, progress, confirmations — not a failure."
   },
-  "count": 105,
+  "count": 106,
   "codes": [
     {
       "code": "POS_NET_OFFLINE",
@@ -33,27 +33,27 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 924,
+          "line": 993,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 930,
+          "line": 999,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 984,
+          "line": 1053,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1031,
+          "line": 1100,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1045,
+          "line": 1114,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         }
       ],
@@ -99,12 +99,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 417,
+          "line": 486,
           "trigger": "if (!device_id || !token) throw posError('POS_AUTH_MISSING');"
         },
         {
           "file": "src/main/sync.ts",
-          "line": 1045,
+          "line": 1053,
           "trigger": "if (!deviceId || !token) throw posError('POS_AUTH_MISSING');"
         }
       ],
@@ -312,7 +312,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 476,
+          "line": 545,
           "trigger": "throw posError('POS_DEVICE_LOCKED');"
         }
       ],
@@ -421,12 +421,32 @@
       "user_action": "fix a field",
       "raised_at": [],
       "en": {
-        "title": "Pairing code is wrong",
-        "body": "Check the code in the dashboard and enter it again."
+        "title": "This code will not work",
+        "body": "It is wrong, already used, or more than 30 minutes old. Ask for a new code and enter it again."
       },
       "ar": {
-        "title": "رمز الربط غير صحيح",
-        "body": "تأكد من الرمز في لوحة التحكم ثم أدخله مرة أخرى."
+        "title": "هذا الرمز لا يعمل",
+        "body": "الرمز غير صحيح، أو مستخدم من قبل، أو مضى عليه أكثر من 30 دقيقة. اطلب رمزًا جديدًا وأدخله من جديد."
+      }
+    },
+    {
+      "code": "POS_PAIR_BRANCH_REQUIRED",
+      "severity": "inline",
+      "retry": false,
+      "where": "POST /register",
+      "http": 422,
+      "origin": "server",
+      "sent_by_server": true,
+      "params": [],
+      "user_action": "fix a field",
+      "raised_at": [],
+      "en": {
+        "title": "This code needs a branch",
+        "body": "It is the old shared code, and this till has never been paired, so it does not know which branch it belongs to. Ask for a code issued to your branch instead."
+      },
+      "ar": {
+        "title": "هذا الرمز يحتاج فرعًا",
+        "body": "هذا هو الرمز المشترك القديم، وهذا الجهاز لم يُربط من قبل فلا يعرف الفرع الذي يتبعه. اطلب رمزًا صادرًا لفرعك بدلاً منه."
       }
     },
     {
@@ -441,12 +461,12 @@
       "user_action": "fix a field",
       "raised_at": [],
       "en": {
-        "title": "Choose a branch",
-        "body": "An existing branch must be selected before the device can be paired."
+        "title": "That branch is gone",
+        "body": "The branch this code was issued for no longer exists. Ask for a code issued to a branch that is still open."
       },
       "ar": {
-        "title": "اختر الفرع",
-        "body": "لا بد من اختيار فرع موجود قبل ربط الجهاز."
+        "title": "الفرع لم يعد موجودًا",
+        "body": "الفرع الذي صدر له هذا الرمز لم يعد موجودًا. اطلب رمزًا صادرًا لفرع ما زال قائمًا."
       }
     },
     {
@@ -528,7 +548,7 @@
       "raised_at": [
         {
           "file": "src/main/sync.ts",
-          "line": 872,
+          "line": 880,
           "trigger": "throw posError('POS_PAIR_RESPONSE_INVALID');"
         }
       ],
@@ -1428,17 +1448,17 @@
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 987,
+          "line": 1056,
           "trigger": "if (!payload) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/print.ts",
-          "line": 1821,
+          "line": 1906,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/sync.ts",
-          "line": 1811,
+          "line": 1819,
           "trigger": "if (e?.response?.status === 404) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
@@ -2257,7 +2277,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1312,
+          "line": 1366,
           "trigger": "throw posError('POS_PRINT_NO_PRINTER');"
         }
       ],
@@ -2285,7 +2305,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1335,
+          "line": 1393,
           "trigger": "? posError('POS_PRINT_PRINTER_MISSING', {"
         }
       ],
@@ -2311,7 +2331,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1338,
+          "line": 1396,
           "trigger": ": posError('POS_PRINT_PRINTER_NOT_SET');"
         }
       ],
@@ -2337,7 +2357,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1829,
+          "line": 1914,
           "trigger": "throw posError('POS_PRINT_ORDER_NOT_LOCAL');"
         }
       ],
@@ -2363,7 +2383,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 377,
+          "line": 378,
           "trigger": "throw posError('POS_PRINT_LOGO_URL_INVALID', { params: { key: String(key) } });"
         }
       ],
@@ -2389,7 +2409,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 381,
+          "line": 382,
           "trigger": "if (!cached) throw posError('POS_PRINT_LOGO_DOWNLOAD_FAILED', { params: { url: String(remoteUrl) } });"
         }
       ],
@@ -2415,7 +2435,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 385,
+          "line": 386,
           "trigger": "throw posError('POS_PRINT_LOGO_NOT_CONFIGURED');"
         }
       ],
@@ -2578,7 +2598,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 567,
+          "line": 636,
           "trigger": "if (!url) throw posError('POS_CFG_BASE_URL_MISSING');"
         }
       ],
@@ -2604,7 +2624,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1025,
+          "line": 1094,
           "trigger": "if (!base || !device_id || !token) throw posError('POS_CFG_API_NOT_READY');"
         },
         {
@@ -2614,12 +2634,12 @@
         },
         {
           "file": "src/main/sync.ts",
-          "line": 1799,
+          "line": 1807,
           "trigger": "if (!api) throw posError('POS_CFG_API_NOT_READY');"
         },
         {
           "file": "src/main/sync.ts",
-          "line": 1898,
+          "line": 1906,
           "trigger": "if (!api) throw posError('POS_CFG_API_NOT_READY');"
         }
       ],

@@ -57,7 +57,8 @@ export type CatalogEntry = {
  * How many codes the backend actually sends, per its own authority: the
  * constants in PosError.php. 43 of them when they answered, plus
  * POS_RECLAIM_MACHINE_IN_USE added with the liveness guard on 2026-09-02 —
- * 44 is inferred from that and still wants confirming. 42 were mirrored plus
+ * 45 as of 2026-09-08, when POS_PAIR_BRANCH_REQUIRED landed with the
+ * branch-code enrolment scheme; 44 before that. 42 were mirrored plus
  * POS_ORDER_NOT_FOUND, which is deliberately absent here because this client
  * already renders that condition as POS_VAL_ORDER_NOT_FOUND. Their
  * PosErrorCatalogueTest records it under ALIASED_BY_THE_APP; shipping both
@@ -66,7 +67,7 @@ export type CatalogEntry = {
  * Kept next to the catalogue rather than inside the drift test so the export
  * and the test cannot disagree about the target.
  */
-export const BACKEND_SENT_CODE_COUNT = 44;
+export const BACKEND_SENT_CODE_COUNT = 45;
 
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
@@ -366,12 +367,37 @@ export const ERROR_CATALOG = {
     sent: true,
     origin: 'server',
     en: {
-      title: 'Pairing code is wrong',
-      body: 'Check the code in the dashboard and enter it again.',
+      // Three conditions, one code, on purpose: the server will not say which
+      // of them it was, because that would let someone at the counter learn
+      // whether a guessed code exists. The fix is the same for all three.
+      title: 'This code will not work',
+      body: 'It is wrong, already used, or more than 30 minutes old. Ask for a new code and enter it again.',
     },
     ar: {
-      title: 'رمز الربط غير صحيح',
-      body: 'تأكد من الرمز في لوحة التحكم ثم أدخله مرة أخرى.',
+      title: 'هذا الرمز لا يعمل',
+      body: 'الرمز غير صحيح، أو مستخدم من قبل، أو مضى عليه أكثر من 30 دقيقة. اطلب رمزًا جديدًا وأدخله من جديد.',
+    },
+  },
+  // Raised when the *old chain-wide* code is used on a machine that has never
+  // paired. That code still reads branch_id from the request, and a machine
+  // with no pairing history has no honest value to send — so this is the error
+  // for handing a brand-new till a code from before the migration. Distinct
+  // from POS_PAIR_BRANCH_INVALID on purpose: that one means the branch is
+  // gone, this one means the code was the wrong kind.
+  POS_PAIR_BRANCH_REQUIRED: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST /register',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'This code needs a branch',
+      body: 'It is the old shared code, and this till has never been paired, so it does not know which branch it belongs to. Ask for a code issued to your branch instead.',
+    },
+    ar: {
+      title: 'هذا الرمز يحتاج فرعًا',
+      body: 'هذا هو الرمز المشترك القديم، وهذا الجهاز لم يُربط من قبل فلا يعرف الفرع الذي يتبعه. اطلب رمزًا صادرًا لفرعك بدلاً منه.',
     },
   },
   POS_PAIR_BRANCH_INVALID: {
@@ -382,12 +408,15 @@ export const ERROR_CATALOG = {
     sent: true,
     origin: 'server',
     en: {
-      title: 'Choose a branch',
-      body: 'An existing branch must be selected before the device can be paired.',
+      // No longer an instruction to the cashier: there is nothing for them to
+      // choose. The branch was decided when the code was issued, and this says
+      // that branch has since been removed.
+      title: 'That branch is gone',
+      body: 'The branch this code was issued for no longer exists. Ask for a code issued to a branch that is still open.',
     },
     ar: {
-      title: 'اختر الفرع',
-      body: 'لا بد من اختيار فرع موجود قبل ربط الجهاز.',
+      title: 'الفرع لم يعد موجودًا',
+      body: 'الفرع الذي صدر له هذا الرمز لم يعد موجودًا. اطلب رمزًا صادرًا لفرع ما زال قائمًا.',
     },
   },
   POS_PAIR_DEVICE_REVOKED: {

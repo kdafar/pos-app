@@ -542,6 +542,20 @@ function BlockerDialog({
   t: (key: any, vars?: Record<string, string | number>) => string;
   onClose: () => void;
 }) {
+  const [showDetail, setShowDetail] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyDetail = async () => {
+    const text = [blocker.code, blocker.title, blocker.detail].filter(Boolean).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard blocked — the text is on screen anyway */
+    }
+  };
+
   return (
     <div className='fixed inset-0 z-[10000] flex items-center justify-center p-4'>
       <motion.div
@@ -597,8 +611,69 @@ function BlockerDialog({
           )}
         </div>
 
-        <div className='mt-5 text-base text-default-700'>
-          {t('error.code')}: <span dir='ltr'>{blocker.code}</span>
+        {/*
+          A blocker stops the shop, so it is the error most likely to be read
+          down a phone to support — and it used to show the code and nothing
+          else. It has always been handed a `detail` and never rendered it.
+        */}
+        <div className='mt-5 w-full text-base text-default-700'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <span>
+              {t('error.code')}: <span dir='ltr'>{blocker.code}</span>
+            </span>
+            {blocker.detail && (
+              <Button
+                size='sm'
+                variant='light'
+                className='h-11 text-base text-default-700'
+                endContent={
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${showDetail ? 'rotate-180' : ''}`}
+                  />
+                }
+                onPress={() => setShowDetail((v) => !v)}
+              >
+                {showDetail ? t('error.hideDetails') : t('error.details')}
+              </Button>
+            )}
+          </div>
+
+          <AnimatePresence initial={false}>
+            {showDetail && blocker.detail && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className='overflow-hidden'
+              >
+                <div className='mt-2 rounded-lg bg-default-100 p-2.5'>
+                  {/* dir=ltr: the raw text is English either way. */}
+                  <div
+                    dir='ltr'
+                    className='break-words text-start text-base text-default-700'
+                  >
+                    {blocker.detail}
+                  </div>
+                  <Button
+                    size='sm'
+                    variant='light'
+                    className='mt-1 h-11 text-base text-default-700'
+                    startContent={
+                      copied ? (
+                        <Check className='h-4 w-4' />
+                      ) : (
+                        <Copy className='h-4 w-4' />
+                      )
+                    }
+                    onPress={copyDetail}
+                  >
+                    {copied ? t('error.copied') : t('error.copy')}
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </motion.div>
     </div>

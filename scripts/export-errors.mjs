@@ -122,10 +122,18 @@ write('docs/pos-errors.json', {
         'backend_sends is the count of constants in PosError.php, their authority. ' +
         'POS_ORDER_NOT_FOUND is counted there but deliberately absent here: this ' +
         'client renders that condition as POS_VAL_ORDER_NOT_FOUND (their ' +
-        'ALIASED_BY_THE_APP). The outstanding codes are believed to be the six ' +
-        'permission-write codes, which this client has no names for and does not ' +
-        'yet call, plus four the server sends in a 200 body rather than an error ' +
-        'response — awaiting a per-endpoint list to confirm.',
+        'ALIASED_BY_THE_APP). "outstanding" conflates two unlike things and is ' +
+        'not a count of missing copy. Four of them — POS_PROMO_WRONG_BRANCH, ' +
+        'POS_PAY_STATUS_FAILED, POS_PAY_STATUS_EXPIRED, POS_OK_PROMO_APPLIED — ' +
+        'have full copy here and are listed with sent_by_server false because ' +
+        'they arrive in a 200 body, classified by promoRejectionCode() and ' +
+        'paymentStatusCode() rather than from an error response. Only the six ' +
+        'permission-write codes for GET/PUT /users/{user}/permissions genuinely ' +
+        'have no copy, and this client never calls that endpoint: permissions ' +
+        'arrive as role_permissions on bootstrap/pull and are enforced locally. ' +
+        'Every code on the enrolment and sync path is mirrored — pairing 5, ' +
+        'reclaim 6, device 4, push 5. Still awaiting the constant names from ' +
+        'PosError.php to turn this from inference into a diff.',
     },
     total_codes: rows.length,
     app_only: appRowCount,

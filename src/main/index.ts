@@ -24,6 +24,12 @@ import { registerAllHandlers } from './handlers';
 import { registerAppImgScheme, registerAppImgProtocol } from './protocols';
 import { registerLocalPrintHandlers } from './print';
 import { registerUpdater } from './updater';
+import { readOrCreateMachineId } from './machineId';
+import {
+  attachContextMenu,
+  installEditMenu,
+  registerClipboardHandlers,
+} from './editMenu';
 // Socket server currently not used
 // import { createSocketServer } from './socket';
 
@@ -60,6 +66,9 @@ function createMainWindow() {
     height: 800,
     title: 'Majestic POS',
     icon: resolveWindowIcon(),
+    // The menu exists only to carry the clipboard accelerators; a till has no
+    // use for a menu bar drawn across the top of the screen.
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -67,6 +76,12 @@ function createMainWindow() {
       sandbox: false,
     },
   });
+
+  mainWindow.setMenuBarVisibility(false);
+
+  // Right-click cut/copy/paste, for the counters where the keyboard is out of
+  // reach behind the drawer.
+  attachContextMenu(mainWindow);
 
   // Prevent the web page from changing the title
   mainWindow.on('page-title-updated', (event) => {
@@ -152,6 +167,19 @@ async function boot() {
     console.error('[db] order sync repair failed:', e);
   }
 
+  // 2.6) Give this installation its own id if it has none yet.
+  //
+  //      Pairing and reclaim both ask for it, but a till that is simply
+  //      running asks for neither — so without this a working till upgraded
+  //      from an older version would carry its inherited id only in the
+  //      database, and lose it with the database. Writing the file at boot is
+  //      what makes the id outlive a wipe.
+  try {
+    await readOrCreateMachineId();
+  } catch (e) {
+    console.error('[pos] installation id init failed:', e);
+  }
+
   // 3) Lock policy: a locked / too-long-offline device is unpaired (and, when
   //    the server locked it, its local data is wiped). The app keeps running
   //    and lands on the Pair screen — it never exits on its own.
@@ -172,6 +200,7 @@ async function boot() {
 
   // 6) IPC handlers (store, settings, orders, cart, sync, dev, ...)
   registerAllHandlers(ipcMain, services);
+  registerClipboardHandlers(ipcMain);
 
   // 7) Local print handlers (uses raw SQLite DB)
   registerLocalPrintHandlers(ipcMain, db as BetterSqliteDB, services);
@@ -182,6 +211,11 @@ async function boot() {
   // } catch (e) {
   //   console.warn('[socket] server not started:', (e as any)?.message);
   // }
+
+  // 8.5) Without an application menu Electron routes no clipboard
+  //      accelerators, so Ctrl+C / Ctrl+V / Ctrl+A did nothing in any input in
+  //      this app. Must be in place before the window opens.
+  installEditMenu();
 
   // 9) Finally create main window
   createMainWindow();

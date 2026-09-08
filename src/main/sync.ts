@@ -860,12 +860,20 @@ export async function pairDevice(
 
   const { data } = await pairingApi.post('/register', {
     code: pairCode,
-    branch_id: branchId,
     name: deviceName,
     machine_id: machineId,
     // Known from the first contact, so a device that never syncs again still
     // has a recorded version.
     app_version: appVersion(),
+    // Only when this machine actually knows a branch from an earlier pairing.
+    //
+    // A branch code carries its own branch and the server ignores this field
+    // entirely; it is still read by the older chain-wide codes, which stay
+    // live until the last till on that path is re-paired. Sending 0 for a
+    // machine that has never paired would be answered POS_PAIR_BRANCH_INVALID
+    // by that older path, which is a worse message than the one the server
+    // gives when the field is simply absent.
+    ...(Number(branchId) > 0 ? { branch_id: branchId } : {}),
   });
 
   if (!data.device?.id || !data.token) {
@@ -893,6 +901,8 @@ export async function pairDevice(
 /** Why a silent re-pair could not happen. Every one of these is survivable. */
 export type ReclaimReason =
   | 'no_identity'
+  /** Unpaired deliberately. Never attempted, so never refused by the server. */
+  | 'manual_unpair'
   | 'disabled'
   | 'mismatch'
   | 'unknown'
