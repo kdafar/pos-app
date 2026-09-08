@@ -21,6 +21,7 @@ import { DataState, PageShell, StatCard } from '../../components/PageShell';
 
 import { errorLine as errLine } from '../../utils/posError';
 import { buildThermalReportHtml } from './thermalReport';
+import { hoistCommonPrefix } from './orderRefs';
 type BackendOrderRow = {
   id: string;
   order_number: string;
@@ -487,6 +488,13 @@ export default function ClosingReport() {
       | null;
     const branchName = sync?.branch_name || 'All Branches';
 
+    // The branch half of every reference, lifted out of the column and into
+    // the section heading so the list fits two abreast. Returns nothing to
+    // lift unless every reference genuinely shares it — see orderRefs.
+    const { prefix: refPrefix, rest: refRest } = hoistCommonPrefix(
+      data.orders.map((o) => String(o.reference_no || o.order_number || ''))
+    );
+
     const html = buildThermalReportHtml({
       dir: lang === 'ar' ? 'rtl' : 'ltr',
       font:
@@ -511,7 +519,9 @@ export default function ClosingReport() {
         orderTypes: t('admin.rep.tabOrderType'),
         items: t('admin.rep.tabItem'),
         categories: t('admin.rep.tabCategory'),
-        orders: t('admin.rep.thermalOrders'),
+        orders: refPrefix
+          ? `${t('admin.rep.thermalOrders')} — ${refPrefix}`
+          : t('admin.rep.thermalOrders'),
         signature: t('admin.rep.thermalSignature'),
       },
       counts: {
@@ -550,7 +560,7 @@ export default function ClosingReport() {
         value: fmt(it.total),
       })),
       orders: data.orders.map((o, i) => ({
-        label: `${i + 1}. ${o.reference_no || o.order_number}`,
+        label: `${i + 1}. ${refRest[i]}`,
         value: fmt(o.grand_total),
         cancelled: isCancelled(o),
       })),

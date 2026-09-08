@@ -132,8 +132,19 @@ export function buildThermalReportHtml(input: ThermalReportInput): string {
   .metric span { display: block; font-size: 9px; line-height: 1.2; }
   .metric b { display: block; margin-top: 2px; font-size: 17px; line-height: 1; }
   .metric.total { background: #000; color: #fff; }
-  .orders .row { border-bottom: 1px dotted #777; }
-  .orders .row:last-child { border-bottom: 0; }
+  /* The order list is the only section that grows with the day — everything
+     above it is per distinct item and plateaus — so it is the only one paired
+     into two columns and set tighter. At 200 orders that is the difference
+     between about 1.7m of paper and about 1m, with every order still on it.
+     The dotted rule per row goes with it: once rows are paired, a band on the
+     even ones separates them without spending a pixel on each. */
+  .orders { display: grid; grid-template-columns: 1fr 1fr; column-gap: 4mm; }
+  .orders .row { padding: 1px 0; font-size: 10.5px; break-inside: avoid; }
+  .orders .row:nth-child(even) { background: #f0f0f0; }
+  /* A narrow roll cannot hold two of these legibly, so it keeps one column and
+     the extra length. Reacting to the width the main process applied is not the
+     same as declaring one — nothing here states a paper size. */
+  @media (max-width: 65mm) { .orders { grid-template-columns: 1fr; } }
   .row.void { color: #555; }
   .row.void .l, .row.void .v { text-decoration: line-through; }
   .totals { border: 1.5px solid #000; padding: 3px 5px; }

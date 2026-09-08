@@ -83,6 +83,33 @@ describe('thermal closing report', () => {
     expect((html.match(/class="row/g) || []).length).toBeGreaterThanOrEqual(200);
   });
 
+  /**
+   * Chosen on 2026-09-08 after seeing the Al-Jahra print: at 200 orders the
+   * single-column list ran to about 1.7m of paper. Pairing it halves that
+   * without dropping an order, which is what kept a capped list rejected.
+   */
+  it('pairs the order list into two columns, and only the order list', () => {
+    const html = buildThermalReportHtml(
+      makeInput({ orders: ordersOfLength(200) })
+    );
+
+    expect(html).toMatch(/\.orders\s*{[^}]*grid-template-columns:\s*1fr 1fr/);
+    // The sections above it are per distinct item and plateau, so they keep
+    // their present weight — pairing them would only cost legibility.
+    expect(html).not.toMatch(/\.sec\s*{[^}]*grid-template-columns/);
+  });
+
+  it('keeps one column on a roll too narrow to hold two', () => {
+    const html = buildThermalReportHtml(makeInput());
+
+    expect(html).toMatch(
+      /@media\s*\(max-width:\s*65mm\)\s*{\s*\.orders\s*{[^}]*grid-template-columns:\s*1fr\s*[;}]/
+    );
+    // Reacting to the width the main process applied, never declaring one.
+    expect(html).not.toMatch(/@page\s*{[^}]*size/i);
+    expect(html).not.toMatch(/body\s*{[^}]*width/i);
+  });
+
   it('strikes cancelled orders through so they cannot read as sales', () => {
     const html = buildThermalReportHtml(
       makeInput({
