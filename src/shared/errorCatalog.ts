@@ -481,6 +481,21 @@ export const ERROR_CATALOG = {
       body: 'رد الخادم غير مفهوم. تأكد من العنوان ورمز الربط.',
     },
   },
+  POS_PAIR_UNSENT_ORDERS: {
+    severity: 'blocker',
+    retry: false,
+    where: 'sync:pair (app)',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Orders not sent yet',
+      body: 'This device still has {count} order(s) from the previous restaurant that were never sent. Pair it back to that restaurant and sync first, then pair it here.',
+    },
+    ar: {
+      title: 'طلبات لم تُرسل بعد',
+      body: 'على هذا الجهاز {count} طلب/طلبات من المطعم السابق لم تُرسل. أعد ربطه بذلك المطعم وقم بالمزامنة أولًا، ثم اربطه هنا.',
+    },
+  },
 
   /* ────────────────────── push / the outbox ────────────────────── */
   POS_PUSH_DEVICE_UNAUTHORIZED: {

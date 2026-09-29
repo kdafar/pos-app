@@ -12,6 +12,7 @@ import db, {
   enforcePosLockKillSwitch,
   repairOrderSyncDamage,
   guardLegacyOutbox,
+  backfillDataOwner,
   getMeta,
   setMeta,
 } from './db';
@@ -178,6 +179,14 @@ async function boot() {
     await readOrCreateMachineId();
   } catch (e) {
     console.error('[pos] installation id init failed:', e);
+  }
+
+  // 2.7) Record whose data this is while the till is still paired, so an
+  //      unpair followed by pairing to another restaurant can tell.
+  try {
+    backfillDataOwner();
+  } catch (e) {
+    console.error('[pos] data owner backfill failed:', e);
   }
 
   // 3) Lock policy: a locked / too-long-offline device is unpaired (and, when

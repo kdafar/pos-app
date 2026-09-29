@@ -9,6 +9,12 @@ import db, {
   enforcePosLockKillSwitch,
   markDeviceRevoked,
   clearPosLock,
+  clearAuthAndPairing,
+  clearRestaurantData,
+  countUnsentOrders,
+  dataOwnerFor,
+  getDataOwner,
+  setDataOwner,
 } from '../db';
 import { PUSHABLE_STATUSES, sqlList } from '../utils/orderStatus';
 
@@ -518,6 +524,26 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       // pos.locked=1 could therefore never pair again: the check below threw
       // every time, and the only line that could clear the flag never ran.
       // Deleting the local DB was the sole escape.
+      // A different restaurant (or branch) than the one whose data this PC
+      // still holds. Its catalog, staff and orders must go before bootstrap,
+      // or the new shop's import collides with them and fails.
+      const owner = dataOwnerFor(baseUrl, result?.branchId);
+      const previousOwner = getDataOwner();
+      if (previousOwner !== owner) {
+        const unsent = countUnsentOrders();
+        if (unsent > 0) {
+          // Clearing would destroy sales the old shop has never received.
+          // Undo this pairing locally — 'manual' so reclaim does not quietly
+          // redo it — and have them sent from the old pairing first.
+          clearAuthAndPairing('manual');
+          throw posError('POS_PAIR_UNSENT_ORDERS', {
+            params: { count: String(unsent) },
+          });
+        }
+        clearRestaurantData('restaurant_changed');
+        setDataOwner(owner);
+      }
+
       const device = result?.device;
       if (device) {
         // Save killswitch days

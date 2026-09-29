@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { BrandHeader } from '../components/BrandHeader';
 import { LanguageToggle } from '../components/LanguageToggle';
 import { useI18n } from '../i18n';
+import { unpairDevice, useConfirmUnpair } from '../components/useConfirmUnpair';
 
 import { usePosError } from '../utils/posError';
 /**
@@ -42,6 +43,7 @@ export default function PairScreen() {
   const nav = useNavigate();
   const { t } = useI18n();
   const describe = usePosError();
+  const confirmUnpair = useConfirmUnpair();
 
   const [baseUrl, setBaseUrl] = useState('');
   const [code, setCode] = useState('');
@@ -246,9 +248,11 @@ export default function PairScreen() {
 
   const handleUnpair = async () => {
     clearError();
+    const choice = await confirmUnpair();
+    if (!choice) return;
     setBusy(true);
     try {
-      await (window as any).pos.auth.unpair();
+      await unpairDevice(choice.wipe);
       // reset form
       setBaseUrl('');
       setCode('');
@@ -383,17 +387,10 @@ export default function PairScreen() {
             align='left'
           />
 
+          {/* No "go to login" here: this form only shows on an unpaired till,
+              and a paired one is sent to login before it ever renders. */}
           <div className='flex items-center gap-3'>
             <LanguageToggle compact />
-            <div className='text-[11px] text-slate-500'>
-              {t('pair.alreadyPaired')}{' '}
-              <button
-                className='underline underline-offset-2 text-slate-800 hover:text-slate-900'
-                onClick={() => nav('/login', { replace: true })}
-              >
-                {t('auth.goToLogin')}
-              </button>
-            </div>
           </div>
         </CardHeader>
 

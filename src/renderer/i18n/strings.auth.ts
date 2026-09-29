@@ -104,8 +104,20 @@ export const authStrings = {
     ar: 'راح ينفصل هذا الجهاز عن السيرفر ويتم إلغاء الفرع المربوط فيه.',
   },
   'auth.unpairConfirmNote': {
-    en: 'You can pair again later using a new code from the admin panel.',
-    ar: 'تقدر تربط الجهاز مرة ثانية برمز جديد من لوحة الإدارة.',
+    en: 'You can pair again later using a new code from the admin panel. Pairing it to a different restaurant or branch clears this one’s menu, staff and orders from the device — sync first.',
+    ar: 'تقدر تربط الجهاز مرة ثانية برمز جديد من لوحة الإدارة. ربطه بمطعم أو فرع مختلف يمسح المنيو والموظفين والطلبات الحالية من الجهاز — سوِّ مزامنة أول.',
+  },
+  'auth.unpairWipe': {
+    en: 'Also delete all data on this device',
+    ar: 'امسح كل البيانات من هذا الجهاز أيضًا',
+  },
+  'auth.unpairWipeHint': {
+    en: 'Menu, staff logins and order history are removed. Printer settings are kept.',
+    ar: 'يتم حذف المنيو وحسابات الموظفين وسجل الطلبات. إعدادات الطابعة تبقى.',
+  },
+  'auth.unpairWipeUnsent': {
+    en: '{count} order(s) have not been sent to the server yet. They will be saved to a backup file, but will not reach the back office.',
+    ar: 'فيه {count} طلب/طلبات لم تُرسل للسيرفر بعد. راح تنحفظ في ملف احتياطي، لكنها ما راح توصل للوحة الإدارة.',
   },
   'auth.unpairConfirmYes': { en: 'Yes, unpair', ar: 'نعم، ألغِ الربط' },
   'auth.unpairConfirmNo': { en: 'Keep paired', ar: 'خلّه مربوط' },

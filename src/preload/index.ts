@@ -43,7 +43,8 @@ const bridge = {
       return ipcRenderer.invoke('auth:pair', payload);
     },
 
-    unpair: () => ipcRenderer.invoke('auth:unpair'),
+    unpair: (opts?: { wipe?: boolean }) => ipcRenderer.invoke('auth:unpair', opts),
+    unsentCount: () => ipcRenderer.invoke('auth:unsentCount'),
   },
   update: {
     status: () => ipcRenderer.invoke('update:status'),

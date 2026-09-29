@@ -3,6 +3,7 @@
 import type { IpcMain } from 'electron';
 import bcrypt from 'bcryptjs';
 
+import { clearRestaurantData, countUnsentOrders } from '../db';
 import { readOrCreateMachineId } from '../machineId';
 import { loadSecretWithRetry, saveSecret } from '../secureStore';
 import type { MainServices } from '../types/common';
@@ -434,7 +435,14 @@ export function registerAuthHandlers(ipcMain: IpcMain, services: MainServices) {
   });
 
   /* ---------- Unpair ---------- */
-  ipcMain.handle('auth:unpair', async () => {
+  // What the unpair dialog warns about before anyone ticks "delete all data".
+  ipcMain.handle('auth:unsentCount', () => countUnsentOrders());
+
+  ipcMain.handle('auth:unpair', async (_e, opts?: { wipe?: boolean }) => {
+    // Before the pairing keys go, so the unsent-order backup can still say
+    // which device and restaurant it came from.
+    if (opts?.wipe) clearRestaurantData('manual_unpair');
+
     const sess = qActiveSession.get() as any;
     if (sess) qEndSession.run(Date.now(), sess.id);
 

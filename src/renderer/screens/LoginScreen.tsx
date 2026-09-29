@@ -15,7 +15,7 @@ import {
 import { BrandHeader } from '../components/BrandHeader';
 import { LanguageToggle } from '../components/LanguageToggle';
 import { Wifi, WifiOff, Link2, RefreshCcw } from 'lucide-react';
-import { useConfirmDialog } from '../components/ConfirmDialogProvider';
+import { unpairDevice, useConfirmUnpair } from '../components/useConfirmUnpair';
 import { useI18n } from '../i18n';
 
 import { useErrorLine } from '../utils/posError';
@@ -71,7 +71,7 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [rememberLogin, setRememberLogin] = useState(true);
-  const confirm = useConfirmDialog();
+  const confirmUnpair = useConfirmUnpair();
   const { t } = useI18n();
   const errLine = useErrorLine();
 
@@ -101,6 +101,11 @@ export function LoginScreen() {
       if (saved) setLogin(saved);
 
       const s = await (window as any).pos.auth.status();
+      // Nobody can sign in to a till with no server and no staff.
+      if (!s.paired) {
+        nav('/pair', { replace: true });
+        return;
+      }
       setBranch({ id: s.branch_id ?? null, name: s.branch_name ?? '' });
 
       const list = await (window as any).pos.auth.listUsers();
@@ -202,28 +207,14 @@ export function LoginScreen() {
   };
 
   const doUnpair = async () => {
-    const ok = await confirm({
-      title: t('auth.unpairConfirmTitle'),
-      message: (
-        <div className='space-y-1 text-sm'>
-          <p>{t('auth.unpairConfirmBody')}</p>
-          <p className='text-xs text-slate-500'>
-            {t('auth.unpairConfirmNote')}
-          </p>
-        </div>
-      ),
-      confirmLabel: t('auth.unpairConfirmYes'),
-      cancelLabel: t('auth.unpairConfirmNo'),
-      tone: 'danger',
-    });
-
-    if (!ok) return;
+    const choice = await confirmUnpair();
+    if (!choice) return;
 
     setErr(null);
     setUnpairLoading(true);
 
     try {
-      await (window as any).api.invoke('auth:unpair');
+      await unpairDevice(choice.wipe);
 
       setStatus(null);
       setBranch({ id: null, name: '' });

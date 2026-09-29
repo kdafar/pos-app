@@ -807,13 +807,18 @@ export function enforcePosLockKillSwitch(): PosLockOutcome {
 }
 
 /**
- * HTTP 401 "Device revoked" — the only permanent state. The pairing is cleared
- * so the till returns to the Pair screen, but local data (and the outbox) is
- * deliberately preserved: a revoked device may still hold unsynced sales that
- * an operator needs to recover.
+ * HTTP 401 "Device revoked" — the kill command from the back office, and the
+ * only permanent state. The till is unpaired and its restaurant data deleted,
+ * so a removed machine keeps neither the menu, the staff logins nor the sales.
+ * Unsent orders are written to a backup file first (see backupUnsentOrders),
+ * since a revoked token can no longer deliver them.
+ *
+ * A lock (423) is not this: it is reversible and never reaches here.
  */
 export function markDeviceRevoked(): PosLockOutcome {
-  console.warn('[pos] Device REVOKED by server → unpairing (data preserved).');
+  console.warn('[pos] Device REVOKED by server → unpairing and clearing data.');
+  // Data first, so the backup can still name the device it came from.
+  clearRestaurantData('device_revoked');
   clearAuthAndPairing('device_revoked');
   return { action: 'unpaired', reason: 'device_revoked' };
 }
@@ -845,6 +850,175 @@ export function clearPosLock() {
   setMeta('pos.locked', '0');
   setMeta('pos.lock_reason', '');
   setMeta('pos.locked_at', '');
+}
+
+/**
+ * Which restaurant the rows in this database belong to: server + branch.
+ *
+ * Kept apart from the pairing keys on purpose — unpairing forgets how to talk
+ * to the server but leaves the data, so this is the only way the next pairing
+ * can tell "same shop again" from "this PC now belongs to someone else".
+ */
+const DATA_OWNER_KEY = 'pos.data_owner';
+
+export function dataOwnerFor(
+  baseUrl: string,
+  branchId: string | number | null | undefined
+): string {
+  const base = String(baseUrl ?? '').trim().toLowerCase().replace(/\/+$/, '');
+  return `${base}|${String(branchId ?? '').trim()}`;
+}
+
+export function getDataOwner(): string {
+  return String(getMeta(DATA_OWNER_KEY) ?? '');
+}
+
+export function setDataOwner(owner: string) {
+  setMeta(DATA_OWNER_KEY, owner);
+}
+
+/**
+ * Stamp the owner on a till that is paired but predates the key, so a later
+ * unpair still knows whose data it is holding.
+ */
+export function backfillDataOwner() {
+  if (getDataOwner()) return;
+  const base = getMeta('server.base_url') || '';
+  const branch = getMeta('branch_id') || getMeta('branch.id') || '';
+  if (base && branch) setDataOwner(dataOwnerFor(base, branch));
+}
+
+/**
+ * Tables that hold one restaurant's data. Children before parents, so the
+ * deletes never trip a foreign key.
+ */
+const RESTAURANT_TABLES = [
+  'order_lines_pending',
+  'order_lines',
+  'active_orders',
+  'orders',
+  'promo_item_exclusions',
+  'item_addon_groups',
+  'addons',
+  'addon_groups',
+  'variations',
+  'items',
+  'subcategories',
+  'categories',
+  'promos',
+  'payment_methods',
+  'tables',
+  'blocks',
+  'cities',
+  'states',
+  'auth_sessions',
+  'pos_users',
+  'pos_role_permissions',
+];
+
+/**
+ * Forget the previous restaurant before this PC starts selling for another.
+ *
+ * Without this the old catalog and staff stayed behind after an unpair: the
+ * new bootstrap collided with them on UNIQUE columns (payment method slugs,
+ * promo codes) and rolled back, and an old user sharing an email with a new
+ * one answered the login first. app_settings is deliberately kept — printers
+ * and drawer setup belong to the machine, and bootstrap refreshes the rest.
+ */
+export function clearRestaurantData(reason: string) {
+  backupUnsentOrders(reason);
+
+  const present = new Set(
+    (
+      db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name)
+  );
+
+  db.transaction(() => {
+    for (const table of RESTAURANT_TABLES) {
+      if (present.has(table)) db.prepare(`DELETE FROM ${table}`).run();
+    }
+    db.prepare(
+      `DELETE FROM sync_state WHERE key IN ('cursor', 'permissions.source')`
+    ).run();
+    for (const key of [
+      'branch.profile',
+      'outbox.legacy_held',
+      'outbox.legacy_numbers',
+      'sync.last_at',
+      'bootstrap.last_at',
+      'pos.locked',
+      'pos.lock_reason',
+      'pos.locked_at',
+    ]) {
+      setMeta(key, '');
+    }
+  })();
+
+  // Nothing left to own. The next pairing starts clean whichever shop it is.
+  setDataOwner('');
+  console.warn('[pos] Local restaurant data cleared. reason=', reason);
+}
+
+/**
+ * Write every order the server never acknowledged to a file before a wipe.
+ *
+ * A wipe can be ordered from the back office or ticked by someone at the
+ * counter who did not notice the pending count. Either way the sales are real
+ * money; a JSON file in the app's data folder is what lets support recover
+ * them instead of reconstructing a day's takings from memory.
+ */
+function backupUnsentOrders(reason: string) {
+  try {
+    const orders = db
+      .prepare(
+        `SELECT * FROM orders o
+          WHERE (o.synced_at IS NULL OR o.synced_at = 0)
+            AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = o.id)`
+      )
+      .all() as Array<{ id: string }>;
+    if (!orders.length) return;
+
+    const lines = db.prepare(`SELECT * FROM order_lines WHERE order_id = ?`);
+    const dir = path.join(app.getPath('userData'), 'unsent-backups');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `unsent-orders-${Date.now()}.json`);
+    fs.writeFileSync(
+      file,
+      JSON.stringify(
+        {
+          reason,
+          saved_at: new Date().toISOString(),
+          owner: getDataOwner(),
+          device_id: getMeta('device_id'),
+          orders: orders.map((o) => ({ ...o, lines: lines.all(o.id) })),
+        },
+        null,
+        2
+      )
+    );
+    console.warn(`[pos] ${orders.length} unsent order(s) saved to ${file}`);
+  } catch (e) {
+    // A failed backup must not stop a revoke from taking effect.
+    console.error('[pos] unsent order backup failed:', e);
+  }
+}
+
+/** Orders the server has not received yet, as the push counts them. */
+export function countUnsentOrders(): number {
+  return Number(
+    db
+      .prepare(
+        `SELECT COUNT(*) FROM orders o
+          WHERE (o.synced_at IS NULL OR o.synced_at = 0)
+            AND COALESCE(o.push_legacy, 0) = 0
+            AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = o.id)`
+      )
+      .pluck()
+      .get() ?? 0
+  );
 }
 
 export function getCurrentUserId(): string | null {
