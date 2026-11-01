@@ -1755,19 +1755,29 @@ export function registerOrdersHandlers(
     const order = getOrderRow(orderId);
     if (!order) return;
 
-    // 1. Mark order as completed
-    let sql = `UPDATE orders SET status = 'completed', updated_at = ?`;
-    if (hasColumn('orders', 'completed_at')) sql += `, completed_at = ?`;
-    sql += ` WHERE id = ?`;
-
+    // 1. Mark order as completed — finished the same way orders:close finishes
+    // one. This path used to skip three things: the re-push, so the server
+    // kept the order open and its table busy, and every sync turned the table
+    // red again on the till; closed_at, which the closing report keys off; and
+    // the lock.
+    const cols = [`status = 'completed'`, 'updated_at = ?'];
     const params: Array<number | string> = [ts];
-    if (hasColumn('orders', 'completed_at')) params.push(ts);
+    for (const col of ['completed_at', 'closed_at']) {
+      if (hasColumn('orders', col)) {
+        cols.push(`${col} = ?`);
+        params.push(ts);
+      }
+    }
+    if (hasColumn('orders', 'is_locked')) cols.push('is_locked = 1');
     params.push(orderId);
 
-    rawDb.prepare(sql).run(...params);
+    rawDb.prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`).run(...params);
 
     // 2. Release table
     if (order.table_id) releaseTableIfFree(order.table_id);
+
+    markForRepush(orderId);
+    log('orders.releaseTable', orderId, { table_id: order.table_id });
 
     return getOrderWithLines(orderId);
   });

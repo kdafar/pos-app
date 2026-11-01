@@ -709,6 +709,53 @@ export function guardLegacyOutbox() {
   }
 }
 
+/**
+ * One-time repair for dine-in orders finished with "Close & Release" before it
+ * re-pushed. That path marked them completed locally but left them stamped as
+ * synced, so the server kept them open and their tables busy, and every sync
+ * turned those tables red again. It also never set closed_at, which keeps
+ * them off the closing report.
+ *
+ * Re-queued by temp_id; the backend matches the order and its lines by id, so
+ * this closes the existing server order rather than duplicating it.
+ */
+export function repairUnsentReleasedTables() {
+  if (getMeta('repair.release_table_repush_v1') === 'done') return;
+
+  try {
+    const hasClosedAt = hasColumn('orders', 'closed_at');
+    const hasCompletedAt = hasColumn('orders', 'completed_at');
+    const tx = db.transaction(() => {
+      const closed = hasClosedAt
+        ? db
+            .prepare(
+              `UPDATE orders
+                  SET closed_at = COALESCE(${hasCompletedAt ? 'completed_at, ' : ''}updated_at)
+                WHERE order_type = 3 AND status = 'completed' AND closed_at IS NULL`
+            )
+            .run().changes
+        : 0;
+      // synced_at is in seconds, updated_at in milliseconds. A completed order
+      // changed after its last push never told the server it was finished.
+      const requeued = db
+        .prepare(
+          `UPDATE orders SET synced_at = NULL
+            WHERE order_type = 3 AND status = 'completed'
+              AND COALESCE(push_legacy, 0) = 0
+              AND synced_at IS NOT NULL AND synced_at > 0
+              AND updated_at > synced_at * 1000 + 1000`
+        )
+        .run().changes;
+      return { closed, requeued };
+    });
+    const result = tx();
+    setMeta('repair.release_table_repush_v1', 'done');
+    console.log('[repair] released dine-in orders re-queued for push', result);
+  } catch (e) {
+    console.error('[repair] release-table repush repair failed:', e);
+  }
+}
+
 export function getMeta(key: string): string | null {
   const row = db
     .prepare('SELECT value FROM meta WHERE key = ?')

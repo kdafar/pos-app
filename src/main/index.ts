@@ -12,6 +12,7 @@ import db, {
   enforcePosLockKillSwitch,
   repairOrderSyncDamage,
   guardLegacyOutbox,
+  repairUnsentReleasedTables,
   backfillDataOwner,
   getMeta,
   setMeta,
@@ -164,6 +165,9 @@ async function boot() {
   try {
     repairOrderSyncDamage();
     guardLegacyOutbox();
+    // After the guard: the guard holds back whatever is unsynced at its first
+    // run, and these must go out.
+    repairUnsentReleasedTables();
   } catch (e) {
     console.error('[db] order sync repair failed:', e);
   }
