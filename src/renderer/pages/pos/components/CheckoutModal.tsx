@@ -20,6 +20,7 @@ import { PromoDialog } from './PromoDialog';
 import { PaymentLinkModal } from './PaymentLinkModal';
 import { useToast } from '../../../components/ToastProvider'; // adjust path if needed
 import { useI18n } from '../../../i18n';
+import { isOnlinePayment } from '../paymentKinds';
 import { DeliveryFeeRow } from './DeliveryFeeRow';
 import { describeError } from '../../../utils/posError';
 import { paymentStatusCode } from '../../../../shared/errors';
@@ -399,16 +400,6 @@ export function CheckoutModal({
     ? suggestTenders(computeDisplayTotals().grand_total)
     : [];
 
-  /** Payment slugs that hand the customer a link instead of taking cash here. */
-  const isOnlinePayment = (slug?: string | null) =>
-    [
-      'link',
-      'myfatoorah',
-      'online',
-      'online_knet',
-      'online_card',
-      'mf_online',
-    ].includes((slug ?? '').toLowerCase());
 
   /*
    * Every rule the main process enforces on orders:complete, checked here first
@@ -613,20 +604,10 @@ export function CheckoutModal({
         console.error('[CheckoutModal] print after complete failed', e)
       );
 
-      // Clear table on dine-in
-      if (order.order_type === 3 && order.table_id) {
-        try {
-          await window.api.invoke('orders:clearTable', order.id);
-          console.log(
-            `[CheckoutModal] Explicitly cleared table for completed order ${order.id}`
-          );
-        } catch (e) {
-          console.warn(
-            `[CheckoutModal] Failed to clear table for completed order ${order.id}`,
-            e
-          );
-        }
-      }
+      // No table clearing here. A placed dine-in order stays seated until Close
+      // & Release; this used to call orders:clearTable, which only ever did
+      // nothing by accident (first a transaction that never ran, then the
+      // "table has items" refusal swallowed below).
 
       // With a QR on screen the modal owns teardown; running onAfterComplete
       // here would close the checkout and take the QR with it.

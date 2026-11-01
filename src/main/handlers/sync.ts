@@ -1008,6 +1008,19 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       }
     }
 
+    // The bootstrap and pull above ran before this push, so they brought down
+    // the server's view from before it — a table this till just freed came
+    // back busy, and stayed red until the next sync a minute later. Once the
+    // server has acked something, read its now-current state in this run.
+    // Not fatal: the push is already safe, and the next run pulls again.
+    if (pushedCount > 0) {
+      try {
+        await pullChanges();
+      } catch (err) {
+        console.warn('[Sync] post-push pull failed; next sync will catch up', err);
+      }
+    }
+
     setMeta('sync.last_at', String(Date.now()));
 
     // Orders that reached this till before the feeds read the payment method

@@ -1300,7 +1300,9 @@ export function registerOrdersHandlers(
         throw posError('POS_VAL_LINE_SENT_MODIFY');
       }
 
-      assertOrderEditable(line.order_id);
+      // The line check above protects what was sent; a new round on a placed
+      // table must stay correctable before it is sent.
+      assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true });
 
       if (qty <= 0) {
         rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
@@ -1329,7 +1331,7 @@ export function registerOrdersHandlers(
       throw posError('POS_VAL_LINE_SENT_REMOVE');
     }
 
-    assertOrderEditable(line.order_id);
+    assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true });
     rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
     return recalcAndGet(line.order_id);
   });
@@ -1338,7 +1340,8 @@ export function registerOrdersHandlers(
     'orders:removeLineByItem',
     async (_e, orderId: string, itemId: string) => {
       if (isPosLocked()) throw posError('POS_TILL_LOCKED');
-      assertOrderEditable(orderId);
+      // Deletes unlocked lines only, so a placed table can drop an unsent item.
+      assertOrderEditable(orderId, { allowAddOnLockedDineIn: true });
 
       // Only remove unlocked lines
       let sql = `DELETE FROM order_lines WHERE order_id = ? AND item_id = ?`;
@@ -1543,6 +1546,11 @@ export function registerOrdersHandlers(
       .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
       .run(...params);
 
+    // A closed order gives its table back, as releaseTable and setStatus do.
+    // Today only an empty dine-in reaches here with a table, but a close that
+    // left one busy is exactly the bug Close & Release had.
+    if (order.table_id) releaseTableIfFree(order.table_id);
+
     markForRepush(orderId);
 
     log('orders.close', orderId, {
@@ -1740,6 +1748,17 @@ export function registerOrdersHandlers(
       } catch (err: any) {
         console.error('Orders:complete SQL Error:', err.message);
         throw posError('POS_DB_WRITE_FAILED', { cause: err });
+      }
+
+      // Placing sends every line, so every line is now "sent". This is what
+      // tells a later round apart from the first: only unlocked lines can be
+      // changed, and a repeat of the same item becomes its own line instead of
+      // silently raising the quantity of one already in the kitchen. It used
+      // to happen only in orders:markPrinted, which nothing calls.
+      if (hasColumn('order_lines', 'is_locked')) {
+        rawDb
+          .prepare(`UPDATE order_lines SET is_locked = 1 WHERE order_id = ?`)
+          .run(orderId);
       }
 
       markForRepush(orderId);

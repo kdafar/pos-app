@@ -1,29 +1,41 @@
 #!/usr/bin/env node
 /**
- * Interactive release for POS App.
+ * Interactive release for POS App — Windows and Android together.
  *
  *   npm run release
  *
  * Asks what to build, then does the whole sequence in the right order and
  * verifies the result — so none of it has to be remembered:
  *
- *   version bump → tests → typecheck diff → GitHub release → build → package
- *   → verify artifacts → verify the release is complete
+ *   tests → typecheck diff → version bump (both apps) → commit + push pos-app
+ *   → build + package Windows → verify artifacts → build Android APK
+ *   → verify APK → commit + push pos-android → draft release → upload
+ *   → verify uploads → publish → verify it is the latest release
  *
- * Everything is guarded. It refuses to package if tests fail, it defaults to
- * --publish never (publishing reaches every till within ~6h via auto-update),
- * and it checks the icons and feature markers are actually inside the shipped
- * binaries rather than trusting the builder's exit code.
+ * Everything is guarded. It refuses to package if tests fail, it never lets
+ * electron-builder publish, and it checks the icons and feature markers are
+ * actually inside the shipped binaries rather than trusting the builder's exit
+ * code.
+ *
+ * Android and Windows always ship in the same release: tablets update from the
+ * `POS-App-Android-<v>.apk` asset of the latest release, and an Android-only
+ * release would carry no latest.yml and break every Windows till's updater.
  */
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PKG = path.join(ROOT, 'package.json');
+const ANDROID_ROOT = path.resolve(ROOT, '..', 'pos-android');
+const ANDROID_PKG = path.join(ANDROID_ROOT, 'package.json');
+/** The POS release key. A tablet refuses an update signed by anything else. */
+const ANDROID_CERT_SHA256 =
+  'e835a8bd09baf5e8b2bf9f1ed36c73351a6a02e186c5da8b8b12cc35b2560f78';
 
 /* ------------------------------- output ------------------------------- */
 const C = {
@@ -41,10 +53,10 @@ const warn = (msg) => console.log(`  ${C.yellow('WARN')} ${msg}`);
 const fail = (msg) => console.log(`  ${C.red('FAIL')} ${msg}`);
 
 /* ------------------------------- helpers ------------------------------ */
-function run(cmd, args, { capture = false, allowFail = false } = {}) {
+function run(cmd, args, { capture = false, allowFail = false, cwd = ROOT } = {}) {
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, {
-      cwd: ROOT,
+      cwd,
       shell: process.platform === 'win32',
       stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
       env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined },
@@ -62,11 +74,11 @@ function run(cmd, args, { capture = false, allowFail = false } = {}) {
   });
 }
 
-const readPkg = () => JSON.parse(fs.readFileSync(PKG, 'utf8'));
-function writeVersion(v) {
-  const raw = fs.readFileSync(PKG, 'utf8');
+const readPkg = (p = PKG) => JSON.parse(fs.readFileSync(p, 'utf8'));
+function writeVersion(v, p = PKG) {
+  const raw = fs.readFileSync(p, 'utf8');
   fs.writeFileSync(
-    PKG,
+    p,
     raw.replace(/("version"\s*:\s*")[^"]+(")/, `$1${v}$2`),
     'utf8'
   );
@@ -78,30 +90,55 @@ function bump(v, kind) {
   return `${maj}.${min}.${pat + 1}`;
 }
 
+/** Commit everything in `cwd` (if anything changed) and push the current branch. */
+async function commitAndPush(cwd, message) {
+  await run('git', ['add', '-A'], { cwd });
+  const staged = await run('git', ['diff', '--cached', '--quiet'], {
+    cwd,
+    allowFail: true,
+  });
+  if (staged.code !== 0) {
+    // Through a file, not -m: on Windows `run` goes through the shell, which
+    // splits an argument at its spaces, so `-m "release 0.5.7: …"` would commit
+    // "release" and treat the rest as file names.
+    const msgFile = path.join(os.tmpdir(), `pos-release-msg-${Date.now()}.txt`);
+    fs.writeFileSync(msgFile, message, 'utf8');
+    try {
+      await run('git', ['commit', '-F', msgFile], { cwd, capture: true });
+    } finally {
+      fs.rmSync(msgFile, { force: true });
+    }
+    ok(`committed: ${message}`);
+  } else ok('nothing new to commit');
+  const branch = (
+    await run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, capture: true })
+  ).out.trim();
+  await run('git', ['push', 'origin', branch], { cwd });
+  const sha = (
+    await run('git', ['rev-parse', 'HEAD'], { cwd, capture: true })
+  ).out.trim();
+  ok(`pushed ${branch} @ ${sha.slice(0, 7)}`);
+  return sha;
+}
+
 /* ------------------------------- GitHub -------------------------------- */
-// Why this exists: electron-builder creates one publisher per artifact, and
-// PublishManager's publisher cache is written *after* an await — so two
-// artifacts entering getOrCreatePublisher in the same tick each end up with
-// their own publisher. Each then runs getOrCreateRelease(), each sees no
-// release, and each POSTs /releases for the same tag. One wins; the loser gets
-//   422 Validation Failed — "Published releases must have a valid tag"
-// which kills the run mid-upload and leaves a *published* release on GitHub
-// holding only a .blockmap — no installer, no latest.yml. Every paired till
-// then 404s on its update check until somebody notices.
-//
-// Creating the release before electron-builder runs removes the race: both
-// publishers find it on the GET, so neither one POSTs.
+// electron-builder never publishes here. Its GitHub publisher raced itself
+// (two artifacts each POSTing the same release, the loser dying with 422 and
+// leaving a live release holding only a .blockmap), and a live release that is
+// still uploading is one every till may already be reading. Instead: build
+// everything, then create the release as a DRAFT, upload, verify every size,
+// and only then publish. Nobody can see it until it is complete.
 
 const ghToken = () => process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '';
 
-/** owner/repo from build.publish, so this cannot drift from what the builder uses. */
+/** owner/repo from build.publish, so this cannot drift from what the updater reads. */
 function ghTarget() {
   const cfg = (readPkg().build?.publish || []).find((c) => c.provider === 'github');
   return cfg?.owner && cfg?.repo ? { owner: cfg.owner, repo: cfg.repo } : null;
 }
 
-async function gh(pathname, { method = 'GET', body } = {}) {
-  const res = await fetch(`https://api.github.com${pathname}`, {
+async function gh(pathname, { method = 'GET', body, raw, base } = {}) {
+  const res = await fetch(`${base || 'https://api.github.com'}${pathname}`, {
     method,
     headers: {
       authorization: `Bearer ${ghToken()}`,
@@ -109,8 +146,9 @@ async function gh(pathname, { method = 'GET', body } = {}) {
       'x-github-api-version': '2022-11-28',
       'user-agent': 'pos-app-release',
       ...(body ? { 'content-type': 'application/json' } : {}),
+      ...(raw ? { 'content-type': 'application/octet-stream' } : {}),
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: raw ?? (body ? JSON.stringify(body) : undefined),
   });
   const text = await res.text();
   let json = null;
@@ -127,29 +165,72 @@ async function gh(pathname, { method = 'GET', body } = {}) {
   return json;
 }
 
-/** The release electron-builder will upload into. Created if it is not there yet. */
-async function ensureRelease(owner, repo, version) {
+/** Draft → upload → verify → publish. Throws (leaving a draft) on any mismatch. */
+async function publishRelease({ owner, repo }, version, targetSha, assets) {
   const tag = `v${version}`;
-  // The same lookup electron-builder does: list releases and match tag_name
-  // against both `v<version>` and `<version>`. It never GETs by tag, because a
-  // draft release has no git tag to GET by.
   const releases = await gh(`/repos/${owner}/${repo}/releases?per_page=100`);
-  const found = releases.find((r) => r.tag_name === tag || r.tag_name === version);
-  if (found) return { release: found, created: false };
-  // draft/prerelease false to match build.publish[].releaseType === 'release'.
-  // On a mismatch electron-builder decides the existing release is not
-  // compatible with what it is publishing and uploads nothing at all.
+  if (releases.some((r) => r.tag_name === tag || r.tag_name === version)) {
+    throw new Error(
+      `${tag} already exists on GitHub. Delete it there (or pick another version) and re-run.`
+    );
+  }
+
   const release = await gh(`/repos/${owner}/${repo}/releases`, {
     method: 'POST',
-    body: { tag_name: tag, name: tag, draft: false, prerelease: false },
+    body: {
+      tag_name: tag,
+      name: tag,
+      target_commitish: targetSha,
+      draft: true,
+      prerelease: false,
+    },
   });
-  return { release, created: true };
+  ok(`draft ${tag} created`);
+
+  for (const { file, name } of assets) {
+    await gh(
+      `/repos/${owner}/${repo}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`,
+      { method: 'POST', raw: fs.readFileSync(file), base: 'https://uploads.github.com' }
+    );
+    ok(`uploaded  ${name}  ${C.dim(`${(fs.statSync(file).size / 1048576).toFixed(1)} MB`)}`);
+  }
+
+  const listed = await gh(`/repos/${owner}/${repo}/releases/${release.id}/assets`);
+  for (const { file, name } of assets) {
+    const got = listed.find((a) => a.name === name);
+    const want = fs.statSync(file).size;
+    if (!got || got.size !== want) {
+      throw new Error(
+        `${name} is ${got ? got.size : 'missing'} on GitHub, expected ${want}. ` +
+          `The release was left as a DRAFT — nothing is public. Delete it and re-run.`
+      );
+    }
+  }
+  ok('every upload verified');
+
+  await gh(`/repos/${owner}/${repo}/releases/${release.id}`, {
+    method: 'PATCH',
+    body: { draft: false },
+  });
+  const latest = await gh(`/repos/${owner}/${repo}/releases/latest`);
+  if (latest.tag_name !== tag) {
+    throw new Error(`published, but GitHub reports ${latest.tag_name} as latest, not ${tag}`);
+  }
+  ok(`${C.yellow('PUBLISHED')} ${tag} — it is the latest release  ${C.dim(latest.html_url)}`);
 }
 
-/** Names of the assets actually on the release. */
-async function releaseAssets(owner, repo, version) {
-  const r = await gh(`/repos/${owner}/${repo}/releases/tags/v${version}`);
-  return (r.assets || []).map((a) => a.name);
+/* ------------------------------- Android ------------------------------- */
+function findAndroidBuildTool(name) {
+  const sdk = path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk', 'build-tools');
+  if (!fs.existsSync(sdk)) return null;
+  const versions = fs.readdirSync(sdk).sort().reverse();
+  for (const v of versions) {
+    for (const f of [name, `${name}.bat`, `${name}.exe`]) {
+      const p = path.join(sdk, v, f);
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return null;
 }
 
 /* --------------------------- release contents -------------------------- */
@@ -167,6 +248,7 @@ const FEATURE_MARKERS = [
   ['customer lookup', 'customers:findByMobile'],
   ['fail-closed RBAC', 'denying admin'],
   ['print timeout guard', 'did not respond'],
+  ['table floors', 'table_sections'],
 ];
 
 /* ------------------------------- flags -------------------------------- */
@@ -176,10 +258,12 @@ const FEATURE_MARKERS = [
 //
 //   npm run release -- --version=patch --no-publish --yes
 //   npm run release -- --version=1.0.0 --target=installer --no-tests
+//   npm run release -- --no-android --no-git
+//   npm run release -- --message="release 0.5.7: quick table update"
 const FLAGS = Object.fromEntries(
   process.argv.slice(2).map((a) => {
-    const [k, v] = a.replace(/^--/, '').split('=');
-    return [k, v === undefined ? true : v];
+    const [k, ...rest] = a.replace(/^--/, '').split('=');
+    return [k, rest.length ? rest.join('=') : true];
   })
 );
 const NON_INTERACTIVE = 'version' in FLAGS || FLAGS.yes === true;
@@ -198,10 +282,15 @@ async function main() {
     return /^y/i.test(await ask(`${q} ${C.dim('(y/n)')}`, def));
   };
 
-  console.log(C.bold('\n  POS App — release\n'));
-  const pkg = readPkg();
-  const current = pkg.version;
-  console.log(`  current version: ${C.bold(current)}\n`);
+  console.log(C.bold('\n  POS App — release (Windows + Android)\n'));
+  const current = readPkg().version;
+  const hasAndroid = fs.existsSync(ANDROID_PKG);
+  const androidCurrent = hasAndroid ? readPkg(ANDROID_PKG).version : null;
+  console.log(`  current version: ${C.bold(current)}`);
+  if (hasAndroid && androidCurrent !== current) {
+    warn(`pos-android is at ${androidCurrent} — it will be set to the same new version.`);
+  }
+  console.log('');
 
   /* ---- questions ---- */
   if (NON_INTERACTIVE) console.log(C.dim('  (non-interactive: using flags)'));
@@ -256,6 +345,22 @@ async function main() {
   const targetArgs =
     target === '2' ? ['-w', 'nsis'] : target === '3' ? ['-w', 'portable'] : ['-w'];
 
+  const buildAndroid =
+    hasAndroid && !FLAGS['no-android']
+      ? await yes(`  also build the Android APK ${C.dim('(pos-android)')}?`)
+      : false;
+  if (!hasAndroid) warn(`no pos-android next to pos-app — Android skipped`);
+
+  const doGit = FLAGS['no-git']
+    ? false
+    : await yes('  commit and push the code (pos-app' + (buildAndroid ? ' + pos-android' : '') + ')?');
+  const message =
+    typeof FLAGS.message === 'string'
+      ? FLAGS.message
+      : doGit
+      ? await ask('  commit message', `release ${version}`)
+      : '';
+
   const publish =
     FLAGS.publish === true
       ? true
@@ -263,7 +368,7 @@ async function main() {
       ? false
       : await yes(
           `  ${C.yellow('publish to GitHub?')} ${C.dim(
-            '— reaches every till within ~6h'
+            '— reaches every till and tablet within ~6h'
           )}`,
           'n'
         );
@@ -282,7 +387,22 @@ async function main() {
       rl?.close();
       process.exit(1);
     }
-    warn('this will push an update to every paired till.');
+    if (!doGit) {
+      // The tag is made from pos-app's main. Without the push it would point at
+      // code that is not the code in the installer.
+      fail('publishing needs the commit + push — the release tag points at it.');
+      rl?.close();
+      process.exit(1);
+    }
+    if (target === '3') {
+      fail('publishing needs the installer — the portable build cannot auto-update.');
+      rl?.close();
+      process.exit(1);
+    }
+    if (hasAndroid && !buildAndroid) {
+      warn('publishing WITHOUT an APK: tablets will not see this release.');
+    }
+    warn('this will push an update to every paired till' + (buildAndroid ? ' and tablet.' : '.'));
     if (!(await yes('  are you sure?', 'n'))) {
       rl?.close();
       console.log(C.dim('\n  Cancelled — nothing was built or published.'));
@@ -292,7 +412,7 @@ async function main() {
   rl?.close();
 
   // Resolve publishing prerequisites before the expensive part, not after a
-  // ten-minute build.
+  // twenty-minute build.
   let ghRepo = null;
   if (publish) {
     ghRepo = ghTarget();
@@ -302,17 +422,20 @@ async function main() {
       return;
     }
     if (!ghToken()) {
-      fail(
-        'GH_TOKEN (or GITHUB_TOKEN) is not set — electron-builder cannot publish.\n' +
-          '       Set it in this shell and re-run.'
-      );
+      fail('GH_TOKEN (or GITHUB_TOKEN) is not set. Set it in this shell and re-run.');
+      process.exitCode = 1;
+      return;
+    }
+    const releases = await gh(`/repos/${ghRepo.owner}/${ghRepo.repo}/releases?per_page=100`);
+    if (releases.some((r) => r.tag_name === `v${version}`)) {
+      fail(`v${version} already exists on GitHub — pick another version.`);
       process.exitCode = 1;
       return;
     }
   }
 
   /* ---- execution ---- */
-  const total = publish ? 8 : 6;
+  const total = 6 + (doGit ? 1 : 0) + (buildAndroid ? 1 : 0) + (publish ? 1 : 0);
   let n = 0;
 
   step(++n, total, 'Pre-flight');
@@ -399,28 +522,22 @@ async function main() {
   step(++n, total, `Version → ${version}`);
   if (version !== current) {
     writeVersion(version);
-    ok(`package.json set to ${version}`);
-  } else ok(`kept at ${version}`);
-
-  if (publish) {
-    step(++n, total, 'GitHub release');
-    const { release, created } = await ensureRelease(ghRepo.owner, ghRepo.repo, version);
-    ok(
-      `${created ? 'created' : 'reusing'} ${release.tag_name}  ${C.dim(release.html_url)}`
-    );
-    // electron-builder refuses to upload into a release published more than two
-    // hours ago: it logs a warning, skips every asset, and still exits 0.
-    const age = Date.now() - Date.parse(release.published_at || release.created_at);
-    if (!created && age > 2 * 3600 * 1000) {
-      warn(
-        'that release is over 2 hours old — electron-builder will skip every\n' +
-          '       upload and still exit 0. Delete it on GitHub and re-run, or set\n' +
-          '       EP_GH_IGNORE_TIME=true.'
-      );
-    }
+    ok(`pos-app set to ${version}`);
+  } else ok(`pos-app kept at ${version}`);
+  // Set alongside, never on its own: the tablet compares its own version with
+  // the release tag, so the two apps must always carry the same number.
+  if (buildAndroid) {
+    writeVersion(version, ANDROID_PKG);
+    ok(`pos-android set to ${version}`);
   }
 
-  step(++n, total, 'Build & package');
+  let appSha = null;
+  if (doGit) {
+    step(++n, total, 'Commit + push pos-app');
+    appSha = await commitAndPush(ROOT, message);
+  }
+
+  step(++n, total, 'Build & package Windows');
   const outDir = path.join(ROOT, 'release', version);
   if (fs.existsSync(outDir)) {
     fs.rmSync(outDir, { recursive: true, force: true });
@@ -428,15 +545,10 @@ async function main() {
   }
   await run('npm', ['run', 'build']);
   ok('bundles built');
-  await run('npx', [
-    'electron-builder',
-    ...targetArgs,
-    '--publish',
-    publish ? 'always' : 'never',
-  ]);
-  ok(`packaged (${publish ? C.yellow('PUBLISHED') : 'not published'})`);
+  await run('npx', ['electron-builder', ...targetArgs, '--publish', 'never']);
+  ok('packaged (not published yet)');
 
-  step(++n, total, 'Verify artifacts');
+  step(++n, total, 'Verify Windows artifacts');
   const exes = fs.existsSync(outDir)
     ? fs.readdirSync(outDir).filter((f) => f.endsWith('.exe'))
     : [];
@@ -509,36 +621,104 @@ async function main() {
     ok('electron-updater packaged (auto-update can run)');
   } else warn('app.asar not found — skipped content check');
 
+  const setupExe = exes.find((f) => /Setup/i.test(f));
+  const latestYml = path.join(outDir, 'latest.yml');
   if (publish) {
-    step(++n, total, 'Verify published assets');
-    // The failure this catches: the run dies after the release exists but
-    // before the installer and latest.yml are uploaded, leaving a live release
-    // that no till can update from. A zero exit code is not evidence.
-    const names = await releaseAssets(ghRepo.owner, ghRepo.repo, version);
-    // electron-builder replaces spaces with '-' in uploaded asset names.
-    const expected = exes.map((f) => f.replace(/ /g, '-'));
-    // latest.yml is the file the updater actually reads, and only NSIS emits it.
-    if (expected.some((f) => /Setup/i.test(f))) expected.push('latest.yml');
-    for (const f of expected.filter((f) => names.includes(f))) ok(`uploaded  ${f}`);
-    const missing = expected.filter((f) => !names.includes(f));
-    if (missing.length) {
-      fail(
-        `NOT uploaded: ${missing.join(', ')}\n` +
-          '       The release is live but incomplete — every till will fail its\n' +
-          '       update check. Delete the release on GitHub and re-run before\n' +
-          '       anyone pulls from it.'
-      );
+    if (!setupExe || !fs.existsSync(latestYml) || !fs.existsSync(path.join(outDir, `${setupExe}.blockmap`))) {
+      fail('installer, its .blockmap or latest.yml is missing — tills could not update from this.');
       process.exitCode = 1;
       return;
     }
-    ok('release is complete — tills can update');
+    const yml = fs.readFileSync(latestYml, 'utf8');
+    if (!yml.includes(`version: ${version}`)) {
+      fail(`latest.yml does not say version ${version}`);
+      process.exitCode = 1;
+      return;
+    }
+    ok(`latest.yml → ${version}`);
   }
 
-  console.log(`\n${C.green(C.bold('  Done.'))}  release/${version}\n`);
+  let apk = null;
+  if (buildAndroid) {
+    step(++n, total, 'Build Android APK + commit pos-android');
+    // -SyncDesktop copies the shared renderer + main code from this repo first,
+    // so the APK carries exactly what the Windows build does. Its own process:
+    // inside an interactive PowerShell 5.1, npm's stderr aborts the script.
+    await run(
+      'powershell',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'build-apk.ps1', '-SyncDesktop', '-Release'],
+      { cwd: ANDROID_ROOT }
+    );
+    apk = path.join(ANDROID_ROOT, 'apk', `POS-App-Android-${version}.apk`);
+    if (!fs.existsSync(apk)) {
+      fail(`expected ${apk} — the Android build did not produce it`);
+      process.exitCode = 1;
+      return;
+    }
+    ok(`APK built  ${(fs.statSync(apk).size / 1048576).toFixed(1)} MB`);
+
+    const apksigner = findAndroidBuildTool('apksigner');
+    if (apksigner) {
+      const r = await run(`"${apksigner}"`, ['verify', '--print-certs', `"${apk}"`], {
+        capture: true,
+        allowFail: true,
+      });
+      if (r.code !== 0 || !r.out.toLowerCase().includes(ANDROID_CERT_SHA256)) {
+        fail(
+          'the APK is not signed with the POS release key — every tablet would reject it.\n' +
+            r.out.split('\n').slice(-6).join('\n')
+        );
+        process.exitCode = 1;
+        return;
+      }
+      ok('signed with the POS release key');
+    } else warn('apksigner not found — signature not checked');
+
+    const aapt = findAndroidBuildTool('aapt2');
+    if (aapt) {
+      const r = await run(`"${aapt}"`, ['dump', 'badging', `"${apk}"`], {
+        capture: true,
+        allowFail: true,
+      });
+      const m = r.out.match(/versionName='([^']+)'/);
+      if (m && m[1] !== version) {
+        fail(`the APK says version ${m[1]}, not ${version}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (m) ok(`APK versionName ${m[1]}`);
+    }
+
+    if (doGit) await commitAndPush(ANDROID_ROOT, message);
+  }
+
+  if (publish) {
+    step(++n, total, 'Publish to GitHub');
+    const assets = [
+      { file: latestYml, name: 'latest.yml' },
+      // electron-builder's latest.yml names the installer with '-' for spaces.
+      { file: path.join(outDir, setupExe), name: setupExe.replace(/ /g, '-') },
+      {
+        file: path.join(outDir, `${setupExe}.blockmap`),
+        name: `${setupExe}.blockmap`.replace(/ /g, '-'),
+      },
+      ...(apk ? [{ file: apk, name: `POS-App-Android-${version}.apk` }] : []),
+    ];
+    const ymlUrl = (fs.readFileSync(latestYml, 'utf8').match(/^path:\s*(.+)$/m) || [])[1]?.trim();
+    if (ymlUrl && ymlUrl !== assets[1].name) {
+      fail(`latest.yml points at "${ymlUrl}" but the upload would be "${assets[1].name}"`);
+      process.exitCode = 1;
+      return;
+    }
+    await publishRelease(ghRepo, version, appSha, assets);
+  }
+
+  console.log(`\n${C.green(C.bold('  Done.'))}  ${version}\n`);
   for (const f of exes) console.log(`    ${path.join('release', version, f)}`);
+  if (apk) console.log(`    ${apk}`);
   if (!publish)
     console.log(
-      `\n  ${C.dim('Not published — no till will update until you publish.')}`
+      `\n  ${C.dim('Not published — no till or tablet will update until you publish.')}`
     );
   console.log(
     `\n  ${C.dim('Reminder: only the NSIS installer can auto-update.')}\n`

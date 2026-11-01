@@ -78,6 +78,18 @@ export const cartStrings = {
     en: 'Failed to release table',
     ar: 'تعذر تحرير الطاولة',
   },
+  'cart.roundSent': {
+    en: 'Order updated',
+    ar: 'تم تحديث الطلب',
+  },
+  'cart.roundFailed': {
+    en: 'Could not update the order',
+    ar: 'تعذر تحديث الطلب',
+  },
+  'cart.closeFailed': {
+    en: 'Could not close the order',
+    ar: 'تعذر إغلاق الطلب',
+  },
   'cart.needAddress': {
     en: 'Please enter the delivery address (State, City, Block) from "Place Order" before closing this delivery order.',
     ar: 'الرجاء إدخال عنوان التوصيل (المحافظة، المنطقة، القطعة) من شاشة "تأكيد الطلب" قبل إغلاق طلب التوصيل.',

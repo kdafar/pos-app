@@ -24,6 +24,7 @@ import { PromoDialog } from './components/PromoDialog';
 import { TablePickerModal } from './components/TablePickerModal';
 import { CheckoutModal } from './components/CheckoutModal';
 import { ERROR_CATALOG } from '../../../shared/errorCatalog';
+import { isOnlinePayment } from './paymentKinds';
 import { DeliveryFeeRow } from './components/DeliveryFeeRow';
 import { useToast } from '../../components/ToastProvider';
 import { useConfirmDialog } from '../../components/ConfirmDialogProvider';
@@ -87,6 +88,7 @@ export default function OrderSide({
   const [showCheckout, setShowCheckout] = useState(false);
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [showPromoDialog, setShowPromoDialog] = useState(false);
+  const [quickUpdating, setQuickUpdating] = useState(false);
 
   const bg = 'bg-content1';
   const border = 'border-default-200';
@@ -164,6 +166,68 @@ export default function OrderSide({
         onRetry: () => void handlePrint(orderId),
       });
       throw e;
+    }
+  };
+
+  /**
+   * A dine-in table already placed once has its details on the order: name,
+   * mobile, payment method. Asking for them again on every new round made the
+   * cashier re-confirm a form that had not changed. So a placed table sends
+   * the round straight away with what is stored.
+   *
+   * Not for the first placement — that is where the details are entered — and
+   * not for an online payment, which needs checkout to issue a link for the
+   * new total.
+   */
+  const order = currentOrder as any;
+  //
+  // Only while there is a new round to send. With nothing new, the button is
+  // "Pay": checkout opens as before, so the customer can still settle by a
+  // different method than the one taken at the first round.
+  const canQuickUpdate =
+    !!currentOrder &&
+    currentOrder.order_type === 3 &&
+    !!currentOrder.table_id &&
+    isOrderLocked &&
+    hasPendingNewItems &&
+    !!String(order?.full_name ?? '').trim() &&
+    !!order?.payment_method_id &&
+    !isOnlinePayment(order?.payment_method_slug);
+
+  const handleQuickUpdate = async () => {
+    if (!currentOrder || quickUpdating) return;
+    setQuickUpdating(true);
+    try {
+      // The same payload checkout sends, from the stored order. The main
+      // process re-checks it exactly as it would a submitted form.
+      await window.api.invoke('orders:complete', currentOrder.id, {
+        full_name: String(order.full_name ?? '').trim(),
+        mobile: String(order.mobile ?? '').trim(),
+        address: order.address ?? null,
+        note: order.note ?? null,
+        payment_method_id: String(order.payment_method_id ?? ''),
+        payment_method_slug: String(order.payment_method_slug ?? ''),
+        // Kept, not cleared: the main process drops it if it no longer covers
+        // the new total.
+        amount_tendered: order.amount_tendered ?? null,
+        state_id: order.state_id ?? null,
+        city_id: order.city_id ?? null,
+        block_id: order.block_id ?? null,
+      });
+
+      // Printing matches the checkout path, and like it does not undo the
+      // update if the printer fails — handlePrint already says so.
+      handlePrint(currentOrder.id).catch(() => {});
+
+      await onSelectOrder(currentOrder.id);
+      try {
+        await onRefreshTables();
+      } catch {}
+      toast({ tone: 'success', title: t('cart.roundSent') });
+    } catch (e) {
+      toast.error(e, { title: t('cart.roundFailed') });
+    } finally {
+      setQuickUpdating(false);
     }
   };
 
@@ -251,7 +315,10 @@ export default function OrderSide({
 
       await window.api.invoke('orders:close', currentOrder.id);
     } catch (e) {
-      console.error('Failed to close order:', e);
+      // Was console-only: a refused close (missing city, unreadable lines)
+      // left the button looking dead. Say why, and keep the order on screen.
+      toast.error(e, { title: t('cart.closeFailed') });
+      return;
     }
 
     await focusNextActive();
@@ -579,9 +646,12 @@ export default function OrderSide({
                 size='lg'
                 color='primary'
                 className='flex-1 font-semibold'
-                onPress={() => setShowCheckout(true)}
-                isDisabled={orderLines.length === 0}
-                startContent={<Check size={18} />}
+                onPress={() =>
+                  canQuickUpdate ? handleQuickUpdate() : setShowCheckout(true)
+                }
+                isDisabled={orderLines.length === 0 || quickUpdating}
+                isLoading={quickUpdating}
+                startContent={!quickUpdating && <Check size={18} />}
               >
                 {currentOrder.order_type === 3
                   ? t('cart.updatePay')
