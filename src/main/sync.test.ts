@@ -22,6 +22,7 @@ const {
   normOrderSeed,
   normPullLine,
   normPullOrder,
+  tableNumber,
 } = await import('./sync');
 
 /**
@@ -533,5 +534,24 @@ describe('classifyAuthFailure', () => {
   it('says nothing about a network failure with no response at all', () => {
     expect(classifyAuthFailure(new Error('ECONNREFUSED'))).toBeNull();
     expect(classifyAuthFailure(undefined)).toBeNull();
+  });
+});
+
+describe('table numbers', () => {
+  // The server sent tables without a number, so every one became 0 and the
+  // lists sorted as label text: Table 1, Table 10 … Table 2.
+  it('falls back to the label digits when the number is missing or 0', () => {
+    expect(tableNumber({ label: 'Table 12' })).toBe(12);
+    expect(tableNumber({ number: 0, label: 'Table 2' })).toBe(2);
+    expect(tableNumber({ number: null, name: 'T7' })).toBe(7);
+  });
+
+  it('prefers a real number from the server over the label', () => {
+    expect(tableNumber({ number: 5, label: 'Table 12' })).toBe(5);
+    expect(tableNumber({ number: '3', label: 'VIP' })).toBe(3);
+  });
+
+  it('is 0 only when nothing carries a number', () => {
+    expect(tableNumber({ label: 'Terrace' })).toBe(0);
   });
 });

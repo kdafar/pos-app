@@ -93,6 +93,8 @@ export const authStrings = {
   /* ---------- login: footer ---------- */
   'auth.back': { en: 'Back', ar: 'رجوع' },
   'auth.reload': { en: 'Reload', ar: 'إعادة تحميل' },
+  // The number stays Latin/LTR, as with every version string.
+  'auth.version': { en: 'Version {version}', ar: 'الإصدار {version}' },
 
   /* ---------- login: unpair confirmation ---------- */
   'auth.unpairConfirmTitle': {

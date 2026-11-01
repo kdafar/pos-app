@@ -7,6 +7,7 @@ import { useI18n } from '../i18n';
 import { LanguageToggle } from './LanguageToggle';
 import { Hint } from './Hint';
 import { useUpdate } from '../hooks/useUpdate';
+import { PERMISSIONS_REFRESH_MS } from '../hooks/usePermissions';
 import { pushPartialCode } from '../../shared/errors';
 import {
   Cloud,
@@ -98,15 +99,25 @@ export function Layout() {
   /* ---------------- Auth: who am I? (for RBAC) ---------------- */
   const [user, setUser] = useState<PosUser | null>(null);
 
+  // Re-read, not read once. Permissions change from the back office through
+  // sync while a cashier stays signed in all day; reading them only on mount
+  // kept a newly granted Reports menu hidden until they signed out and in.
   useEffect(() => {
-    (async () => {
+    const load = async () => {
       try {
         const u = await window.api.invoke('auth:whoami');
         setUser(u || null);
       } catch {
         setUser(null);
       }
-    })();
+    };
+    void load();
+    const timer = window.setInterval(load, PERMISSIONS_REFRESH_MS);
+    window.addEventListener('focus', load);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', load);
+    };
   }, []);
 
   // The backend returns effective permissions (role defaults with explicit

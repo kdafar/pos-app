@@ -207,6 +207,9 @@ export const cartStrings = {
   'tables.covers': { en: 'Covers', ar: 'عدد الأشخاص' },
   'tables.refresh': { en: 'Refresh', ar: 'تحديث' },
   'tables.none': { en: 'No tables found.', ar: 'لا توجد طاولات.' },
+  'tables.floor': { en: 'Floor', ar: 'الطابق' },
+  'tables.allFloors': { en: 'All', ar: 'الكل' },
+  'tables.noFloor': { en: 'Other', ar: 'أخرى' },
   'tables.notAssigned': {
     en: 'No table selected',
     ar: 'لم يتم اختيار طاولة',

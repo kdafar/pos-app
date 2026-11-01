@@ -23,6 +23,7 @@ import {
   ACTIVE_STATUSES,
   TERMINAL_STATUSES,
   sqlList,
+  isTerminal,
 } from '../utils/orderStatus';
 import {
   isAllowedPosTransition,
@@ -149,6 +150,21 @@ export function registerOrdersHandlers(
         .run(orderId);
     } catch (e) {
       console.error('[orders] markForRepush failed', e);
+    }
+  };
+
+  /**
+   * Marks a table free only when no other active order is still seated at it.
+   * Freeing it outright would let a second party be seated on top of the first.
+   */
+  const releaseTableIfFree = (tableId: string) => {
+    const stillSeated = rawDb
+      .prepare(
+        `SELECT 1 FROM orders WHERE table_id = ? AND status IN (${sqlList(ACTIVE_STATUSES)}) LIMIT 1`
+      )
+      .get(tableId);
+    if (!stillSeated) {
+      rawDb.prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`).run(tableId);
     }
   };
 
@@ -700,6 +716,12 @@ export function registerOrdersHandlers(
       rawDb
         .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
         .run(...params, orderId);
+
+      // A finished dine-in order gives its table back. Closing from the status
+      // menu never did, so the table stayed red with nothing seated at it.
+      if (isTerminal(target) && order.table_id) {
+        releaseTableIfFree(order.table_id);
+      }
 
       // The server has to see the new state, and the push filter skips anything
       // already stamped as synced.
@@ -1571,7 +1593,10 @@ export function registerOrdersHandlers(
     async (_e, orderId: string, customer: any) => {
       if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
-      assertOrderEditable(orderId);
+      // Same exception as addLine: a dine-in table takes a new round after it
+      // was first placed. Without it the round could be added but never
+      // placed — checkout refused it as POS_VAL_ORDER_LOCKED.
+      assertOrderEditable(orderId, { allowAddOnLockedDineIn: true });
 
       const order = getOrderRow(orderId);
       if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
@@ -1742,11 +1767,7 @@ export function registerOrdersHandlers(
     rawDb.prepare(sql).run(...params);
 
     // 2. Release table
-    if (order.table_id) {
-      rawDb
-        .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
-        .run(order.table_id);
-    }
+    if (order.table_id) releaseTableIfFree(order.table_id);
 
     return getOrderWithLines(orderId);
   });
@@ -1937,20 +1958,25 @@ export function registerOrdersHandlers(
       if (Number(o.order_type) !== 3) throw posError('POS_VAL_NOT_DINE_IN');
 
       rawDb.transaction(() => {
-        if (o.table_id && o.table_id !== tableId) {
-          rawDb
-            .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
-            .run(o.table_id);
-        }
-        rawDb
-          .prepare(`UPDATE tables SET is_available = 0 WHERE id = ?`)
-          .run(tableId);
         rawDb
           .prepare(
             `UPDATE orders SET table_id = ?, covers = ?, updated_at = ? WHERE id = ?`
           )
           .run(tableId, covers, ts, orderId);
+        // A fresh choice supersedes the server's refusal of the last one.
+        if (hasColumn('orders', 'push_notice')) {
+          rawDb.prepare(`UPDATE orders SET push_notice = NULL WHERE id = ?`).run(orderId);
+        }
+        if (o.table_id && o.table_id !== tableId) {
+          releaseTableIfFree(o.table_id);
+        }
+        rawDb
+          .prepare(`UPDATE tables SET is_available = 0 WHERE id = ?`)
+          .run(tableId);
       })();
+      // Moving an order that has already been sent must reach the server too;
+      // the push skips anything already stamped as synced.
+      markForRepush(orderId);
       return getOrderWithLines(orderId);
     }
   );
@@ -1966,7 +1992,7 @@ export function registerOrdersHandlers(
         SELECT o.*
         FROM orders o
         WHERE o.table_id = @table_id
-          AND o.status IN ('open', 'pending', 'ready', 'prepared')
+          AND o.status IN (${sqlList(ACTIVE_STATUSES)})
           ${userSql}
         ORDER BY o.opened_at DESC, o.created_at DESC
         LIMIT 1
@@ -1978,42 +2004,77 @@ export function registerOrdersHandlers(
     }
   );
 
-  ipcMain.handle('orders:clearTable', async (_e, orderId: string) => {
-    const order = getOrderRow(orderId);
-    if (!order) return getOrderWithLines(orderId);
-
-    // 🚫 Safety: do NOT allow clearing table if the order has any items
-    try {
-      const row = rawDb
-        .prepare('SELECT COUNT(*) AS c FROM order_lines WHERE order_id = ?')
-        .get(orderId) as { c?: number };
-
-      const count = row?.c ?? 0;
-      if (count > 0) {
-        throw posError('POS_VAL_TABLE_HAS_ITEMS');
+  ipcMain.handle(
+    'orders:clearTable',
+    async (
+      _e,
+      arg: string | { table_id?: string | number; order_id?: string | number | null }
+    ) => {
+      // The admin Tables page clears by table, not by order: it frees a table
+      // left marked busy and detaches whatever is still seated there. It used to
+      // pass this object as an order id, which matched nothing, so the button
+      // did nothing at all.
+      if (arg && typeof arg === 'object') {
+        assertPermission(services, 'tables.manage');
+        const tableId = arg.table_id != null ? String(arg.table_id) : '';
+        if (!tableId) throw posError('POS_VAL_TABLE_NOT_FOUND');
+        const ts = nowMs();
+        const seated = rawDb
+          .prepare(
+            `SELECT id FROM orders WHERE table_id = ? AND status IN (${sqlList(ACTIVE_STATUSES)})`
+          )
+          .pluck()
+          .all(tableId) as string[];
+        rawDb.transaction(() => {
+          rawDb
+            .prepare(
+              `UPDATE orders SET table_id = NULL, covers = NULL, updated_at = ?
+               WHERE table_id = ? AND status IN (${sqlList(ACTIVE_STATUSES)})`
+            )
+            .run(ts, tableId);
+          rawDb
+            .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
+            .run(tableId);
+        })();
+        seated.forEach(markForRepush);
+        return null;
       }
-    } catch (err) {
-      console.error('[orders:clearTable] count check failed', err);
-      // If we can’t be sure, better not clear.
-      throw posError('POS_VAL_TABLE_CLEAR_UNVERIFIED');
-    }
 
-    rawDb.transaction(() => {
-      if (order.table_id) {
+      const orderId = arg;
+      const order = getOrderRow(orderId);
+      if (!order) return getOrderWithLines(orderId);
+
+      // 🚫 Safety: do NOT allow clearing table if the order has any items
+      let count: number;
+      try {
+        const row = rawDb
+          .prepare('SELECT COUNT(*) AS c FROM order_lines WHERE order_id = ?')
+          .get(orderId) as { c?: number };
+        count = row?.c ?? 0;
+      } catch (err) {
+        console.error('[orders:clearTable] count check failed', err);
+        // If we can’t be sure, better not clear.
+        throw posError('POS_VAL_TABLE_CLEAR_UNVERIFIED');
+      }
+      // Outside the try: this refusal was being caught and re-thrown as
+      // "could not verify", which told the cashier the wrong thing.
+      if (count > 0) throw posError('POS_VAL_TABLE_HAS_ITEMS');
+
+      // The transaction is invoked, not just built. It used to be missing its
+      // trailing (), so clearing never ran: the order stayed on its table and
+      // the table stayed busy.
+      rawDb.transaction(() => {
         rawDb
-          .prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`)
-          .run(order.table_id);
-      }
+          .prepare(
+            `UPDATE orders SET table_id = NULL, covers = NULL, updated_at = ? WHERE id = ?`
+          )
+          .run(nowMs(), orderId);
+        if (order.table_id) releaseTableIfFree(order.table_id);
+      })();
 
-      rawDb
-        .prepare(
-          `UPDATE orders SET table_id = NULL, covers = NULL, updated_at = ? WHERE id = ?`
-        )
-        .run(nowMs(), orderId);
-    });
-
-    return getOrderWithLines(orderId);
-  });
+      return getOrderWithLines(orderId);
+    }
+  );
 
   // ─────────────────────────────────────────────────────────────
   // 🌐 UTILS & SHELL

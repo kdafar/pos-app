@@ -326,6 +326,8 @@ export function applyPushResult(result: any): {
   const ack = (result?.ack ?? {}) as Record<string, string>;
   const references = (result?.references ?? {}) as Record<string, string>;
   const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+  // Notices sit beside an ack: the order landed, but something in it did not.
+  const notices = Array.isArray(result?.notices) ? result.notices : [];
 
   const setSynced = db.prepare(
     `UPDATE orders
@@ -337,6 +339,7 @@ export function applyPushResult(result: any): {
   const setRef = db.prepare(
     `UPDATE orders SET reference_no = ? WHERE id = ?`
   );
+  const setNotice = db.prepare(`UPDATE orders SET push_notice = ? WHERE id = ?`);
   const dropPermanent = db.prepare(
     `UPDATE orders SET push_legacy = 1 WHERE id = ?`
   );
@@ -371,6 +374,14 @@ export function applyPushResult(result: any): {
       } else {
         retryable++;
         console.warn('[push] retryable failure, staying queued', w);
+      }
+    }
+
+    for (const n of notices) {
+      const tempId = n?.temp_id ?? n?.tempId;
+      if (tempId && n?.code === 'POS_PUSH_TABLE_INVALID') {
+        setNotice.run(String(n.code), String(tempId));
+        console.warn('[push] server kept the order on its old table', n);
       }
     }
   });

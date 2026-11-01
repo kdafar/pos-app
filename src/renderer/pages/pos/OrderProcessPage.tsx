@@ -542,6 +542,9 @@ export default function OrderProcessPage() {
           theme={theme}
           tables={tables}
           currentOrderId={currentOrder?.id ?? null}
+          currentTableId={
+            currentOrder?.order_type === 3 ? currentOrder.table_id ?? null : null
+          }
           onSelectOrder={selectOrder}
           onStartDineIn={startDineInForTable}
         />

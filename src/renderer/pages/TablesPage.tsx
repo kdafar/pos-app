@@ -22,10 +22,15 @@ type TableRow = {
   id: string | number;
   number: number;
   label: string;
+  labelAr: string;
   capacity: number;
   status: TableStatus;
   branch_id: number;
   current_order_id?: string | number | null; // needed for clearTable
+  /** The seated order's reference (0027), so staff can see who is there. */
+  orderNumber: string;
+  floorEn: string;
+  floorAr: string;
 };
 
 /* ---------- normalisation ----------
@@ -37,8 +42,12 @@ const toInt = (v: any, fallback = 0) => {
 };
 
 const deriveNumber = (t: any) => {
-  if (t.number != null) return toInt(t.number);
-  if (t.table_no != null) return toInt(t.table_no);
+  // 0 is not a table number: it is what a missing one arrived as, which put
+  // every table at 0 and sorted the list as label text (1, 10, 11 … 2).
+  for (const v of [t.number, t.table_no]) {
+    const n = toInt(v);
+    if (n > 0) return n;
+  }
   const src = String(t.label ?? t.name ?? '');
   const m = src.match(/\d+/);
   return m ? toInt(m[0]) : 0;
@@ -66,11 +75,15 @@ const normalize = (t: any, index: number): TableRow => ({
   id: t.id ?? t.table_id ?? t.uuid ?? `row-${index}`,
   number: deriveNumber(t),
   label: String(t.label ?? t.name ?? `Table ${deriveNumber(t) || ''}`).trim(),
+  labelAr: String(t.name_ar ?? t.label_ar ?? '').trim(),
   capacity: toInt(t.capacity ?? t.seats ?? t.covers ?? 0),
   status: deriveStatus(t),
   branch_id: toInt(t.branch_id ?? t.location_id ?? 0),
   current_order_id:
     t.current_order_id ?? t.order_id ?? t.orderId ?? t.currentOrderId ?? null,
+  orderNumber: String(t.active_order_number ?? ''),
+  floorEn: String(t.section_name_en || t.section_name_ar || ''),
+  floorAr: String(t.section_name_ar || t.section_name_en || ''),
 });
 
 /** One map so the filter and the badge can never drift apart. */
@@ -87,7 +100,7 @@ const STATUS_COLOR: Record<TableStatus, 'success' | 'warning' | 'danger'> = {
 };
 
 export default function TablesPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const toast = useToast();
   const confirm = useConfirmDialog();
 
@@ -144,8 +157,11 @@ export default function TablesPage() {
       return (
         String(r.number).includes(q) ||
         r.label.toLowerCase().includes(q) ||
+        r.labelAr.includes(q) ||
+        r.floorEn.toLowerCase().includes(q) ||
+        r.floorAr.includes(q) ||
         String(r.capacity).includes(q) ||
-        String(r.branch_id).includes(q)
+        r.orderNumber.toLowerCase().includes(q)
       );
     });
   }, [rows, filterQ, statusFilter]);
@@ -198,12 +214,20 @@ export default function TablesPage() {
         ),
       },
       {
-        accessorKey: 'label',
+        id: 'label',
+        accessorFn: (r) => (lang === 'ar' && r.labelAr ? r.labelAr : r.label),
         header: () => t('admin.tables.label'),
         size: 180,
         cell: (info) => (
           <span className='font-semibold'>{String(info.getValue() ?? '')}</span>
         ),
+      },
+      {
+        id: 'floor',
+        accessorFn: (r) => (lang === 'ar' ? r.floorAr : r.floorEn),
+        header: () => t('tables.floor'),
+        size: 140,
+        cell: (info) => <span>{String(info.getValue() || '—')}</span>,
       },
       {
         accessorKey: 'capacity',
@@ -231,12 +255,21 @@ export default function TablesPage() {
           );
         },
       },
+      // Was Branch ID, which is the same on every row of a till's own list.
+      // The order seated at the table is what staff actually come here for.
       {
-        accessorKey: 'branch_id',
-        header: () => t('admin.tables.branchId'),
-        size: 110,
-        meta: { align: 'end', nowrap: true },
-        cell: (info) => <span className='money'>{String(info.getValue())}</span>,
+        accessorKey: 'orderNumber',
+        header: () => t('admin.tables.currentOrder'),
+        size: 130,
+        meta: { nowrap: true },
+        cell: (info) => {
+          const v = String(info.getValue() || '');
+          return v ? (
+            <span className='money font-semibold'>#{v}</span>
+          ) : (
+            <span className='text-default-500'>—</span>
+          );
+        },
       },
     ];
 
@@ -265,7 +298,7 @@ export default function TablesPage() {
           ),
       },
     ];
-  }, [isAdmin, t, handleClearTable]);
+  }, [isAdmin, t, lang, handleClearTable]);
 
   const isFiltered = !!filterQ || statusFilter !== 'all';
 
@@ -307,7 +340,11 @@ export default function TablesPage() {
         <DataTable
           data={filtered}
           columns={columns}
-          initialSorting={[{ id: 'number', desc: false }]}
+          // Floor first, so each floor's tables read together, then number.
+          initialSorting={[
+            { id: 'floor', desc: false },
+            { id: 'number', desc: false },
+          ]}
           getRowId={(r, i) => String(r.id ?? i)}
         />
       </DataState>

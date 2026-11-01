@@ -17,6 +17,8 @@ import { useI18n } from '../i18n';
 import { unpairDevice, useConfirmUnpair } from '../components/useConfirmUnpair';
 
 import { usePosError } from '../utils/posError';
+import { AppVersion } from '../components/AppVersion';
+
 /**
  * Renders `*emphasised*` runs of a translated string as <b>. Keeping the
  * markers inside the string lets the Arabic translation put the emphasis where
@@ -538,6 +540,7 @@ export default function PairScreen() {
           >
             {t('auth.unpair')}
           </Button>
+          <AppVersion />
           <Button
             color='primary'
             isDisabled={disabled}

@@ -395,17 +395,67 @@ function normPayMethod(pm: any) {
   };
 }
 
+/**
+ * The server has been sending tables without `number`, so every one landed as
+ * 0 and the lists sorted by label text: Table 1, Table 10, Table 11 … Table 2.
+ * Take the number when it is there, otherwise the digits in the label.
+ */
+export function tableNumber(t: any): number {
+  const raw = N(t.number ?? t.table_no ?? t.table_number);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  const m = String(t.label ?? t.name ?? '').match(/\d+/);
+  return m ? Number(m[0]) : 0;
+}
+
 function normTable(t: any) {
   return {
     id: S(t.id)!,
     branch_id: N(t.branch_id),
     label: S(t.label) || '',
-    number: N(t.number),
+    label_ar: S(t.label_ar) || '',
+    number: tableNumber(t),
     capacity: N(t.capacity),
-    is_available: B(t.is_available),
+    // "Free right now", worked out by the server from open dine-in orders.
+    // is_occupied is sent as its opposite; read it only if is_available is
+    // missing.
+    is_available:
+      t.is_available === undefined && t.is_occupied !== undefined
+        ? B(!t.is_occupied)
+        : B(t.is_available),
+    section_id: S(t.section_id ?? t.floor_id),
+    sort_order: N(t.sort_order),
     updated_at: S(t.updated_at),
   };
 }
+
+function normTableSection(s: any) {
+  return {
+    id: S(s.id)!,
+    branch_id: N(s.branch_id),
+    name_en: S(s.name_en ?? s.name) || '',
+    name_ar: S(s.name_ar) || '',
+    sort_order: N(s.sort_order),
+    is_active: s.is_active === undefined ? 1 : B(s.is_active),
+    updated_at: S(s.updated_at),
+  };
+}
+
+const UPSERT_TABLE_SQL = `
+  INSERT INTO tables (id,branch_id,label,label_ar,number,capacity,is_available,section_id,sort_order,updated_at)
+  VALUES (@id,@branch_id,@label,@label_ar,@number,@capacity,@is_available,@section_id,@sort_order,@updated_at)
+  ON CONFLICT(id) DO UPDATE SET
+    branch_id=excluded.branch_id, label=excluded.label, label_ar=excluded.label_ar,
+    number=excluded.number, capacity=excluded.capacity,
+    is_available=excluded.is_available, section_id=excluded.section_id,
+    sort_order=excluded.sort_order, updated_at=excluded.updated_at`;
+
+const UPSERT_TABLE_SECTION_SQL = `
+  INSERT INTO table_sections (id,branch_id,name_en,name_ar,sort_order,is_active,updated_at)
+  VALUES (@id,@branch_id,@name_en,@name_ar,@sort_order,@is_active,@updated_at)
+  ON CONFLICT(id) DO UPDATE SET
+    branch_id=excluded.branch_id, name_en=excluded.name_en,
+    name_ar=excluded.name_ar, sort_order=excluded.sort_order,
+    is_active=excluded.is_active, updated_at=excluded.updated_at`;
 
 function normState(s: any) {
   return {
@@ -1126,6 +1176,9 @@ export async function bootstrap(baseUrl: string) {
   })();
   const ordersSeed = asArray(catalog.orders_seed ?? []);
   const tables = asArray(catalog.tables ?? catalog.table_list ?? []);
+  const tableSections = asArray(
+    catalog.table_sections ?? data.table_sections ?? []
+  );
   const users = asArray(data.users ?? catalog.users ?? []);
 
   // Role permissions are server-owned. Absent and empty mean different things
@@ -1334,18 +1387,11 @@ export async function bootstrap(baseUrl: string) {
     for (const pm of payMethods) upPM.run(normPayMethod(pm));
 
     // tables
-    const upTable = db.prepare(`
-      INSERT INTO tables (id,branch_id,label,number,capacity,is_available,updated_at)
-      VALUES (@id,@branch_id,@label,@number,@capacity,@is_available,@updated_at)
-      ON CONFLICT(id) DO UPDATE SET
-        branch_id=excluded.branch_id,
-        label=excluded.label,
-        number=excluded.number,
-        capacity=excluded.capacity,
-        is_available=excluded.is_available,
-        updated_at=excluded.updated_at
-    `);
+    const upTable = db.prepare(UPSERT_TABLE_SQL);
     for (const t of tables) upTable.run(normTable(t));
+
+    const upSection = db.prepare(UPSERT_TABLE_SECTION_SQL);
+    for (const sec of tableSections) upSection.run(normTableSection(sec));
 
     // settings
     const upSetting = db.prepare(`
@@ -1482,6 +1528,7 @@ export async function bootstrap(baseUrl: string) {
     pruneMissing('item_addon_groups', itemAddonGroups, 'item add-on links');
     pruneMissing('promos', promos, 'promos');
     pruneMissing('tables', tables, 'tables');
+    pruneMissing('table_sections', tableSections, 'table sections');
     pruneMissing('payment_methods', payMethods, 'payment methods');
 
     // Add-ons are nested under their groups in the payload, so flatten before
@@ -2370,15 +2417,13 @@ export async function pullChanges() {
         if (op === 'delete') delBy('subcategories', c.pk);
         else if (c.data) upSubPull.run(normSubcat(c.data));
       } else if (tbl === 'table' || tbl === 'tables') {
+        // A table the admin switches off arrives as a delete.
         if (op === 'delete') delBy('tables', c.pk);
-        else if (c.data) db.prepare(
-          `INSERT INTO tables (id,branch_id,label,number,capacity,is_available,updated_at)
-           VALUES (@id,@branch_id,@label,@number,@capacity,@is_available,@updated_at)
-           ON CONFLICT(id) DO UPDATE SET
-             branch_id=excluded.branch_id, label=excluded.label,
-             number=excluded.number, capacity=excluded.capacity,
-             is_available=excluded.is_available, updated_at=excluded.updated_at`
-        ).run(normTable(c.data));
+        else if (c.data) db.prepare(UPSERT_TABLE_SQL).run(normTable(c.data));
+      } else if (tbl === 'table_section' || tbl === 'table_sections') {
+        if (op === 'delete') delBy('table_sections', c.pk);
+        else if (c.data)
+          db.prepare(UPSERT_TABLE_SECTION_SQL).run(normTableSection(c.data));
       } else if (
         tbl === 'setting' ||
         tbl === 'settings' ||

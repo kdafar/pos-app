@@ -1,5 +1,5 @@
 // components/TablePickerModal.tsx
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Button,
   Chip,
@@ -9,11 +9,14 @@ import {
   ModalContent,
   ModalFooter,
   ModalHeader,
+  Tab,
+  Tabs,
 } from '@heroui/react';
 import { RotateCw } from 'lucide-react';
 import { TableInfo, TableStatus, Order } from '../types';
 import { DataState } from '../../../components/PageShell';
 import { useI18n } from '../../../i18n';
+import { floorsOf, initialFloor, NO_FLOOR, onFloor } from '../tableFloors';
 
 import { errorLine as errLine } from '../../../utils/posError';
 /**
@@ -65,7 +68,18 @@ export function TablePickerModal({
   const [covers, setCovers] = useState<number>(current.covers || 2);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  // One tab per floor. Opens on the floor holding this order's table, so
+  // moving a party starts from where they are sitting.
+  const floors = useMemo(() => floorsOf(tables), [tables]);
+  const [picked, setFloor] = useState(() =>
+    initialFloor(floors, tables, current.table_id)
+  );
+  // A refresh can remove the floor that was open; fall back to the first.
+  const floor = floors.some((f) => f.key === picked) ? picked : floors[0]?.key ?? NO_FLOOR;
+  const visible = floors.length
+    ? tables.filter((tbl) => onFloor(tbl, floor))
+    : tables;
   const statusLabel = (s: TableStatus) =>
     s === 'available'
       ? t('tables.available')
@@ -153,6 +167,28 @@ export function TablePickerModal({
                 </Button>
               </div>
 
+              {floors.length > 0 && (
+                <Tabs
+                  aria-label={t('tables.floor')}
+                  selectedKey={floor}
+                  onSelectionChange={(k) => setFloor(String(k))}
+                  size='lg'
+                >
+                  {floors.map((f) => (
+                    <Tab
+                      key={f.key}
+                      title={
+                        f.key === NO_FLOOR
+                          ? t('tables.noFloor')
+                          : lang === 'ar'
+                          ? f.nameAr
+                          : f.nameEn
+                      }
+                    />
+                  ))}
+                </Tabs>
+              )}
+
               {current.table_id && (
                 <p className='text-sm font-medium text-default-700'>
                   {t('tables.tip')}
@@ -166,12 +202,12 @@ export function TablePickerModal({
                 loading={refreshing && tables.length === 0}
                 error={error}
                 onRetry={handleRefresh}
-                empty={tables.length === 0}
+                empty={visible.length === 0}
                 emptyTitle={t('tables.none')}
               >
                 <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
                   {/* `tbl`, not `t` — `t` is the translator in this scope. */}
-                  {tables.map((tbl) => {
+                  {visible.map((tbl) => {
                     const isCurrent = current.table_id === tbl.id;
                     // 🔑 Only disable when not current AND not available
                     const disabled = !isCurrent && tbl.status !== 'available';
@@ -185,7 +221,7 @@ export function TablePickerModal({
                         }}
                         disabled={disabled}
                         title={t('tables.seatsTitle', {
-                          name: tbl.name,
+                          name: lang === 'ar' && tbl.name_ar ? tbl.name_ar : tbl.name,
                           seats: tbl.seats || 0,
                         })}
                         // An unavailable tile is not faded — a cashier scanning
@@ -208,7 +244,7 @@ export function TablePickerModal({
                         <div className='flex items-start justify-between gap-2'>
                           <div className='min-w-0 flex-1'>
                             <div className='truncate text-base font-semibold text-foreground'>
-                              {tbl.name}
+                              {lang === 'ar' && tbl.name_ar ? tbl.name_ar : tbl.name}
                             </div>
                             <div className='mt-1 text-sm font-medium text-default-700'>
                               {t('tables.seats')}:{' '}

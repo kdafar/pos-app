@@ -290,6 +290,7 @@ export const adminStrings = {
   'admin.tables.label': { en: 'Label', ar: 'التسمية' },
   'admin.tables.capacity': { en: 'Capacity', ar: 'عدد الكراسي' },
   'admin.tables.branchId': { en: 'Branch ID', ar: 'رقم الفرع' },
+  'admin.tables.currentOrder': { en: 'Current order', ar: 'الطلب الحالي' },
   'admin.tables.available': { en: 'Available', ar: 'فاضية' },
   'admin.tables.occupied': { en: 'Occupied', ar: 'مشغولة' },
   'admin.tables.reserved': { en: 'Reserved', ar: 'محجوزة' },

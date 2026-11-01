@@ -417,6 +417,15 @@ export function promoRejectionCode(body: any): PosErrorPayload | null {
 export function pushWarningCode(warning: any): PosErrorPayload | null {
   if (!warning) return null;
   const tempId = String(warning.temp_id ?? warning.tempId ?? '');
+  // A partial refusal: the server applied the rest of the order but kept it on
+  // its old table. Checked first because it is not a failure to retry.
+  if (String(warning.code ?? '') === 'POS_PUSH_TABLE_INVALID') {
+    return {
+      code: 'POS_PUSH_TABLE_INVALID',
+      fallback: 'The server kept this order on its old table.',
+      params: { temp_id: tempId },
+    };
+  }
   if (warning.retryable !== false) {
     return {
       code: 'POS_PUSH_ORDER_FAILED',

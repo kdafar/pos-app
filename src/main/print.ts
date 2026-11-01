@@ -1237,15 +1237,23 @@ export function getPrintConfig(): {
     String(
       getMeta('print.show_dialog') ?? getSetting('print.show_dialog') ?? ''
     ).trim() === '1';
-  // Off unless a till has been switched over deliberately. Every existing till
-  // must print on upgrade exactly as it does today; this changes what the
-  // driver is asked for, which is the one thing that must not move by itself.
+  // An explicit choice on either side always wins. Unset, an auto-length roll
+  // prints on the driver's own form — the same form the Windows dialog uses.
+  // The computed roll page is a custom size no thermal driver lists: an Epson
+  // TM-T88 takes it but lays the receipt out against a smaller printable area,
+  // so it prints with blank paper above the logo and the QR/barcode row pushed
+  // far down the strip, while the identical receipt through the dialog comes
+  // out clean. Sheets and fixed-size labels keep the computed size, which is a
+  // real form there.
+  const explicitDefaultPage =
+    getMeta('print.use_printer_default_page') ??
+    getSetting('print.use_printer_default_page');
+  const isAutoRoll =
+    getPaperHeightMm() === 0 && !getReceiptPageLayout(getPaperWidthMm(), 0, 0).isSheet;
   const usePrinterDefaultPage =
-    String(
-      getMeta('print.use_printer_default_page') ??
-        getSetting('print.use_printer_default_page') ??
-        ''
-    ).trim() === '1';
+    explicitDefaultPage == null || String(explicitDefaultPage).trim() === ''
+      ? isAutoRoll
+      : String(explicitDefaultPage).trim() === '1';
   return {
     printerName,
     showDialog,

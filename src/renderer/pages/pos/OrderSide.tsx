@@ -374,6 +374,15 @@ export default function OrderSide({
                     )}
                   </div>
                 )}
+                {/* The server kept this order on its previous table. Stays
+                    until a table is picked again, so it is still there when
+                    the order is reopened later. */}
+                {currentOrder.order_type === 3 &&
+                  currentOrder.push_notice === 'POS_PUSH_TABLE_INVALID' && (
+                    <p className='mt-1 max-w-xs text-xs font-semibold text-danger'>
+                      {ERROR_CATALOG.POS_PUSH_TABLE_INVALID[lang].body}
+                    </p>
+                  )}
               </div>
 
               {/* Right: type pill + lock / pending badges */}

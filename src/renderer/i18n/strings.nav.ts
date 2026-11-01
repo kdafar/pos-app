@@ -104,6 +104,15 @@ export const navStrings = {
     en: 'Choose the till language. The choice is saved on this device and the screen direction changes with it.',
     ar: 'اختر لغة الواجهة. يتم حفظ الاختيار على هذا الجهاز ويتغير اتجاه الشاشة معه.',
   },
+  'settings.textSize': { en: 'Text size', ar: 'حجم الخط' },
+  'settings.textSizeHint': {
+    en: 'Make the text bigger or smaller on this device. Buttons and layout stay the same.',
+    ar: 'كبّر الخط أو صغّره على هذا الجهاز. تبقى الأزرار وترتيب الشاشة كما هي.',
+  },
+  'settings.textSize.small': { en: 'Small', ar: 'صغير' },
+  'settings.textSize.normal': { en: 'Normal', ar: 'عادي' },
+  'settings.textSize.large': { en: 'Large', ar: 'كبير' },
+  'settings.textSize.xlarge': { en: 'Extra large', ar: 'كبير جدًا' },
   'settings.invoiceLogo': { en: 'Invoice logo', ar: 'شعار الفاتورة' },
   'settings.invoiceLogoHint': {
     en: 'Download and cache the logo supplied by the server for offline invoices.',
@@ -185,8 +194,8 @@ export const navStrings = {
     ar: 'استخدم مقاس الورق الخاص بالطابعة',
   },
   'settings.printerDefaultPageHint': {
-    en: 'Turn this on if receipts come out blank. The app then prints on whatever paper size the printer driver is set to — set that to a roll size (for example "80 x Roll") in the Windows printer settings.',
-    ar: 'فعّل هذا إذا كانت الإيصالات تخرج فارغة. عندها يطبع التطبيق على مقاس الورق المضبوط في تعريف الطابعة — اضبطه على مقاس رول (مثل "80 x Roll") من إعدادات الطابعة في ويندوز.',
+    en: 'On by default for roll paper, so a receipt printed straight away matches one printed through the dialog. The app prints on whatever paper size the printer driver is set to — keep that on a roll size (for example "80 x Roll") in the Windows printer settings. Turn it off only if receipts come out cut short.',
+    ar: 'مفعّل افتراضيًا لورق الرول، حتى يطابق الإيصال المطبوع مباشرةً الإيصالَ المطبوع عبر نافذة الطباعة. يطبع التطبيق على مقاس الورق المضبوط في تعريف الطابعة — أبقِه على مقاس رول (مثل "80 x Roll") من إعدادات الطابعة في ويندوز. أوقفه فقط إذا خرجت الإيصالات مقطوعة.',
   },
   'settings.printTest': { en: 'Print a test receipt', ar: 'طباعة إيصال تجريبي' },
   'settings.printTestSent': {

@@ -491,6 +491,27 @@ export function migrate() {
   );
   ensureColumn('orders', 'table_id TEXT', 'table_id');
   ensureColumn('orders', 'covers INTEGER', 'covers');
+
+  // Floors. The server calls them table_sections; a table with no section_id
+  // still works and is shown under "All".
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS table_sections (
+      id TEXT PRIMARY KEY,
+      branch_id INTEGER,
+      name_en TEXT,
+      name_ar TEXT,
+      sort_order INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      updated_at TEXT
+    );
+  `);
+  ensureColumn('tables', 'section_id TEXT', 'section_id');
+  ensureColumn('tables', 'sort_order INTEGER DEFAULT 0', 'sort_order');
+  ensureColumn('tables', 'label_ar TEXT', 'label_ar');
+  // A code from /push notices[] about this order — today only
+  // POS_PUSH_TABLE_INVALID: the server kept the order on its old table. Shown
+  // on the order until the cashier picks a table again.
+  ensureColumn('orders', 'push_notice TEXT', 'push_notice');
   ensureColumn('orders', 'delivery_fee REAL DEFAULT 0', 'delivery_fee');
 
   ensureColumn('orders', 'printed_at INTEGER', 'printed_at'); // ms since epoch

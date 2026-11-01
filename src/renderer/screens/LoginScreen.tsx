@@ -19,6 +19,8 @@ import { unpairDevice, useConfirmUnpair } from '../components/useConfirmUnpair';
 import { useI18n } from '../i18n';
 
 import { useErrorLine } from '../utils/posError';
+import { AppVersion } from '../components/AppVersion';
+
 type PosMode = 'live' | 'offline';
 
 type SyncStatus = {
@@ -554,6 +556,7 @@ export function LoginScreen() {
           >
             {t('auth.back')}
           </Button>
+          <AppVersion />
           <div className='flex gap-2'>
             <Button variant='light' size='sm' onPress={() => nav('/pair')}>
               {t('auth.pairDevice')}

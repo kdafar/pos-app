@@ -2,7 +2,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button, Card, CardBody, Chip, Input, Switch } from '@heroui/react';
-import { AlertTriangle, Check, Copy, Download, Inbox, Languages, Lock, Printer } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Download, Inbox, Languages, Lock, Printer, Type } from 'lucide-react';
+import {
+  TEXT_SCALES,
+  normalizeTextScale,
+  saveTextScale,
+  type TextScaleId,
+} from '../theme/textScale';
 import { LANGS, useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import { errorLine as errLine } from '../utils/posError';
@@ -134,6 +140,10 @@ const PAPER_PRESETS = [
 
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
+  // Already applied at startup (main.tsx); read it back from <html>.
+  const [textScale, setTextScale] = useState<TextScaleId>(() =>
+    normalizeTextScale(document.documentElement.dataset.textScale)
+  );
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -597,6 +607,42 @@ export function SettingsPage() {
                   className='font-semibold'
                 >
                   <span lang={l.code}>{l.label}</span>
+                </Button>
+              );
+            })}
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Text size sits next to language for the same reason: it is a per-till
+          comfort setting, and a small tablet or a far-away screen needs it
+          changed by whoever is on shift, not by the office. */}
+      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
+        <CardBody className='gap-3'>
+          <div>
+            <h2 className='text-base font-bold text-foreground'>
+              {t('settings.textSize')}
+            </h2>
+            <p className='mt-0.5 text-sm font-medium text-default-700'>
+              {t('settings.textSizeHint')}
+            </p>
+          </div>
+          <div className='flex flex-wrap gap-2'>
+            {TEXT_SCALES.map((s) => {
+              const current = s.id === textScale;
+              return (
+                <Button
+                  key={s.id}
+                  color={current ? 'primary' : 'default'}
+                  variant={current ? 'solid' : 'flat'}
+                  onPress={() => {
+                    setTextScale(s.id);
+                    void saveTextScale(s.id);
+                  }}
+                  startContent={current ? <Check size={18} /> : <Type size={18} />}
+                  className='font-semibold'
+                >
+                  {t(`settings.textSize.${s.id}`)}
                 </Button>
               );
             })}

@@ -22,6 +22,13 @@ export type PermissionUser = {
   permissions?: string[];
 };
 
+/**
+ * How often the renderer re-reads the operator's permissions. Sync brings a
+ * back-office change down within a minute or so; this keeps the screen within
+ * half a minute of what the main process already enforces.
+ */
+export const PERMISSIONS_REFRESH_MS = 30_000;
+
 export function usePermissions() {
   const [user, setUser] = useState<PermissionUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,8 +48,25 @@ export function usePermissions() {
     }
   }, []);
 
+  // Kept fresh for the same reason as the sidebar: a grant synced from the
+  // back office should enable its controls without signing out. Only the
+  // first load shows `loading`; refreshes swap the list in place.
   useEffect(() => {
     reload();
+    const refresh = async () => {
+      try {
+        const who = (await window.api.invoke('auth:whoami')) as PermissionUser;
+        setUser(who || null);
+      } catch {
+        setUser(null);
+      }
+    };
+    const timer = window.setInterval(refresh, PERMISSIONS_REFRESH_MS);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
   }, [reload]);
 
   const granted = useMemo(

@@ -58,7 +58,8 @@ export type CatalogEntry = {
  * constants in PosError.php. 43 of them when they answered, plus
  * POS_RECLAIM_MACHINE_IN_USE added with the liveness guard on 2026-09-02 —
  * 45 as of 2026-09-08, when POS_PAIR_BRANCH_REQUIRED landed with the
- * branch-code enrolment scheme; 44 before that. 42 were mirrored plus
+ * branch-code enrolment scheme; 44 before that. 46 from 2026-11-01, when the
+ * backend committed POS_PUSH_TABLE_INVALID for table moves. 42 were mirrored plus
  * POS_ORDER_NOT_FOUND, which is deliberately absent here because this client
  * already renders that condition as POS_VAL_ORDER_NOT_FOUND. Their
  * PosErrorCatalogueTest records it under ALIASED_BY_THE_APP; shipping both
@@ -67,7 +68,7 @@ export type CatalogEntry = {
  * Kept next to the catalogue rather than inside the drift test so the export
  * and the test cannot disagree about the target.
  */
-export const BACKEND_SENT_CODE_COUNT = 45;
+export const BACKEND_SENT_CODE_COUNT = 46;
 
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
@@ -560,6 +561,22 @@ export const ERROR_CATALOG = {
     ar: {
       title: 'الطلب مُغلق مسبقًا',
       body: 'هذا الطلب أُنهي على الخادم ولا يمكن تعديله من نقطة البيع. راجع المدير إذا كان التعديل ضروريًا.',
+    },
+  },
+  POS_PUSH_TABLE_INVALID: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST /push',
+    http: 200,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Table not changed',
+      body: 'The order was updated, but the server kept it on its old table: the new table is switched off or belongs to another branch. Pick another table.',
+    },
+    ar: {
+      title: 'لم تتغير الطاولة',
+      body: 'تم تحديث الطلب، لكن الخادم أبقاه على طاولته السابقة لأن الطاولة الجديدة متوقفة أو تابعة لفرع آخر. اختر طاولة أخرى.',
     },
   },
   POS_PUSH_ORDER_FAILED: {

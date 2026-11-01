@@ -53,11 +53,14 @@ const Router =
 // (Optional) dev helper to catch root-relative fetch/xhr (see section 2)
 import './rootRelativeGuard';
 import { loadAndApplyBrandTheme } from './theme/brand';
+import { loadTextScale } from './theme/textScale';
 
 try {
   ensureBridge();
   (async () => {
     await initTheme();
+    // The text size chosen in Settings, before first paint (never rejects).
+    await loadTextScale();
     // Brand colours are the operator's, not ours. Applied before first paint so
     // the till never flashes the fallback palette on the way to the real one;
     // it never rejects, so a shop with no branding still opens.

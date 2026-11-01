@@ -289,7 +289,7 @@ describe('codes the server never sends', () => {
     expect(ERROR_CATALOG.POS_PUSH_PARTIAL.sent).toBe(false);
   });
 
-  it('mirrors 35 of the 45 codes the backend sends, with the gap pinned', () => {
+  it('mirrors 36 of the 46 codes the backend sends, with the gap pinned', () => {
     // Drift guard in both directions. The authority is the constants in
     // PosError.php, not this file — BACKEND_SENT_CODE_COUNT carries it.
     //
@@ -309,7 +309,7 @@ describe('codes the server never sends', () => {
     // otherwise complete at 3 and 8, so the shape is not what it looked like
     // from the other side. Awaiting their per-endpoint list to close it.
     const sent = CODES.filter((c) => ERROR_CATALOG[c].sent);
-    expect(sent).toHaveLength(35);
+    expect(sent).toHaveLength(36);
     expect(BACKEND_SENT_CODE_COUNT - sent.length).toBe(10);
 
     // Spot-check the classes that must never be marked as server-sent.

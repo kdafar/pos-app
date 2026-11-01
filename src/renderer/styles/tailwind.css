@@ -229,12 +229,59 @@
    attached to <body>, so a variable scoped to the screen subtree would be
    undefined exactly where a dialog needs it. */
 :root {
-  --pos-xs: clamp(0.6875rem, 0.15vw + 0.64rem, 0.8125rem); /* 11 → 13px */
-  --pos-sm: clamp(0.75rem, 0.2vw + 0.69rem, 0.9375rem); /* 12 → 15px */
-  --pos-base: clamp(0.8125rem, 0.25vw + 0.74rem, 1.0625rem); /* 13 → 17px */
-  --pos-price: clamp(0.9375rem, 0.35vw + 0.84rem, 1.25rem); /* 15 → 20px */
+  --pos-xs: calc(clamp(0.6875rem, 0.15vw + 0.64rem, 0.8125rem) * var(--ui-text)); /* 11 → 13px */
+  --pos-sm: calc(clamp(0.75rem, 0.2vw + 0.69rem, 0.9375rem) * var(--ui-text)); /* 12 → 15px */
+  --pos-base: calc(clamp(0.8125rem, 0.25vw + 0.74rem, 1.0625rem) * var(--ui-text)); /* 13 → 17px */
+  --pos-price: calc(clamp(0.9375rem, 0.35vw + 0.84rem, 1.25rem) * var(--ui-text)); /* 15 → 20px */
   --pos-thumb: clamp(4.5rem, 6vw, 7.5rem); /* card image height */
 }
+
+/* ---------------------------------------------------------------
+   Text size (Settings → Text size; theme/textScale.ts).
+
+   Only font sizes move: every Tailwind and HeroUI text size, the POS scale
+   above, and the fixed text-[Npx] labels are multiplied by --ui-text, so
+   spacing and layout stay as designed. --ui-text is the cashier's choice
+   (--ui-text-scale) times a host boost (--ui-text-boost: the Android build
+   sets it on small tablets, where it scales the whole page down to fit).
+   Line heights are ratios in both systems, so they follow on their own.
+
+   Unlayered and listed on .light/.dark too, so it outranks the theme layer
+   and HeroUI's per-theme variable blocks.
+   --------------------------------------------------------------- */
+:root,
+.light,
+.dark,
+[data-theme] {
+  --ui-text: calc(var(--ui-text-scale, 1) * var(--ui-text-boost, 1));
+  --text-xs: calc(0.75rem * var(--ui-text));
+  --text-sm: calc(0.875rem * var(--ui-text));
+  --text-base: calc(1rem * var(--ui-text));
+  --text-lg: calc(1.125rem * var(--ui-text));
+  --text-xl: calc(1.25rem * var(--ui-text));
+  --text-2xl: calc(1.5rem * var(--ui-text));
+  --text-3xl: calc(1.875rem * var(--ui-text));
+  --heroui-font-size-tiny: calc(0.75rem * var(--ui-text));
+  --heroui-font-size-small: calc(0.875rem * var(--ui-text));
+  --heroui-font-size-medium: calc(1rem * var(--ui-text));
+  --heroui-font-size-large: calc(1.125rem * var(--ui-text));
+}
+body {
+  font-size: calc(1rem * var(--ui-text));
+}
+/* Fixed pixel sizes used for badges, captions and chips. */
+.text-\[9px\] { font-size: calc(9px * var(--ui-text)); }
+.text-\[10px\] { font-size: calc(10px * var(--ui-text)); }
+.text-\[11px\] { font-size: calc(11px * var(--ui-text)); }
+.text-\[12px\] { font-size: calc(12px * var(--ui-text)); }
+.text-\[13px\] { font-size: calc(13px * var(--ui-text)); }
+.text-\[14px\] { font-size: calc(14px * var(--ui-text)); }
+.text-\[15px\] { font-size: calc(15px * var(--ui-text)); }
+.text-\[16px\] { font-size: calc(16px * var(--ui-text)); }
+.text-\[17px\] { font-size: calc(17px * var(--ui-text)); }
+.text-\[18px\] { font-size: calc(18px * var(--ui-text)); }
+.text-\[22px\] { font-size: calc(22px * var(--ui-text)); }
+.text-\[24px\] { font-size: calc(24px * var(--ui-text)); }
 
 .pos-screen {
   font-size: var(--pos-base);

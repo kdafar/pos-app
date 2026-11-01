@@ -15,6 +15,8 @@ export interface Order {
   table_name?: string | null;
   covers?: number | null;
   promocode?: string;
+  /** Set when the server refused the last table move (POS_PUSH_TABLE_INVALID). */
+  push_notice?: string | null;
 }
 
 export interface OrderLine {
@@ -32,9 +34,15 @@ export type TableStatus = 'available' | 'occupied' | 'reserved';
 export interface TableInfo {
   id: string;
   name: string;
+  /** Arabic label from the server; falls back to `name` when empty. */
+  name_ar?: string | null;
   seats: number;
   status: TableStatus;
   current_order_id?: string | null;
+  /** Floor. Null when the table has none or its floor is switched off. */
+  section_id?: string | null;
+  section_name_en?: string | null;
+  section_name_ar?: string | null;
 }
 
 export interface State {
