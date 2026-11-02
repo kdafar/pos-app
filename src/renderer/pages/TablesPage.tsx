@@ -5,6 +5,7 @@ import { Eraser } from 'lucide-react';
 
 import { useConfirmDialog } from '../components/ConfirmDialogProvider';
 import { useToast } from '../components/ToastProvider';
+import { useApproval } from '../components/ApprovalProvider';
 import { useI18n } from '../i18n';
 import type { StringKey } from '../i18n';
 import { DataTable } from '../components/DataTable';
@@ -102,6 +103,7 @@ const STATUS_COLOR: Record<TableStatus, 'success' | 'warning' | 'danger'> = {
 export default function TablesPage() {
   const { t, lang } = useI18n();
   const toast = useToast();
+  const approve = useApproval();
   const confirm = useConfirmDialog();
 
   const [rows, setRows] = useState<TableRow[]>([]);
@@ -187,10 +189,16 @@ export default function TablesPage() {
       if (!ok) return;
 
       try {
-        await window.api.invoke('orders:clearTable', {
-          table_id: row.id,
-          order_id: row.current_order_id ?? null,
-        });
+        // A table with a seated order that has items is a force close: the
+        // manager's code unless this user may force-close tables.
+        const done = await approve('force_close_table', (approval) =>
+          window.api.invoke(
+            'orders:clearTable',
+            { table_id: row.id, order_id: row.current_order_id ?? null },
+            approval
+          )
+        );
+        if (done === null) return; // approval dialog cancelled
       } catch (e) {
         // The actual reason, rather than a generic "contact support" — the
         // person reading this is usually the one who can fix it.
@@ -199,7 +207,7 @@ export default function TablesPage() {
       }
       await load();
     },
-    [isAdmin, confirm, t, toast, load]
+    [isAdmin, confirm, t, toast, load, approve]
   );
 
   const columns = useMemo<ColumnDef<TableRow, any>[]>(() => {

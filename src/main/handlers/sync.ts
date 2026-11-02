@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron';
 import https from 'node:https';
 import os from 'node:os';
+import { approvalsForPush } from '../utils/approvals';
 import { URL } from 'node:url';
 import axios from 'axios';
 import db, {
@@ -235,6 +236,9 @@ function safeBuildOrderPayload(orderId: string) {
       completed_at: completedAt,
     },
     lines,
+    // Every approval made on this order. Re-sending one the server already
+    // has is harmless — it is idempotent by id.
+    approvals: approvalsForPush(db, o.id),
   };
 }
 

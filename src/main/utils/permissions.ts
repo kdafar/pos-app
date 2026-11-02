@@ -124,12 +124,27 @@ export function permissionsForRole(
     }>;
 
     if (rows.length && permissionsAreServerManaged(db)) {
-      return rows
+      const granted = rows
         .filter((row) => row.allowed)
         .map((row) => row.permission)
         .filter((p): p is Permission =>
           (PERMISSIONS as readonly string[]).includes(p)
         );
+      // A permission the server has never sent for ANY role is one this build
+      // knows and the back office does not yet. Without this, shipping a new
+      // permission ahead of the server denied it to everyone — an admin could
+      // no longer cancel a placed order. Anything the server has mentioned,
+      // anywhere, stays authoritative: absent from a role's rows means denied.
+      const known = new Set(
+        db
+          .prepare('SELECT DISTINCT permission FROM pos_role_permissions')
+          .pluck()
+          .all() as string[]
+      );
+      for (const p of rolePermissions(role)) {
+        if (!known.has(p) && !granted.includes(p)) granted.push(p);
+      }
+      return granted;
     }
 
     for (const row of rows)

@@ -78,6 +78,32 @@ export const cartStrings = {
     en: 'Failed to release table',
     ar: 'تعذر تحرير الطاولة',
   },
+  /* ---------- manager approval ---------- */
+  'approval.title': { en: 'Manager approval', ar: 'موافقة المدير' },
+  'approval.code': { en: 'Approval code', ar: 'رمز الموافقة' },
+  'approval.codeHint': {
+    en: 'A manager types their 6-digit code or scans their manager card.',
+    ar: 'يُدخل المدير رمزه المكوّن من 6 أرقام أو يمسح بطاقة المدير.',
+  },
+  'approval.reasonLabel': { en: 'Reason', ar: 'السبب' },
+  'approval.reasonPlaceholder': { en: 'Optional', ar: 'اختياري' },
+  'approval.approve': { en: 'Approve', ar: 'موافقة' },
+  'approval.action.void_sent_line': {
+    en: 'Remove or reduce an item already sent to the kitchen',
+    ar: 'حذف أو تقليل صنف أُرسل إلى المطبخ',
+  },
+  'approval.action.force_close_table': {
+    en: 'Free a table that still has an open order',
+    ar: 'تحرير طاولة عليها طلب مفتوح',
+  },
+  'approval.action.cancel_sent_order': {
+    en: 'Cancel an order already sent to the kitchen',
+    ar: 'إلغاء طلب أُرسل إلى المطبخ',
+  },
+  'approval.reason.wrongItem': { en: 'Wrong item', ar: 'صنف خاطئ' },
+  'approval.reason.changedMind': { en: 'Customer changed their mind', ar: 'غيّر العميل رأيه' },
+  'approval.reason.customerLeft': { en: 'Customer left', ar: 'غادر العميل' },
+
   'cart.roundSent': {
     en: 'Order updated',
     ar: 'تم تحديث الطلب',

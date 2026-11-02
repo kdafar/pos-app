@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { Select, SelectItem } from '@heroui/react';
 import { useI18n } from '../i18n';
 import type { StringKey } from '../i18n';
+import { useApproval } from '../components/ApprovalProvider';
+import { useToast } from '../components/ToastProvider';
 
 /**
  * Move an order along its lifecycle from the orders list.
@@ -53,6 +55,8 @@ export function OrderStatusCell({
   onChanged?: () => void | Promise<void>;
 }) {
   const { t } = useI18n();
+  const approve = useApproval();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const statusNameForCode: Record<number, string> = {
     1: 'placed',
@@ -109,10 +113,19 @@ export function OrderStatusCell({
     setCurrent(next); // optimistic; reverted if the handler refuses
     setBusy(true);
     try {
-      await window.api.invoke('orders:setStatus', orderId, next);
+      // Only cancelling an order already sent to the kitchen ever asks for a
+      // manager; every other status change goes straight through.
+      const done = await approve('cancel_sent_order', (approval) =>
+        window.api.invoke('orders:setStatus', orderId, next, approval)
+      );
+      if (done === null) {
+        setCurrent(previous); // approval dialog cancelled
+        return;
+      }
       await onChanged?.();
     } catch (e) {
-      console.error('orders:setStatus failed', e);
+      // Was console-only: a refused change snapped back with no reason given.
+      toast.error(e);
       setCurrent(previous);
     } finally {
       setBusy(false);

@@ -5,6 +5,8 @@ import { Trash2 } from 'lucide-react';
 import { OrderLine } from '../types';
 import { QtyStepper } from '../../../components/QtyStepper';
 import { useI18n } from '../../../i18n';
+import { useApproval } from '../../../components/ApprovalProvider';
+import { useToast } from '../../../components/ToastProvider';
 
 declare global {
   interface Window {
@@ -49,7 +51,10 @@ export function OrderLineItem({
   onUpdate: () => void;
 }) {
   const { t, name: localName, money } = useI18n();
+  const approve = useApproval();
+  const toast = useToast();
   const call = (ch: string, ...args: any[]) => window.api.invoke(ch, ...args);
+  const sent = (line as any).is_locked === 1 || (line as any).is_locked === true;
   // Typing a quantity commits in one go; guard against a second commit landing
   // (blur + Enter, or an impatient double tap) while the first is in flight.
   const [busy, setBusy] = React.useState(false);
@@ -65,6 +70,23 @@ export function OrderLineItem({
   };
 
   const applyQty = async (nextQty: number) => {
+    // A line already sent to the kitchen: lowering or removing it is a void
+    // that needs a manager unless the cashier may void. No silent fallbacks
+    // here — those used to remove a *different* unsent line of the same item,
+    // or add a negative quantity, when the sent line refused.
+    if (sent) {
+      try {
+        await approve('void_sent_line', (approval) =>
+          nextQty <= 0
+            ? call('orders:removeLine', line.id, approval)
+            : call('orders:setLineQty', line.id, nextQty, approval)
+        );
+      } catch (e) {
+        toast.error(e);
+      }
+      onUpdate();
+      return;
+    }
     if (nextQty <= 0) {
       await call('orders:removeLine', line.id)
         .catch(() => call('orders:removeLineByItem', orderId, line.item_id))

@@ -1,8 +1,12 @@
 export const PERMISSIONS = [
   'orders.create', 'orders.view_own', 'orders.view_all', 'orders.kitchen_view', 'orders.edit_unpaid',
   'orders.change_status', 'orders.cancel', 'orders.reopen', 'orders.refund',
+  // Manager approval (docs: POS manager approval plan). Held by admin and
+  // manager; a cashier reaches these only with a manager's approval code.
+  'orders.void_sent_line', 'orders.cancel_sent', 'orders.approve',
   'reports.view', 'reports.export', 'catalog.manage', 'payments.manage',
-  'locations.manage', 'tables.manage', 'settings.manage', 'updates.manage',
+  'locations.manage', 'tables.manage', 'tables.force_close',
+  'settings.manage', 'updates.manage',
   'users.permissions',
 ] as const;
 

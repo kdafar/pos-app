@@ -59,7 +59,8 @@ export type CatalogEntry = {
  * POS_RECLAIM_MACHINE_IN_USE added with the liveness guard on 2026-09-02 —
  * 45 as of 2026-09-08, when POS_PAIR_BRANCH_REQUIRED landed with the
  * branch-code enrolment scheme; 44 before that. 46 from 2026-11-01, when the
- * backend committed POS_PUSH_TABLE_INVALID for table moves. 42 were mirrored plus
+ * backend committed POS_PUSH_TABLE_INVALID for table moves; 47 with
+ * POS_PUSH_APPROVAL_INVALID for manager approvals. 42 were mirrored plus
  * POS_ORDER_NOT_FOUND, which is deliberately absent here because this client
  * already renders that condition as POS_VAL_ORDER_NOT_FOUND. Their
  * PosErrorCatalogueTest records it under ALIASED_BY_THE_APP; shipping both
@@ -68,7 +69,7 @@ export type CatalogEntry = {
  * Kept next to the catalogue rather than inside the drift test so the export
  * and the test cannot disagree about the target.
  */
-export const BACKEND_SENT_CODE_COUNT = 46;
+export const BACKEND_SENT_CODE_COUNT = 47;
 
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
@@ -577,6 +578,97 @@ export const ERROR_CATALOG = {
     ar: {
       title: 'لم تتغير الطاولة',
       body: 'تم تحديث الطلب، لكن الخادم أبقاه على طاولته السابقة لأن الطاولة الجديدة متوقفة أو تابعة لفرع آخر. اختر طاولة أخرى.',
+    },
+  },
+  POS_PUSH_APPROVAL_INVALID: {
+    severity: 'info',
+    retry: false,
+    where: 'POST /push',
+    http: 200,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Approval flagged on the server',
+      body: 'The change was kept, but the approver did not hold that right on the server. It is flagged on the voids and approvals report.',
+    },
+    ar: {
+      title: 'تم تمييز الموافقة على الخادم',
+      body: 'تم الإبقاء على التعديل، لكن من وافق عليه لا يملك هذه الصلاحية على الخادم. ستظهر مميزة في تقرير الإلغاءات والموافقات.',
+    },
+  },
+  POS_APPROVAL_REQUIRED: {
+    severity: 'inline',
+    retry: false,
+    where: 'manager approval',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Manager approval needed',
+      body: 'Ask a manager to enter their approval code or scan their manager card.',
+    },
+    ar: {
+      title: 'يلزم موافقة المدير',
+      body: 'اطلب من المدير إدخال رمز الموافقة أو مسح بطاقة المدير.',
+    },
+  },
+  POS_APPROVAL_CODE_WRONG: {
+    severity: 'inline',
+    retry: false,
+    where: 'manager approval',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Wrong approval code',
+      body: 'That code does not match any manager. {left} tries left before the approval is locked for 5 minutes.',
+    },
+    ar: {
+      title: 'رمز الموافقة غير صحيح',
+      body: 'هذا الرمز لا يطابق أي مدير. تبقّى {left} محاولات قبل قفل الموافقة لمدة 5 دقائق.',
+    },
+  },
+  POS_APPROVAL_LOCKED: {
+    severity: 'inline',
+    retry: false,
+    where: 'manager approval',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Approval locked',
+      body: 'Too many wrong codes. Try again in {minutes} minutes.',
+    },
+    ar: {
+      title: 'الموافقة مقفلة',
+      body: 'تم إدخال رموز خاطئة عدة مرات. حاول مرة أخرى بعد {minutes} دقائق.',
+    },
+  },
+  POS_APPROVAL_NOT_ALLOWED: {
+    severity: 'inline',
+    retry: false,
+    where: 'manager approval',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'This manager cannot approve this',
+      body: '{name} does not have the right to approve this action. Ask another manager.',
+    },
+    ar: {
+      title: 'لا يمكن لهذا المدير الموافقة',
+      body: 'لا يملك {name} صلاحية الموافقة على هذا الإجراء. اطلب من مدير آخر.',
+    },
+  },
+  POS_APPROVAL_NO_APPROVERS: {
+    severity: 'inline',
+    retry: false,
+    where: 'manager approval',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'No manager approval codes yet',
+      body: 'No manager on this till has an approval code. Set one in the back office (Users), then sync the till.',
+    },
+    ar: {
+      title: 'لا توجد رموز موافقة للمديرين',
+      body: 'لا يوجد مدير على هذا الجهاز لديه رمز موافقة. عيّن رمزاً من لوحة الإدارة (المستخدمون) ثم زامن الجهاز.',
     },
   },
   POS_PUSH_ORDER_FAILED: {

@@ -508,6 +508,30 @@ export function migrate() {
   ensureColumn('tables', 'section_id TEXT', 'section_id');
   ensureColumn('tables', 'sort_order INTEGER DEFAULT 0', 'sort_order');
   ensureColumn('tables', 'label_ar TEXT', 'label_ar');
+
+  // Manager approval. The server sends the bcrypt hash of a manager's 6-digit
+  // approval code; the till checks a typed or scanned code against it offline.
+  ensureColumn('pos_users', 'approval_code_hash TEXT', 'approval_code_hash');
+  ensureColumn('pos_users', 'approval_code_set INTEGER DEFAULT 0', 'approval_code_set');
+  // One row per approved action, sent with the order as approvals[] until the
+  // server has it (idempotent by id, so re-sending is harmless).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS order_approvals (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      line_id TEXT,
+      table_id TEXT,
+      qty_before REAL,
+      qty_after REAL,
+      requested_by INTEGER,
+      approved_by INTEGER,
+      approved_at TEXT NOT NULL,
+      reason TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_approvals_order ON order_approvals(order_id);
+  `);
   // A code from /push notices[] about this order — today only
   // POS_PUSH_TABLE_INVALID: the server kept the order on its old table. Shown
   // on the order until the cashier picks a table again.

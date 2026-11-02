@@ -8,6 +8,7 @@ import { LanguageToggle } from './LanguageToggle';
 import { Hint } from './Hint';
 import { useUpdate } from '../hooks/useUpdate';
 import { PERMISSIONS_REFRESH_MS } from '../hooks/usePermissions';
+import { announceSynced } from '../utils/syncEvents';
 import { pushPartialCode } from '../../shared/errors';
 import {
   Cloud,
@@ -222,6 +223,7 @@ export function Layout() {
         syncingRef.current = true;
         setSyncing(true);
         await window.api.invoke('sync:run');
+        announceSynced();
         await refreshStatus();
       } catch (e) {
         console.error('auto sync:run failed', e);
@@ -244,6 +246,7 @@ export function Layout() {
     try {
       setSyncing(true);
       const res = await window.api.invoke('sync:run');
+      announceSynced();
       await refreshStatus();
       // A sync that pushed 3 of 4 used to report as a plain success. The
       // queued one is not an error — it retries by itself — but the cashier

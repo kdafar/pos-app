@@ -307,20 +307,66 @@ function mapRole(typeOrRole: any) {
   return 'branch';
 }
 
+/**
+ * A user row from /bootstrap or /pull. Fields the row does not carry stay
+ * null, and UPSERT_USER_SQL keeps the stored value for them.
+ *
+ * /pull user rows carry no password_hash (and may omit the role). They used to
+ * overwrite the stored hash with null — that cashier could not sign in until
+ * the next full bootstrap — and an absent role became 'branch', demoting a
+ * manager. Only what the server actually sent changes anything.
+ */
 function normUser(u: any) {
+  const has = (k: string) => u[k] !== undefined;
   return {
     id: Number(u.id),
-    name: (u.name ?? '') as string,
-    username: u.username != null ? String(u.username) : null,
+    name: has('name') ? String(u.name ?? '') : null,
+    username: has('username') ? (u.username != null ? String(u.username) : null) : null,
     email: u.email ? String(u.email).toLowerCase() : null,
-    mobile: u.mobile ?? '',
-    role: mapRole(u.role ?? u.type),
+    mobile: has('mobile') ? String(u.mobile ?? '') : null,
+    role: u.role !== undefined || u.type !== undefined ? mapRole(u.role ?? u.type) : null,
     password_hash: (u.password_hash ?? u.password ?? null) as string | null, // Laravel hash ($2y$…)
-    is_active: u.is_active === undefined ? 1 : u.is_active ? 1 : 0,
+    is_active: has('is_active') ? (u.is_active ? 1 : 0) : null,
     branch_id: u.branch_id == null ? null : Number(u.branch_id),
+    // Manager approval code. null = the row said nothing about it (keep what
+    // is stored); 0 = no code set, and the stored hash is cleared with it.
+    approval_code_set: has('approval_code_set') ? (u.approval_code_set ? 1 : 0) : null,
+    approval_code_hash: u.approval_code_hash ? String(u.approval_code_hash) : null,
     updated_at: u.updated_at ? String(u.updated_at) : null,
   };
 }
+
+/**
+ * Raw values go in as-is so DO UPDATE can tell "absent" (NULL) from a value;
+ * the insert-time defaults are applied by COALESCE on the way in.
+ */
+const UPSERT_USER_SQL = `
+  INSERT INTO pos_users (
+    id, name, username, email, mobile, role, password_hash, is_active,
+    branch_id, approval_code_set, approval_code_hash, updated_at
+  ) VALUES (
+    @id, COALESCE(@name, ''), @username, lower(@email), COALESCE(@mobile, ''),
+    COALESCE(@role, 'branch'), @password_hash, COALESCE(@is_active, 1),
+    @branch_id, @approval_code_set,
+    CASE WHEN @approval_code_set = 1 THEN @approval_code_hash END, @updated_at
+  )
+  ON CONFLICT(id) DO UPDATE SET
+    name               = CASE WHEN @name IS NULL THEN pos_users.name ELSE excluded.name END,
+    username           = COALESCE(excluded.username, pos_users.username),
+    email              = COALESCE(excluded.email, pos_users.email),
+    mobile             = CASE WHEN @mobile IS NULL THEN pos_users.mobile ELSE excluded.mobile END,
+    role               = CASE WHEN @role IS NULL THEN pos_users.role ELSE excluded.role END,
+    password_hash      = COALESCE(excluded.password_hash, pos_users.password_hash),
+    is_active          = CASE WHEN @is_active IS NULL THEN pos_users.is_active ELSE excluded.is_active END,
+    branch_id          = COALESCE(excluded.branch_id, pos_users.branch_id),
+    approval_code_set  = COALESCE(excluded.approval_code_set, pos_users.approval_code_set),
+    approval_code_hash = CASE
+                           WHEN excluded.approval_code_set IS NULL THEN pos_users.approval_code_hash
+                           WHEN excluded.approval_code_set = 1
+                             THEN COALESCE(excluded.approval_code_hash, pos_users.approval_code_hash)
+                           ELSE NULL
+                         END,
+    updated_at         = COALESCE(excluded.updated_at, pos_users.updated_at)`;
 
 function normPromo(p: any) {
   return {
@@ -1530,6 +1576,20 @@ export async function bootstrap(baseUrl: string) {
     pruneMissing('tables', tables, 'tables');
     pruneMissing('table_sections', tableSections, 'table sections');
     pruneMissing('payment_methods', payMethods, 'payment methods');
+    // Staff logins were never pruned: one removed on the web kept signing in
+    // here until the till was re-paired. Deactivated rather than deleted, for
+    // the same foreign key as the /pull delete. An empty list touches nothing:
+    // a payload that lost its users key must not lock every cashier out.
+    const userIds = users.map((u: any) => S(u?.id)).filter(Boolean) as string[];
+    if (userIds.length) {
+      const gone = db
+        .prepare(
+          `UPDATE pos_users SET is_active = 0
+            WHERE is_active = 1 AND id NOT IN (${userIds.map(() => '?').join(',')})`
+        )
+        .run(...userIds).changes;
+      if (gone) console.log(`[sync] deactivated ${gone} staff login(s) removed on the server`);
+    }
 
     // Add-ons are nested under their groups in the payload, so flatten before
     // comparing — otherwise every add-on would look absent and be deleted.
@@ -1590,41 +1650,7 @@ export async function bootstrap(baseUrl: string) {
       upOrderSeed.run(row);
     }
 
-    const upUser = db.prepare(`
-  INSERT INTO pos_users (
-    id,
-    name,
-    username,
-    email,
-    mobile,
-    role,
-    password_hash,
-    is_active,
-    branch_id,
-    updated_at
-  ) VALUES (
-    @id,
-    @name,
-    @username,
-    lower(@email),
-    @mobile,
-    @role,
-    @password_hash,
-    @is_active,
-    @branch_id,
-    @updated_at
-  )
-  ON CONFLICT(id) DO UPDATE SET
-    name          = excluded.name,
-    username      = excluded.username,
-    email         = excluded.email,
-    mobile        = excluded.mobile,
-    role          = excluded.role,
-    password_hash = excluded.password_hash,
-    is_active     = excluded.is_active,
-    branch_id     = excluded.branch_id,
-    updated_at    = excluded.updated_at
-    `);
+    const upUser = db.prepare(UPSERT_USER_SQL);
 
     for (const u of users) upUser.run(normUser(u));
 
@@ -2130,6 +2156,7 @@ export async function pullChanges() {
   const { data } = await api.post('/pull', { cursor });
 
   const changedItemIds: string[] = [];
+  let skipped = 0;
 
   const apply = db.transaction((changes: any[]) => {
     const upItem = db.prepare(`
@@ -2245,41 +2272,7 @@ export async function pullChanges() {
       ON CONFLICT(id) DO UPDATE SET
         item_id=excluded.item_id,group_id=excluded.group_id,is_required=excluded.is_required,max_select=excluded.max_select,updated_at=excluded.updated_at
     `);
-    const upUser = db.prepare(`
-      INSERT INTO pos_users (
-        id,
-        name,
-        username,
-        email,
-        mobile,
-        role,
-        password_hash,
-        is_active,
-        branch_id,
-        updated_at
-      ) VALUES (
-        @id,
-        @name,
-        @username,
-        lower(@email),
-        @mobile,
-        @role,
-        @password_hash,
-        @is_active,
-        @branch_id,
-        @updated_at
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        name          = excluded.name,
-        username      = excluded.username,
-        email         = excluded.email,
-        mobile        = excluded.mobile,
-        role          = excluded.role,
-        password_hash = excluded.password_hash,
-        is_active     = excluded.is_active,
-        branch_id     = excluded.branch_id,
-        updated_at    = excluded.updated_at
-    `);
+    const upUser = db.prepare(UPSERT_USER_SQL);
 
     const {
       upPullOrder,
@@ -2292,7 +2285,13 @@ export async function pullChanges() {
     const delBy = (table: string, pk: any) =>
       db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(S(pk));
 
-    for (const c of changes) {
+    // Each change in its own savepoint. The batch used to be all-or-nothing:
+    // one change that failed — a foreign key, a malformed row — rolled back
+    // every other change with it and left the cursor where it was, so the
+    // next sync fetched the same batch and failed the same way, forever. A
+    // till in that state never received another delete, price or table.
+    // Nested transaction functions run as SAVEPOINTs in better-sqlite3.
+    const applyOne = db.transaction((c: any) => {
       const op = c.op;
       const tbl = String(c.table || '').toLowerCase();
 
@@ -2310,7 +2309,13 @@ export async function pullChanges() {
       ) {
         if (op === 'delete') delBy('variations', c.pk);
         else if (c.data) upVar.run(normVariation(c.data));
-      } else if (tbl === 'promocode' || tbl === 'promos') {
+      } else if (
+        // The server's feed says `promocodes`; only the older names were
+        // matched, so a deleted promo stayed usable on the till.
+        tbl === 'promocode' ||
+        tbl === 'promocodes' ||
+        tbl === 'promos'
+      ) {
         if (op === 'delete') delBy('promos', c.pk);
         else if (c.data) upPromo.run(normPromo(c.data));
       } else if (tbl === 'item_promocode' || tbl === 'promo_item_exclusions') {
@@ -2361,8 +2366,20 @@ export async function pullChanges() {
               `[SYNC] pull: skipped item add-on link ${link.id} — no matching item or addon group`
             );
         }
-      } else if (tbl === 'pos_user' || tbl === 'pos_users') {
-        if (op === 'delete') delBy('pos_users', c.pk);
+      } else if (
+        // The server's feed says `users`. Only pos_user(s) was matched, so a
+        // staff login removed or deactivated on the web could still sign in.
+        tbl === 'user' ||
+        tbl === 'users' ||
+        tbl === 'pos_user' ||
+        tbl === 'pos_users'
+      ) {
+        // Deactivated, not deleted: auth_sessions keeps a foreign key to every
+        // user who ever signed in here, so the DELETE failed — and before the
+        // per-change savepoint it took the whole pull down with it. Login only
+        // accepts is_active = 1, so this locks the account out all the same.
+        if (op === 'delete')
+          db.prepare('UPDATE pos_users SET is_active = 0 WHERE id = ?').run(S(c.pk));
         else if (c.data) upUser.run(normUser(c.data));
       } else if (
         tbl === 'role_permission' ||
@@ -2576,6 +2593,9 @@ export async function pullChanges() {
         if (op === 'delete') delBy('cities', c.pk);
       } else if (tbl === 'block' || tbl === 'blocks') {
         if (op === 'delete') delBy('blocks', c.pk);
+      } else if (tbl === 'station' || tbl === 'stations') {
+        // Kitchen stations print on the server's own printers; the till keeps
+        // no copy, so there is nothing to apply. Known, so not logged below.
       } else if (op === 'delete') {
         console.warn('[sync] unhandled delete in change feed', {
           table: tbl,
@@ -2583,6 +2603,20 @@ export async function pullChanges() {
         });
       }
       // (extend for other tables if your /pull adds them)
+    });
+
+    for (const c of changes) {
+      try {
+        applyOne(c);
+      } catch (err: any) {
+        skipped++;
+        console.error('[sync] pull change skipped', {
+          table: c?.table,
+          op: c?.op,
+          pk: c?.pk,
+          error: err?.message || String(err),
+        });
+      }
     }
 
     db.prepare(
@@ -2594,6 +2628,9 @@ export async function pullChanges() {
   });
 
   apply(data.changes ?? []);
+  if (skipped) {
+    console.warn(`[sync] ${skipped} pull change(s) skipped; the rest applied and the cursor moved on`);
+  }
   markSyncedNow();
 
   if (changedItemIds.length) {

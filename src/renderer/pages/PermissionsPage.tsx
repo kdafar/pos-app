@@ -21,7 +21,7 @@ type Role = {
 const GROUPS = [
   { title: 'permissions.group.orders' as StringKey, help: 'permissions.group.ordersHelp' as StringKey, keys: PERMISSIONS.filter((p) => p.startsWith('orders.')) },
   { title: 'permissions.group.reports' as StringKey, help: 'permissions.group.reportsHelp' as StringKey, keys: PERMISSIONS.filter((p) => p.startsWith('reports.')) },
-  { title: 'permissions.group.setup' as StringKey, help: 'permissions.group.setupHelp' as StringKey, keys: ['catalog.manage', 'payments.manage', 'locations.manage', 'tables.manage'] },
+  { title: 'permissions.group.setup' as StringKey, help: 'permissions.group.setupHelp' as StringKey, keys: ['catalog.manage', 'payments.manage', 'locations.manage', 'tables.manage', 'tables.force_close'] },
   { title: 'permissions.group.system' as StringKey, help: 'permissions.group.systemHelp' as StringKey, keys: ['settings.manage', 'updates.manage', 'users.permissions'] },
 ];
 

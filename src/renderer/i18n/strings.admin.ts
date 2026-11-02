@@ -74,6 +74,22 @@ export const adminStrings = {
   'permissions.orders.cancel': { en: 'Cancel orders', ar: 'إلغاء الطلبات' },
   'permissions.orders.reopen': { en: 'Reopen locked orders', ar: 'إعادة فتح الطلبات المقفلة' },
   'permissions.orders.refund': { en: 'Issue refunds', ar: 'إجراء المرتجعات' },
+  'permissions.orders.void_sent_line': {
+    en: 'Remove or reduce items already sent to the kitchen',
+    ar: 'حذف أو تقليل أصناف أُرسلت إلى المطبخ',
+  },
+  'permissions.orders.cancel_sent': {
+    en: 'Cancel orders already sent to the kitchen',
+    ar: 'إلغاء طلبات أُرسلت إلى المطبخ',
+  },
+  'permissions.orders.approve': {
+    en: "Approve other staff's actions with an approval code",
+    ar: 'الموافقة على إجراءات الموظفين برمز الموافقة',
+  },
+  'permissions.tables.force_close': {
+    en: 'Free a table that still has an open order',
+    ar: 'تحرير طاولة عليها طلب مفتوح',
+  },
   'permissions.orders.print': { en: 'Print receipts', ar: 'طباعة الفواتير' },
   'permissions.reports.view': { en: 'View closing reports', ar: 'عرض تقارير الإغلاق' },
   'permissions.reports.export': { en: 'Print and export reports', ar: 'طباعة التقارير وتصديرها' },

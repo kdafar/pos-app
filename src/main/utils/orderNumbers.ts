@@ -383,6 +383,12 @@ export function applyPushResult(result: any): {
         setNotice.run(String(n.code), String(tempId));
         console.warn('[push] server kept the order on its old table', n);
       }
+      // The change stands on both sides; the server flags it on its voids and
+      // approvals report, which is where a manager sees it. Logged here so a
+      // till's own log shows which approvals the server disagreed with.
+      if (n?.code === 'POS_PUSH_APPROVAL_INVALID') {
+        console.warn('[push] server flagged an approval as invalid', n);
+      }
     }
   });
   tx();

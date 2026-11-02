@@ -4,6 +4,16 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('electron', () => ({ app: { isPackaged: true } }));
 
 const { permissionsForRole } = await import('./permissions');
+const { PERMISSIONS } = await import('../../shared/permissions');
+
+/** What a server that predates the manager-approval permissions has sent. */
+const NEW_PERMISSIONS = [
+  'orders.void_sent_line',
+  'orders.cancel_sent',
+  'orders.approve',
+  'tables.force_close',
+];
+const SERVER_KNOWN = PERMISSIONS.filter((p) => !NEW_PERMISSIONS.includes(p));
 
 type Row = { permission: string; allowed: number };
 
@@ -11,11 +21,16 @@ type Row = { permission: string; allowed: number };
  * A stand-in for better-sqlite3 covering just the two statements
  * permissionsForRole issues: the role's rows, and the server-ownership flag.
  */
-function fakeDb(rows: Row[], source: string | null) {
+function fakeDb(rows: Row[], source: string | null, known: string[] = SERVER_KNOWN) {
   return {
     prepare(sql: string) {
       if (sql.includes('permissions.source')) {
         return { pluck: () => ({ get: () => source }) };
+      }
+      // Every slug the server has sent for any role. A real back office sends
+      // the whole catalogue per role, so by default that is all of it.
+      if (sql.includes('DISTINCT')) {
+        return { pluck: () => ({ all: () => known }) };
       }
       return { all: () => rows };
     },
@@ -59,6 +74,24 @@ describe('permissionsForRole under server management', () => {
     // every other role bare.
     const result = permissionsForRole(fakeDb([], 'server'), 'kitchen');
     expect(result).toContain('orders.kitchen_view');
+  });
+
+  it('defaults a permission the server has never sent for any role', () => {
+    // The server has not shipped the manager-approval permissions yet. An
+    // admin must still be able to cancel a sent order; a cashier must not.
+    const rows = [{ permission: 'orders.create', allowed: 1 }];
+    expect(permissionsForRole(fakeDb(rows, 'server'), 'admin')).toContain('orders.cancel_sent');
+    expect(permissionsForRole(fakeDb(rows, 'server'), 'pos')).not.toContain('orders.cancel_sent');
+  });
+
+  it('lets the server own a new permission once it sends it', () => {
+    const rows = [
+      { permission: 'orders.create', allowed: 1 },
+      { permission: 'orders.cancel_sent', allowed: 0 },
+    ];
+    expect(
+      permissionsForRole(fakeDb(rows, 'server', PERMISSIONS as any), 'admin')
+    ).not.toContain('orders.cancel_sent');
   });
 
   it('drops a slug this build does not know', () => {

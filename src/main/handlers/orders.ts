@@ -31,6 +31,11 @@ import {
   pushStatusForLocal,
 } from '../utils/serverStatus';
 import { assertPermission, getEffectivePermissions } from '../utils/permissions';
+import {
+  recordApproval,
+  resolveApprover,
+  type ApprovalInput,
+} from '../utils/approvals';
 
 export function registerOrdersHandlers(
   ipcMain: IpcMain,
@@ -166,6 +171,44 @@ export function registerOrdersHandlers(
     if (!stillSeated) {
       rawDb.prepare(`UPDATE tables SET is_available = 1 WHERE id = ?`).run(tableId);
     }
+  };
+
+  /**
+   * Lower or remove a line already sent to the kitchen. The approver is
+   * resolved first (bcrypt is async); the change and its approval record are
+   * then written together, and the order is re-pushed so the server prints
+   * the VOID and the approval reaches the voids report.
+   */
+  const voidSentLine = async (line: any, qtyAfter: number, approval: ApprovalInput) => {
+    const approver = await resolveApprover(services, 'void_sent_line', approval);
+    const before = Number(line.qty || 0);
+    rawDb.transaction(() => {
+      if (qtyAfter <= 0) {
+        rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`).run(line.id);
+      } else {
+        const lineTotal = +(Number(line.unit_price || 0) * qtyAfter).toFixed(3);
+        rawDb
+          .prepare(`UPDATE order_lines SET qty = ?, line_total = ?, updated_at = ? WHERE id = ?`)
+          .run(qtyAfter, lineTotal, nowMs(), line.id);
+      }
+      recordApproval(services, approver, {
+        action: 'void_sent_line',
+        orderId: line.order_id,
+        lineId: line.id,
+        qtyBefore: before,
+        qtyAfter,
+      });
+    })();
+    log('orders.voidSentLine', line.order_id, {
+      line_id: line.id,
+      qty_before: before,
+      qty_after: qtyAfter,
+      approved_by: approver.approvedBy,
+      reason: approver.reason,
+    });
+    const result = recalcAndGet(line.order_id);
+    markForRepush(line.order_id);
+    return result;
   };
 
   const getOrderRow = (orderId: string) => {
@@ -643,7 +686,7 @@ export function registerOrdersHandlers(
    */
   ipcMain.handle(
     'orders:setStatus',
-    async (_e, orderId: string, next: string) => {
+    async (_e, orderId: string, next: string, approval?: ApprovalInput) => {
       assertPermission(services, 'orders.change_status');
       if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
@@ -696,6 +739,15 @@ export function registerOrdersHandlers(
         });
       }
 
+      // Cancelling an order already sent to the kitchen is the operator's
+      // decision to gate (2026-11-01): orders.cancel_sent, or a manager's code.
+      // A draft that never left the till is cancelled as before.
+      const sentToKitchen = ![ORDER_STATUS.OPEN, ORDER_STATUS.PENDING].includes(current as any);
+      const cancelApprover =
+        target === ORDER_STATUS.CANCELLED_CLIENT && sentToKitchen
+          ? await resolveApprover(services, 'cancel_sent_order', approval)
+          : null;
+
       const cols = ['status = ?', 'updated_at = ?'];
       const params: any[] = [target, nowMs()];
 
@@ -716,6 +768,13 @@ export function registerOrdersHandlers(
       rawDb
         .prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`)
         .run(...params, orderId);
+
+      if (cancelApprover) {
+        recordApproval(services, cancelApprover, {
+          action: 'cancel_sent_order',
+          orderId,
+        });
+      }
 
       // A finished dine-in order gives its table back. Closing from the status
       // menu never did, so the table stayed red with nothing seated at it.
@@ -1288,16 +1347,21 @@ export function registerOrdersHandlers(
 
   ipcMain.handle(
     'orders:setLineQty',
-    async (_e, lineId: string, qty: number) => {
+    async (_e, lineId: string, qty: number, approval?: ApprovalInput) => {
       if (isPosLocked()) throw posError('POS_TILL_LOCKED');
       const line = rawDb
         .prepare(`SELECT * FROM order_lines WHERE id = ?`)
         .get(lineId) as any;
       if (!line) throw posError('POS_VAL_LINE_NOT_FOUND');
 
-      // DINE-IN LOCK CHECK
+      // A line already sent to the kitchen. More of it is a new round (a new
+      // line), never a quantity change; less of it is a void, which needs
+      // orders.void_sent_line or a manager's approval code.
       if (hasColumn('order_lines', 'is_locked') && line.is_locked == 1) {
-        throw posError('POS_VAL_LINE_SENT_MODIFY');
+        const before = Number(line.qty || 0);
+        if (!(qty < before)) throw posError('POS_VAL_LINE_SENT_MODIFY');
+        assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true });
+        return voidSentLine(line, Math.max(0, qty), approval);
       }
 
       // The line check above protects what was sent; a new round on a placed
@@ -1319,16 +1383,17 @@ export function registerOrdersHandlers(
     }
   );
 
-  ipcMain.handle('orders:removeLine', async (_e, lineId: string) => {
+  ipcMain.handle('orders:removeLine', async (_e, lineId: string, approval?: ApprovalInput) => {
     if (isPosLocked()) throw posError('POS_TILL_LOCKED');
     const line = rawDb
       .prepare(`SELECT * FROM order_lines WHERE id = ?`)
       .get(lineId) as any;
     if (!line) return null;
 
-    // DINE-IN LOCK CHECK
+    // A sent line is voided, not just removed: approval, record, re-push.
     if (hasColumn('order_lines', 'is_locked') && line.is_locked == 1) {
-      throw posError('POS_VAL_LINE_SENT_REMOVE');
+      assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true });
+      return voidSentLine(line, 0, approval);
     }
 
     assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true });
@@ -2037,7 +2102,8 @@ export function registerOrdersHandlers(
     'orders:clearTable',
     async (
       _e,
-      arg: string | { table_id?: string | number; order_id?: string | number | null }
+      arg: string | { table_id?: string | number; order_id?: string | number | null },
+      approval?: ApprovalInput
     ) => {
       // The admin Tables page clears by table, not by order: it frees a table
       // left marked busy and detaches whatever is still seated there. It used to
@@ -2054,7 +2120,28 @@ export function registerOrdersHandlers(
           )
           .pluck()
           .all(tableId) as string[];
+        // Freeing a table someone is still sat at, with an order that has
+        // items, is a force close: tables.force_close or a manager's code. A
+        // table that only looks busy (a stale flag, an empty draft) is not.
+        const withItems = seated.filter(
+          (id) =>
+            Number(
+              rawDb.prepare('SELECT COUNT(*) FROM order_lines WHERE order_id = ?').pluck().get(id) ?? 0
+            ) > 0
+        );
+        const forceApprover = withItems.length
+          ? await resolveApprover(services, 'force_close_table', approval)
+          : null;
         rawDb.transaction(() => {
+          if (forceApprover) {
+            for (const orderId of withItems) {
+              recordApproval(services, forceApprover, {
+                action: 'force_close_table',
+                orderId,
+                tableId,
+              });
+            }
+          }
           rawDb
             .prepare(
               `UPDATE orders SET table_id = NULL, covers = NULL, updated_at = ?
@@ -2066,7 +2153,8 @@ export function registerOrdersHandlers(
             .run(tableId);
         })();
         seated.forEach(markForRepush);
-        return null;
+        // Not null: the approval wrapper reads null as "dialog cancelled".
+        return { ok: true, detached: seated.length };
       }
 
       const orderId = arg;

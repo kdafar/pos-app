@@ -7,6 +7,7 @@ import './styles/tailwind.css';
 import { ThemeProvider } from '../context/ThemeContext';
 import { I18nProvider } from './i18n';
 import { ConfirmDialogProvider } from './../renderer/components/ConfirmDialogProvider';
+import { ApprovalProvider } from './components/ApprovalProvider';
 import { ToastProvider } from './../renderer/components/ToastProvider';
 import { ErrorBoundary } from './../renderer/components/ErrorBoundary';
 declare global {
@@ -73,11 +74,13 @@ try {
             <HeroUIProvider>
               <ToastProvider>
                 <ConfirmDialogProvider>
-                  {/* Inside the providers, so a crashed screen still renders in
-                      the right language and can still raise a toast. */}
-                  <ErrorBoundary>
-                    <App />
-                  </ErrorBoundary>
+                  <ApprovalProvider>
+                    {/* Inside the providers, so a crashed screen still renders in
+                        the right language and can still raise a toast. */}
+                    <ErrorBoundary>
+                      <App />
+                    </ErrorBoundary>
+                  </ApprovalProvider>
                 </ConfirmDialogProvider>
               </ToastProvider>
             </HeroUIProvider>

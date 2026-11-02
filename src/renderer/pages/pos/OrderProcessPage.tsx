@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { SYNCED_EVENT } from '../../utils/syncEvents';
 import { Plus } from 'lucide-react';
 
 import CatalogPanel from './CatalogPanel';
@@ -92,6 +93,17 @@ export default function OrderProcessPage() {
     string | null
   >(null);
 
+  // Every sync can remove or reprice what is on screen; reload it then rather
+  // than only at sign-in.
+  // Through a ref: the listener is added once, and must call this render's
+  // loader, not the first one with its stale view of the screen.
+  const reloadRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    const onSynced = () => void reloadRef.current();
+    window.addEventListener(SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(SYNCED_EVENT, onSynced);
+  }, []);
+
   // Boot
   useEffect(() => {
     let cancelled = false;
@@ -124,6 +136,7 @@ export default function OrderProcessPage() {
       console.error(e);
     }
   };
+  reloadRef.current = loadInitialData;
 
   async function startOrder(
     type: OrderType = defaultOrderType
