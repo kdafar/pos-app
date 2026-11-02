@@ -10,6 +10,7 @@ import bwipjs from 'bwip-js';
 import ExcelJS from 'exceljs';
 import { getReceiptPageLayout } from './receiptPageLayout';
 import { isPrintCancellation } from './printOutcome';
+import { withEmbeddedFont } from './receiptFont';
 import {
   BRANCH_PROFILE_META_KEY,
   buildBranchFooterLines,
@@ -1327,6 +1328,8 @@ async function printHtmlSilently(
     // the window stays blank, print() has nothing to render, and the button
     // looks dead. A file:// load fails loudly instead.
     tmpFile = path.join(os.tmpdir(), `pos-receipt-${Date.now()}.html`);
+    // Our own font, so a driver cannot swap English for its printer font.
+    html = withEmbeddedFont(html);
     await fs.writeFile(tmpFile, html, 'utf8');
     console.log('[print] rendering receipt', {
       file: tmpFile,
@@ -1564,7 +1567,9 @@ async function printToPdfFile(html: string): Promise<string> {
     height: 800,
     webPreferences: { javascript: true, backgroundThrottling: false },
   });
-  await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  await win.loadURL(
+    'data:text/html;charset=utf-8,' + encodeURIComponent(withEmbeddedFont(html))
+  );
   const pdf = await win.webContents.printToPDF({ printBackground: true });
   const out = path.join(os.tmpdir(), `receipt-${Date.now()}.pdf`);
   await fs.writeFile(out, pdf);

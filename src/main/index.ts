@@ -1,6 +1,6 @@
 // src/main/index.ts
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -244,6 +244,71 @@ async function boot() {
 // ─────────────────────────────────────────────────────────────
 // App lifecycle
 // ─────────────────────────────────────────────────────────────
+
+// Stray app windows. A customer's till opened a second, bare copy of the app
+// (no preload bridge: "Preload bridge … unavailable", plus the hidden Edit
+// menu) when a manager signed in. It never happened on our PCs, so the cause
+// is something on that machine, and it has to be caught there.
+//
+// BLOCK_NEW_WINDOWS is the fix: no window may open another; an in-app link
+// stays in the main window and a real web link opens in the normal browser.
+// (The 0.5.9-diag build had it off so the window would still appear; the
+// customer's PC stopped doing it after a reboot.) windows.log still records
+// every attempt, so a recurrence leaves its cause behind.
+const BLOCK_NEW_WINDOWS = true;
+
+/** [window] events go to the terminal and to <userData>/windows.log. */
+function windowLog(event: string, detail: Record<string, unknown>) {
+  console.warn(`[window] ${event}`, detail);
+  try {
+    fs.appendFileSync(
+      path.join(app.getPath('userData'), 'windows.log'),
+      `${new Date().toISOString()} v${app.getVersion()} ${event} ${JSON.stringify(detail)}\n`
+    );
+  } catch {
+    // Never let diagnostics break the till.
+  }
+}
+
+app.on('web-contents-created', (_event, contents) => {
+  contents.setWindowOpenHandler(({ url, disposition, frameName, referrer }) => {
+    // `disposition` says how the window was asked for: new-window =
+    // Shift+click or window.open, foreground-tab / background-tab = Ctrl or
+    // middle click. `url` is where it was going.
+    windowLog(BLOCK_NEW_WINDOWS ? 'blocked new window' : 'new window requested', {
+      url,
+      disposition,
+      frameName,
+      referrer: referrer?.url,
+    });
+    const devServer = process.env.ELECTRON_RENDERER_URL || process.env.VITE_DEV_SERVER_URL;
+    const isApp = url.startsWith('file:') || (!!devServer && url.startsWith(devServer));
+    // Diagnostics only ever let the app's OWN page reopen — that is the window
+    // the customer sees — and in a locked-down window. Anything else is
+    // handled exactly as with the fix on, even in the diagnostic build.
+    if (!BLOCK_NEW_WINDOWS && isApp) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+        },
+      };
+    }
+    if (!isApp && /^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+});
+
+// Every window the app creates, with where in the code it came from. The app
+// opens exactly one window that shows the app; anything else is a print
+// window. A second app window here is the one to explain.
+app.on('browser-window-created', (_event, win) => {
+  const origin = (new Error().stack || '').split('\n').slice(2, 8).join(' | ');
+  windowLog('created', { id: win.id, title: win.getTitle(), origin });
+  win.webContents.once('did-finish-load', () => {
+    windowLog('loaded', { id: win.id, url: win.webContents.getURL() });
+  });
+});
 
 // Must be called BEFORE app.whenReady()
 registerAppImgScheme();

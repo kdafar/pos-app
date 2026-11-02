@@ -1,7 +1,7 @@
 {
   "name": "pos-app",
   "productName": "POS App",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "POS App",
   "private": true,
   "main": "out/main/index.js",
@@ -93,6 +93,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
+    "@fontsource/open-sans": "^5.3.0",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4.1.16",
     "@types/better-sqlite3": "^7.6.13",
