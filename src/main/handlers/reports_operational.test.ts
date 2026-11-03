@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 // The module opens the SQLite database at import time; the two classifiers
 // under test are pure and touch none of it.
 vi.mock('../db', () => ({ default: {} }));
+// The handlers' business-day deps come from the sync module, which needs Electron.
+vi.mock('./sync', () => ({ businessDayDeps: () => ({}) }));
 
 const {
   isSold,
@@ -11,6 +13,7 @@ const {
   classifyRow,
   clampRangeToWindow,
   soldFilterSql,
+  summarizePaid,
 } = await import('./reports_operational');
 
 /**
@@ -290,5 +293,27 @@ describe('soldFilterSql', () => {
     const sql = soldFilterSql('x', { statusCode: true, isCancelled: true });
     expect(sql).not.toMatch(/(?<![.\w])status\b(?!_)/);
     expect(sql.match(/\bx\./g)?.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('summarizePaid (Mark order paid §10)', () => {
+  it('is null while the server records no payment', () => {
+    expect(summarizePaid([{ status: 'closed', paid_status: null, grand_total: 5 }])).toBeNull();
+  });
+
+  it('counts paid-but-open and closed-but-unmarked, skipping cancelled', () => {
+    const info = summarizePaid([
+      { status: 'prepared', paid_status: 'paid', paid_amount: 4.5, grand_total: 4.5 },
+      { status: 'preparing', status_code: 2, paid_status: 'paid', paid_amount: 4.5, grand_total: 9 },
+      { status: 'closed', paid_status: 'unpaid', grand_total: 10 },
+      { status: 'done', status_code: 4, paid_status: 'unpaid', grand_total: 11.75 },
+      { status: 'closed', paid_status: 'paid', paid_amount: 3, grand_total: 3 },
+      { status: 'cancelled', paid_status: 'unpaid', grand_total: 99 },
+      { status: 'closed', paid_status: null, grand_total: 7 },
+    ]);
+    expect(info).toEqual({
+      paid_open: { count: 2, total: 9 },
+      closed_unmarked: { count: 2, total: 21.75 },
+    });
   });
 });

@@ -536,6 +536,71 @@ export function migrate() {
   // POS_PUSH_TABLE_INVALID: the server kept the order on its old table. Shown
   // on the order until the cashier picks a table again.
   ensureColumn('orders', 'push_notice TEXT', 'push_notice');
+
+  // Mark order paid (contract: Mark order paid). The server's `paid` object,
+  // stored as it arrives on pull / orders_seed / GET /orders/{id} / the two
+  // paid endpoints. paid_status NULL means the server has never sent one —
+  // keep today's inferred badge. NOT `paid_at`: see shared/paid.ts.
+  ensureColumn('orders', 'paid_status TEXT', 'paid_status'); // paid | unpaid | NULL
+  ensureColumn('orders', 'paid_how TEXT', 'paid_how'); // gateway | by_hand
+  ensureColumn('orders', 'paid_time TEXT', 'paid_time'); // ISO
+  ensureColumn('orders', 'paid_by_id INTEGER', 'paid_by_id');
+  ensureColumn('orders', 'paid_by_name TEXT', 'paid_by_name');
+  ensureColumn('orders', 'paid_amount REAL', 'paid_amount');
+  ensureColumn('orders', 'paid_method_id TEXT', 'paid_method_id');
+  // Names resolved when the mark is stored, so a list badge can print
+  // "Paid · KNET · Sara" without a lookup per row.
+  ensureColumn('orders', 'paid_method_name TEXT', 'paid_method_name');
+  ensureColumn('orders', 'paid_method_name_ar TEXT', 'paid_method_name_ar');
+  ensureColumn('orders', 'paid_link_open INTEGER DEFAULT 0', 'paid_link_open');
+  ensureColumn('orders', 'paid_reference TEXT', 'paid_reference'); // KNET slip reference
+  // Till-side only: 'mark' | 'undo' while an action waits in the outbox, and
+  // the code of the last action the server refused in the background, shown
+  // on the order until the cashier dismisses it.
+  ensureColumn('orders', 'paid_pending TEXT', 'paid_pending');
+  ensureColumn('orders', 'paid_refusal TEXT', 'paid_refusal');
+  // One row per tap. action_id is the server's idempotency key, so a row is
+  // resent unchanged until it gets a 200 or a 4xx, and never re-created.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS order_paid_actions (
+      action_id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      body TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      refusal_code TEXT,
+      created_at INTEGER NOT NULL,
+      finished_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_paid_actions_queue
+      ON order_paid_actions(state, created_at);
+  `);
+
+  // Business days (contract: BUSINESS-DAY-WIRE-CONTRACT). The server decides
+  // every window; these keep its answers for an offline till, and queue
+  // End day until the server has it (idempotent by action_id).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS business_days (
+      date TEXT PRIMARY KEY,
+      from_ms INTEGER NOT NULL,
+      to_ms INTEGER NOT NULL,
+      open_ms INTEGER,
+      close_ms INTEGER,
+      fetched_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS day_close_actions (
+      action_id TEXT PRIMARY KEY,
+      body TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      refusal_code TEXT,
+      created_at INTEGER NOT NULL,
+      finished_at INTEGER
+    );
+  `);
   ensureColumn('orders', 'delivery_fee REAL DEFAULT 0', 'delivery_fee');
 
   ensureColumn('orders', 'printed_at INTEGER', 'printed_at'); // ms since epoch
@@ -985,6 +1050,12 @@ export function backfillDataOwner() {
  * deletes never trip a foreign key.
  */
 const RESTAURANT_TABLES = [
+  // A queued mark names another restaurant's server order id; sent to the
+  // next shop's server it would mark the wrong order paid.
+  'order_paid_actions',
+  // Another branch's days; End day queued for the previous shop's server.
+  'business_days',
+  'day_close_actions',
   'order_lines_pending',
   'order_lines',
   'active_orders',
@@ -1033,7 +1104,7 @@ export function clearRestaurantData(reason: string) {
       if (present.has(table)) db.prepare(`DELETE FROM ${table}`).run();
     }
     db.prepare(
-      `DELETE FROM sync_state WHERE key IN ('cursor', 'permissions.source')`
+      `DELETE FROM sync_state WHERE key IN ('cursor', 'permissions.source', 'paid.supported')`
     ).run();
     for (const key of [
       'branch.profile',

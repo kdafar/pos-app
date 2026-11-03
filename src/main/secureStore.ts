@@ -4,7 +4,10 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SERVICE = 'pos-app';
+import { SECRET_SERVICE } from './devProfile';
+
+// 'pos-app', or 'pos-app-<profile>' for an isolated dev till (devProfile.ts).
+const SERVICE = SECRET_SERVICE;
 
 /** The OS keychain — null whenever the native keytar module did not load. */
 export type Keyring = {

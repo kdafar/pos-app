@@ -60,6 +60,12 @@ export type ThermalReportInput = {
   orders: ThermalRow[];
   /** Four already-formatted lines: gross, discounts, delivery, net. */
   totals: ThermalRow[];
+  /**
+   * Mark order paid §10: "Paid, still open" and "Closed, not marked paid",
+   * printed under the totals for information. Absent while the server
+   * records no payment.
+   */
+  paidInfo?: ThermalRow[];
 };
 
 const esc = (value: unknown) =>
@@ -183,6 +189,7 @@ export function buildThermalReportHtml(input: ThermalReportInput): string {
     orders ? `<div class="orders">${orders}</div>` : ''
   )}
   <div class="sec totals">${totals}</div>
+  ${input.paidInfo?.length ? `<div class="sec">${input.paidInfo.map((p) => row(p)).join('')}</div>` : ''}
   <div class="sign">${esc(
     input.labels.signature
   )}<div class="line"></div></div>

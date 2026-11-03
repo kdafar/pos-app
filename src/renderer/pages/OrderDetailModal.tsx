@@ -10,7 +10,6 @@ import {
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   Button,
-  Chip,
   Modal,
   ModalBody,
   ModalContent,
@@ -31,8 +30,11 @@ import { useI18n, useOrderTypeLabel, useStatusLabel } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import { DataState } from '../components/PageShell';
 import { OrderTimeline } from './OrderTimeline';
+import { PaymentBadge } from '../components/PaymentBadge';
+import { MarkPaidControl } from '../components/MarkPaidControl';
 
 import { errorLine as errLine } from '../utils/posError';
+import { SYNCED_EVENT } from '../utils/syncEvents';
 /**
  * Everything one order holds: customer, address, items, totals, payment state
  * and a timeline of what happened when.
@@ -46,37 +48,6 @@ import { errorLine as errLine } from '../utils/posError';
  * DataState/DataTable so a failed load says so and offers a retry instead of
  * looking like an order with nothing in it.
  */
-
-/** Payment state as a token-coloured chip — correct in both themes. */
-function PaymentChip({ status }: { status?: string | null }) {
-  const { t } = useI18n();
-  const s = String(status ?? '').toLowerCase();
-  if (!s) return null;
-
-  const tone =
-    s === 'paid'
-      ? 'success'
-      : s === 'pending'
-        ? 'warning'
-        : s === 'failed'
-          ? 'danger'
-          : 'default';
-
-  const label =
-    s === 'paid'
-      ? t('pay.paid')
-      : s === 'pending'
-        ? t('pay.awaiting')
-        : s === 'failed'
-          ? t('pay.failed')
-          : String(status);
-
-  return (
-    <Chip size='sm' variant='solid' color={tone} className='font-semibold'>
-      {label}
-    </Chip>
-  );
-}
 
 /** A labelled panel. The label is a solid tone, never a faded one. */
 function Section({
@@ -103,6 +74,7 @@ export function OrderDetailModal({
   orderId,
   onClose,
   onShowQr,
+  onChanged,
 }: {
   orderId: string;
   /**
@@ -113,6 +85,8 @@ export function OrderDetailModal({
   theme?: 'light' | 'dark';
   onClose: () => void;
   onShowQr?: (orderId: string) => void;
+  /** After a paid mark or undo, so the list behind shows the new state too. */
+  onChanged?: () => void | Promise<void>;
 }) {
   const { t, name: localName, money, lang } = useI18n();
   const typeLabel = useOrderTypeLabel();
@@ -125,13 +99,24 @@ export function OrderDetailModal({
   // call is still in flight must not be overwritten by the slower answer.
   const reqRef = useRef(0);
 
-  const load = useCallback(async () => {
+  // `quiet`: a background re-read after a sync. No spinner, and a failure
+  // keeps what is on screen rather than replacing the order with an error.
+  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = !!opts?.quiet;
     const seq = ++reqRef.current;
-    setLoading(true);
-    setError(null);
+    if (!quiet) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const d = await window.api.invoke('orders:getDetail', orderId);
       if (seq !== reqRef.current) return;
+      if (quiet && !d) return;
+      // Nothing changed: leave the screen alone rather than re-render it.
+      if (quiet) {
+        setData((prev: any) => (JSON.stringify(prev) === JSON.stringify(d) ? prev : d));
+        return;
+      }
       if (!d) {
         setData(null);
         setError(t('admin.orders.detailMissing'));
@@ -139,11 +124,11 @@ export function OrderDetailModal({
         setData(d);
       }
     } catch (e) {
-      if (seq !== reqRef.current) return;
+      if (seq !== reqRef.current || quiet) return;
       setData(null);
       setError(errLine(e));
     } finally {
-      if (seq === reqRef.current) setLoading(false);
+      if (seq === reqRef.current && !quiet) setLoading(false);
     }
   }, [orderId, t]);
 
@@ -153,6 +138,15 @@ export function OrderDetailModal({
       // Invalidate anything still in flight for the order we are leaving.
       reqRef.current++;
     };
+  }, [load]);
+
+  // A sync can change this order under the cashier's eyes — most often a
+  // customer's online payment landing. Re-read it then, or the modal keeps
+  // saying "Unpaid" for an order the till already knows is paid.
+  useEffect(() => {
+    const onSynced = () => void load({ quiet: true });
+    window.addEventListener(SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(SYNCED_EVENT, onSynced);
   }, [load]);
 
   const when = (ms?: number | null) =>
@@ -247,7 +241,7 @@ export function OrderDetailModal({
           </span>
           <span className='flex items-center gap-2 text-lg font-bold text-foreground'>
             {o?.reference_no ? `#${o.reference_no}` : (o?.number ?? orderId)}
-            {o && <PaymentChip status={o.payment_link_status} />}
+            {o && <PaymentBadge order={o} size='md' />}
           </span>
           {o?.reference_no && (
             <span className='text-xs font-medium text-default-700' dir='ltr'>
@@ -343,6 +337,28 @@ export function OrderDetailModal({
                         {when(data.payment.verified_at)}
                       </div>
                     )}
+                    {o.paid_status === 'paid' && o.paid_time && (
+                      <div className='text-xs font-medium text-default-700'>
+                        {t('paid.at', {
+                          time: when(Date.parse(o.paid_time) || null),
+                        })}
+                      </div>
+                    )}
+                    {o.paid_status === 'paid' && o.paid_reference && (
+                      <div className='text-xs font-medium text-default-700'>
+                        {t('paid.referenceShown', { ref: '' })}
+                        <span dir='ltr' className='font-semibold text-foreground'>{o.paid_reference}</span>
+                      </div>
+                    )}
+                    {/* Mark paid / Undo paid. Reloads the detail afterwards,
+                        so the badge above shows the stored state. */}
+                    <MarkPaidControl
+                      order={o}
+                      onChanged={async () => {
+                        await load();
+                        await onChanged?.();
+                      }}
+                    />
                   </Section>
                 </div>
 

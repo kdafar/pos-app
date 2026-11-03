@@ -23,7 +23,11 @@ import type { StringKey } from '../i18n';
 import { describeError } from '../utils/posError';
 
 /** The till actions a manager can approve. Mirrors the main process. */
-export type ApprovalAction = 'void_sent_line' | 'force_close_table' | 'cancel_sent_order';
+export type ApprovalAction =
+  | 'void_sent_line'
+  | 'force_close_table'
+  | 'cancel_sent_order'
+  | 'mark_unpaid';
 
 /** Sent back to the main process with the retried action. */
 export type Approval = { code: string; reason: string | null };
@@ -59,6 +63,7 @@ const ACTION_LABEL: Record<ApprovalAction, StringKey> = {
   void_sent_line: 'approval.action.void_sent_line',
   force_close_table: 'approval.action.force_close_table',
   cancel_sent_order: 'approval.action.cancel_sent_order',
+  mark_unpaid: 'approval.action.mark_unpaid',
 };
 
 const REASONS: StringKey[] = [

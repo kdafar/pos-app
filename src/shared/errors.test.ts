@@ -289,7 +289,7 @@ describe('codes the server never sends', () => {
     expect(ERROR_CATALOG.POS_PUSH_PARTIAL.sent).toBe(false);
   });
 
-  it('mirrors 37 of the 47 codes the backend sends, with the gap pinned', () => {
+  it('mirrors 49 of the 61 codes the backend sends, with the gap pinned', () => {
     // Drift guard in both directions. The authority is the constants in
     // PosError.php, not this file — BACKEND_SENT_CODE_COUNT carries it.
     //
@@ -308,9 +308,15 @@ describe('codes the server never sends', () => {
     // POS_PAY_STATUS_EXPIRED, POS_OK_PROMO_APPLIED). Promos and payments are
     // otherwise complete at 3 and 8, so the shape is not what it looked like
     // from the other side. Awaiting their per-endpoint list to close it.
+    //
+    // 47 and 12 on 2026-11-03: the ten POS_PAID_* codes for Mark order paid
+    // mirrored, and the gap grows by the two Talabat & Keeta price-list push
+    // notices (pos-errors.json 1.6.0), which wait for that feature.
     const sent = CODES.filter((c) => ERROR_CATALOG[c].sent);
-    expect(sent).toHaveLength(37);
-    expect(BACKEND_SENT_CODE_COUNT - sent.length).toBe(10);
+    // 49 with the two business-day codes (pos-errors.json 1.8.0); 50 with
+    // POS_PAID_REFERENCE_MISSING (1.9.0).
+    expect(sent).toHaveLength(50);
+    expect(BACKEND_SENT_CODE_COUNT - sent.length).toBe(12);
 
     // Spot-check the classes that must never be marked as server-sent.
     for (const code of CODES) {

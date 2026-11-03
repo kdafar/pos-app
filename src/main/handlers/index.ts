@@ -10,6 +10,8 @@ import { registerCatalogHandlers } from './catalog';
 import { registerGeoHandlers } from './geo';
 import { registerTableHandlers } from './tables';
 import { registerPaymentHandlers } from './payments';
+import { registerPaidHandlers } from './paid';
+import { registerBusinessDayHandlers } from './businessDay';
 import { registerSyncHandlers } from './sync';
 import { registerDevHandlers } from './dev';
 import { registerAuthHandlers } from './auth';
@@ -28,6 +30,8 @@ export function registerAllHandlers(
   registerGeoHandlers(ipcMain);
   registerTableHandlers(ipcMain);
   registerPaymentHandlers(ipcMain);
+  registerPaidHandlers(ipcMain, services);
+  registerBusinessDayHandlers(ipcMain, services);
   registerSyncHandlers(ipcMain, services);
   registerAuthHandlers(ipcMain, services);
   registerCustomerHandlers(ipcMain);

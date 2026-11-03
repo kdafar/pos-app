@@ -1,5 +1,5 @@
 // src/renderer/components/DataTable.tsx
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -74,6 +74,15 @@ export type DataTableProps<T> = {
   renderExpanded?: (row: T) => ReactNode;
   /** Label for the expand control, since a caret alone says nothing. */
   expandLabel?: string;
+  /**
+   * For a table whose data refreshes in the background. By default the table
+   * jumps back to page 1 whenever `data` changes, which is right after a search
+   * and wrong after a silent refresh: the cashier on page 3 was thrown back to
+   * page 1 every minute. With this set, the page is kept across data changes
+   * and resets only when this key changes (pass the filters that define the
+   * list). A page that no longer exists falls back to the last one.
+   */
+  resetPageKey?: string;
 };
 
 export function DataTable<T>({
@@ -90,6 +99,7 @@ export function DataTable<T>({
   selectedRowId = null,
   renderExpanded,
   expandLabel,
+  resetPageKey,
 }: DataTableProps<T>) {
   const { t } = useI18n();
   const [sorting, setSorting] = useState<SortingState>(initialSorting);
@@ -105,11 +115,26 @@ export function DataTable<T>({
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getRowId: getRowId ? (row, index) => getRowId(row as T, index) : undefined,
+    autoResetPageIndex: resetPageKey === undefined,
   });
 
   useEffect(() => {
     table.setPageSize(size);
   }, [size, table]);
+
+  const lastResetKey = useRef(resetPageKey);
+  useEffect(() => {
+    if (resetPageKey === undefined || lastResetKey.current === resetPageKey) return;
+    lastResetKey.current = resetPageKey;
+    table.setPageIndex(0);
+  }, [resetPageKey, table]);
+
+  const pageCountNow = table.getPageCount();
+  const pageIndexNow = table.getState().pagination.pageIndex;
+  useEffect(() => {
+    if (resetPageKey === undefined) return;
+    if (pageCountNow > 0 && pageIndexNow > pageCountNow - 1) table.setPageIndex(pageCountNow - 1);
+  }, [resetPageKey, pageCountNow, pageIndexNow, table]);
 
   const rows = table.getRowModel().rows;
   const total = data.length;

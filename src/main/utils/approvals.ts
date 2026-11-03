@@ -23,13 +23,18 @@ import {
 export type ApprovalAction =
   | 'void_sent_line'
   | 'force_close_table'
-  | 'cancel_sent_order';
+  | 'cancel_sent_order'
+  // Undo a hand "Mark paid". Recorded by the SERVER (pos_approvals, from the
+  // DELETE /orders/{order}/paid body), not in order_approvals, which rides on
+  // pushes this action never makes.
+  | 'mark_unpaid';
 
 /** The permission each action needs, from the approver or the cashier. */
 export const APPROVAL_PERMISSION: Record<ApprovalAction, Permission> = {
   void_sent_line: 'orders.void_sent_line',
   force_close_table: 'tables.force_close',
   cancel_sent_order: 'orders.cancel_sent',
+  mark_unpaid: 'orders.mark_unpaid',
 };
 
 /** What the renderer sends back after the approval dialog. */

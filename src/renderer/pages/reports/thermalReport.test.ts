@@ -165,6 +165,21 @@ describe('thermal closing report', () => {
     expect(html).toContain('Order counts');
   });
 
+  it('prints the mark-paid information lines after the totals, only when given', () => {
+    expect(buildThermalReportHtml(makeInput())).not.toContain('Paid, still open');
+
+    const html = buildThermalReportHtml(
+      makeInput({
+        paidInfo: [
+          { label: 'Paid, still open · 2 orders', value: '9.000' },
+          { label: 'Closed, not marked paid · 5 orders', value: '21.750' },
+        ],
+      })
+    );
+    expect(html).toContain('Paid, still open · 2 orders');
+    expect(html.indexOf('21.750')).toBeGreaterThan(html.indexOf('127.000'));
+  });
+
   it('emphasises the net total as the last totals line', () => {
     const html = buildThermalReportHtml(makeInput());
 

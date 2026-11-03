@@ -27,6 +27,7 @@ import { ERROR_CATALOG } from '../../../shared/errorCatalog';
 import { isOnlinePayment } from './paymentKinds';
 import { DeliveryFeeRow } from './components/DeliveryFeeRow';
 import { useToast } from '../../components/ToastProvider';
+import { MarkPaidControl } from '../../components/MarkPaidControl';
 import { useConfirmDialog } from '../../components/ConfirmDialogProvider';
 import { shortOrderLabel } from '../../utils/orderLabel';
 import { PaymentBadge } from '../../components/PaymentBadge';
@@ -383,11 +384,26 @@ export default function OrderSide({
                     <span className='money'>
                       {shortOrderLabel(currentOrder as any)}
                     </span>
-                    <PaymentBadge
-                      status={(currentOrder as any).payment_link_status}
-                    />
+                    {/* The whole order only once there is a paid state to
+                        show; otherwise the link status alone, so a draft does
+                        not grow an "Unpaid" chip. */}
+                    {(currentOrder as any).paid_status ||
+                    (currentOrder as any).paid_pending ? (
+                      <PaymentBadge order={currentOrder as any} />
+                    ) : (
+                      <PaymentBadge
+                        status={(currentOrder as any).payment_link_status}
+                      />
+                    )}
                   </div>
                 </div>
+
+                {/* Mark paid on the open order: a dine-in table can pay early
+                    and stay open (contract §2). */}
+                <MarkPaidControl
+                  order={currentOrder as any}
+                  onChanged={() => onSelectOrder(currentOrder.id)}
+                />
 
                 {/* Table controls (dine-in) */}
                 {currentOrder.order_type === 3 && (

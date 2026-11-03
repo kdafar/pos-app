@@ -134,22 +134,29 @@ export function registerPaymentHandlers(ipcMain: IpcMain) {
 
       const raw = String(
         data?.status ?? data?.payment_status ?? ''
-      ).toLowerCase();
-      const status = /paid|success|captured|completed/.test(raw)
+      ).trim().toLowerCase();
+      // Whole words, not substrings: /paid/ also matched "unpaid". The server
+      // answers paid | pending | creating (link still being made) | failed |
+      // expired (shown as failed, as before: the link modal knows no
+      // "expired"); anything unknown stays pending and keeps being polled.
+      const status = /^(paid|success|captured|completed)$/.test(raw)
         ? 'paid'
-        : /fail|declin|cancel|expired/.test(raw)
+        : /^(failed|declined|cancelled|canceled|expired)$/.test(raw)
         ? 'failed'
         : 'pending';
+      // `checked: false`: the provider did not answer, so this is the last
+      // status the server knew. Keep it, but do not stamp it as verified now.
+      const checked = data?.checked !== false;
 
       db.prepare(
         `UPDATE orders
             SET payment_link_status = ?,
-                payment_link_verified_at = ?,
+                payment_link_verified_at = CASE WHEN ? THEN ? ELSE payment_link_verified_at END,
                 updated_at = ?
           WHERE id = ?`
-      ).run(status, Date.now(), Date.now(), id);
+      ).run(status, checked ? 1 : 0, Date.now(), Date.now(), id);
 
-      return { status, raw };
+      return { status, raw, checked };
     } catch (e: any) {
       console.warn('[payments:checkStatus] failed:', e?.message || e);
       return { status: local?.payment_link_status ?? null, error: true };

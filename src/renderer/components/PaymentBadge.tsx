@@ -1,6 +1,6 @@
 // src/renderer/components/PaymentBadge.tsx
 import { Chip } from '@heroui/react';
-import { CheckCircle2, Clock, CreditCard, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, CloudUpload, CreditCard, HandCoins, XCircle } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 /**
@@ -22,7 +22,9 @@ import { useI18n } from '../i18n';
  */
 
 export type PaymentState =
-  | 'paid' // link, verified
+  | 'paid' // provider-confirmed (link or online order): server `paid.how = gateway`
+  | 'paid_hand' // a person marked it paid: server `paid.how = by_hand`
+  | 'paid_queued' // marked on this till, still in the outbox
   | 'pending' // link, awaiting the customer
   | 'failed'
   | 'expired'
@@ -32,10 +34,31 @@ export type PaymentState =
 /** Statuses that mean the sale is finished and the money was taken. */
 const SETTLED = ['closed', 'completed', 'prepared', 'ready'];
 
-export function paymentStateOf(order: {
+/** The order fields the badge reads. All optional; absent means "unknown". */
+export type PaymentBadgeOrder = {
   payment_link_status?: string | null;
   status?: string | null;
-}): PaymentState {
+  /** Mark order paid: the server's `paid.status`; NULL = server records none. */
+  paid_status?: string | null;
+  paid_how?: string | null;
+  paid_by_name?: string | null;
+  paid_method_name?: string | null;
+  paid_method_name_ar?: string | null;
+  /** 'mark' | 'undo' while waiting in the till's outbox. */
+  paid_pending?: string | null;
+};
+
+export function paymentStateOf(order: PaymentBadgeOrder): PaymentState {
+  // A queued tap is the newest fact this till has. An undo waiting to go is
+  // shown as not paid — the cashier has already said the money is not in.
+  const pending = String(order?.paid_pending ?? '').toLowerCase();
+  if (pending === 'mark') return 'paid_queued';
+
+  if (pending !== 'undo' && String(order?.paid_status ?? '').toLowerCase() === 'paid') {
+    return String(order?.paid_how ?? '').toLowerCase() === 'by_hand' ? 'paid_hand' : 'paid';
+  }
+
+  // Server says unpaid, or does not record payment: today's inference.
   const link = String(order?.payment_link_status ?? '')
     .trim()
     .toLowerCase();
@@ -60,7 +83,7 @@ export function PaymentBadge({
   /** Link status on its own — kept for callers that only have that. */
   status?: string | null;
   /** Preferred: the whole row, so a counter sale can be judged too. */
-  order?: { payment_link_status?: string | null; status?: string | null };
+  order?: PaymentBadgeOrder;
   size?: 'sm' | 'md';
   /**
    * Accepted and ignored. Colour comes from semantic tokens now, so both
@@ -69,7 +92,7 @@ export function PaymentBadge({
    */
   theme?: 'light' | 'dark';
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
 
   const state = order
     ? paymentStateOf(order)
@@ -77,6 +100,17 @@ export function PaymentBadge({
 
   // Callers passing only a link status want nothing when there is no link.
   if (!order && !String(status ?? '').trim()) return null;
+
+  function handLabel() {
+    const method =
+      (lang === 'ar' ? order?.paid_method_name_ar : null) || order?.paid_method_name || '';
+    const name = order?.paid_by_name || '';
+    // Drop an empty part rather than print "Paid ·  · Sara".
+    if (!method || !name) {
+      return [t('paid.badgeGateway'), method, name].filter(Boolean).join(' · ');
+    }
+    return t('paid.badgeHand', { method, name });
+  }
 
   const variants: Record<
     PaymentState,
@@ -88,10 +122,25 @@ export function PaymentBadge({
     }
   > = {
     paid: {
-      label: t('pay.paid'),
+      label: t('paid.badgeGateway'),
       color: 'success',
       variant: 'solid', // verified by the payment provider
       Icon: CheckCircle2,
+    },
+    // §12: "Paid · {method} · {name}". Solid like the verified one — the
+    // server holds a real record of who took the money, which is a recorded
+    // fact, not the till's inference.
+    paid_hand: {
+      label: handLabel(),
+      color: 'success',
+      variant: 'solid',
+      Icon: HandCoins,
+    },
+    paid_queued: {
+      label: t('paid.badgeQueued'),
+      color: 'warning',
+      variant: 'solid',
+      Icon: CloudUpload,
     },
     collected: {
       label: t('pay.collected'),

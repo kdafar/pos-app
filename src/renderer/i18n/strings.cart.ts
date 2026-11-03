@@ -100,6 +100,10 @@ export const cartStrings = {
     en: 'Cancel an order already sent to the kitchen',
     ar: 'إلغاء طلب أُرسل إلى المطبخ',
   },
+  'approval.action.mark_unpaid': {
+    en: 'Undo a payment',
+    ar: 'إلغاء دفع',
+  },
   'approval.reason.wrongItem': { en: 'Wrong item', ar: 'صنف خاطئ' },
   'approval.reason.changedMind': { en: 'Customer changed their mind', ar: 'غيّر العميل رأيه' },
   'approval.reason.customerLeft': { en: 'Customer left', ar: 'غادر العميل' },
@@ -293,4 +297,48 @@ export const cartStrings = {
   // money, which is not the same claim as a payment provider confirming it.
   'pay.collected': { en: 'Collected', ar: 'تم التحصيل' },
   'pay.unpaid': { en: 'Unpaid', ar: 'غير مدفوع' },
+
+  // Mark order paid — copy from the contract (§12), verbatim.
+  'paid.mark': { en: 'Mark paid', ar: 'تسجيل كمدفوع' },
+  'paid.confirmTitle': { en: 'Mark this order paid?', ar: 'تسجيل هذا الطلب كمدفوع؟' },
+  'paid.confirmBody': {
+    en: '{amount} by {method}. Only confirm once the money is in hand.',
+    ar: '{amount} عن طريق {method}. أكّد فقط بعد استلام المبلغ.',
+  },
+  'paid.badgeHand': { en: 'Paid · {method} · {name}', ar: 'مدفوع · {method} · {name}' },
+  'paid.badgeGateway': { en: 'Paid', ar: 'مدفوع' },
+  'paid.badgeQueued': { en: 'Paid (waiting to send)', ar: 'مدفوع (بانتظار الإرسال)' },
+  'paid.undo': { en: 'Undo paid', ar: 'إلغاء الدفع' },
+  'paid.undoConfirm': {
+    en: 'Remove the paid mark from this order?',
+    ar: 'إزالة علامة الدفع عن هذا الطلب؟',
+  },
+  'paid.reason': { en: 'Reason', ar: 'السبب' },
+  'paid.linkWarning': {
+    en: "This order's payment link is still open. The customer could still pay it.",
+    ar: 'رابط الدفع لهذا الطلب ما زال مفتوحاً. قد يدفعه العميل.',
+  },
+  // Till-side wording, not in the contract.
+  'paid.method': { en: 'Paid by', ar: 'طريقة الدفع' },
+  'paid.methodLocked': {
+    en: 'This order is closed, so it is paid with the method it was closed with.',
+    ar: 'هذا الطلب مغلق، لذا يُسجَّل بطريقة الدفع التي أُغلق بها.',
+  },
+  'paid.note': { en: 'Note (optional)', ar: 'ملاحظة (اختياري)' },
+  'paid.reference': { en: 'KNET slip reference', ar: 'رقم مرجع إيصال كي نت' },
+  'paid.referenceHint': {
+    en: 'The reference printed on the card machine slip.',
+    ar: 'رقم المرجع المطبوع على إيصال جهاز البطاقات.',
+  },
+  'paid.referenceShown': { en: 'Reference: {ref}', ar: 'المرجع: {ref}' },
+  'paid.at': { en: 'Paid at {time}', ar: 'دُفع في {time}' },
+  'paid.refusedTitle': { en: 'Payment mark was refused', ar: 'تم رفض تسجيل الدفع' },
+  'paid.markFailed': { en: 'Could not mark the order paid', ar: 'تعذّر تسجيل الطلب كمدفوع' },
+  'paid.undoFailed': { en: 'Could not undo the payment', ar: 'تعذّر إلغاء الدفع' },
+  'paid.queuedToast': {
+    en: 'Saved on this till. It will be sent when the connection is back.',
+    ar: 'تم الحفظ على نقطة البيع. سيُرسل عند عودة الاتصال.',
+  },
+  'paid.doneToast': { en: 'Order marked paid', ar: 'تم تسجيل الطلب كمدفوع' },
+  'paid.undoneToast': { en: 'Paid mark removed', ar: 'تمت إزالة علامة الدفع' },
 } as const;

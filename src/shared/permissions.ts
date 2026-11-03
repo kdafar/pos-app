@@ -4,6 +4,10 @@ export const PERMISSIONS = [
   // Manager approval (docs: POS manager approval plan). Held by admin and
   // manager; a cashier reaches these only with a manager's approval code.
   'orders.void_sent_line', 'orders.cancel_sent', 'orders.approve',
+  // Mark order paid (contract §8). mark_paid is a cashier right by default;
+  // mark_unpaid undoes a hand mark alone and lets its holder approve someone
+  // else's undo.
+  'orders.mark_paid', 'orders.mark_unpaid',
   'reports.view', 'reports.export', 'catalog.manage', 'payments.manage',
   'locations.manage', 'tables.manage', 'tables.force_close',
   'settings.manage', 'updates.manage',
@@ -37,8 +41,8 @@ export const ROLE_DEFAULTS: Record<string, Permission[]> = {
   admin: ALL,
   manager: ALL.filter((p) => p !== 'users.permissions'),
   accountant: ['orders.view_all', 'reports.view', 'reports.export'],
-  pos: ['orders.create', 'orders.view_own', 'orders.edit_unpaid', 'orders.cancel', 'tables.manage'],
-  branch: ['orders.create', 'orders.view_own', 'orders.edit_unpaid', 'orders.cancel', 'tables.manage'],
+  pos: ['orders.create', 'orders.view_own', 'orders.edit_unpaid', 'orders.cancel', 'tables.manage', 'orders.mark_paid'],
+  branch: ['orders.create', 'orders.view_own', 'orders.edit_unpaid', 'orders.cancel', 'tables.manage', 'orders.mark_paid'],
   kitchen: ['orders.view_all', 'orders.kitchen_view', 'orders.change_status'],
 };
 

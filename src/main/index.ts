@@ -1,6 +1,8 @@
 // src/main/index.ts
 
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
+// First: an isolated dev profile must move userData before db.ts opens it.
+import './devProfile';
 import path from 'node:path';
 import fs from 'node:fs';
 

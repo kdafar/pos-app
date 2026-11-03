@@ -5,6 +5,8 @@ import { prefetchItemImages } from './imageCache';
 import { app } from 'electron';
 
 import { posError } from '../shared/errorCodes';
+import { applyServerPaid } from './paidState';
+import { cacheBusinessDay, parseBusinessDay } from './businessDay';
 import {
   BRANCH_PROFILE_META_KEY,
   normalizeBranchProfile,
@@ -96,6 +98,11 @@ function versionHeaders(): Record<string, string> {
 }
 
 let api: AxiosInstance;
+
+/** The configured /api/pos client, or null before sync:configure has run. */
+export function posApi(): AxiosInstance | null {
+  return api ?? null;
+}
 
 export function configureApi(baseUrl: string, device: Device, token: string) {
   api = axios.create({
@@ -898,6 +905,17 @@ export async function syncPosTime(): Promise<void> {
   const res = await api.get('/time'); // Laravel route we created
   const payload = res.data;
 
+  // The server's business day for today rides along (BUSINESS-DAY contract);
+  // keeping it means an offline till still knows where today started.
+  const today = parseBusinessDay(payload?.business_day);
+  if (today) {
+    try {
+      cacheBusinessDay(db, today);
+    } catch (e) {
+      console.warn('[sync] could not store business_day', e);
+    }
+  }
+
   const rows: Array<{
     id: number;
     day: string;
@@ -1645,9 +1663,11 @@ export async function bootstrap(baseUrl: string) {
           '[sync] seed order already exists locally, skipping duplicate',
           { number: row.number, localId: local.id, serverId: row.id }
         );
+        applyServerPaid(db, local.id, o?.paid);
         continue;
       }
       upOrderSeed.run(row);
+      applyServerPaid(db, row.id, o?.paid);
     }
 
     const upUser = db.prepare(UPSERT_USER_SQL);
@@ -1870,6 +1890,30 @@ function orderSyncOps() {
 }
 
 /**
+ * Store an `order` payload a paid endpoint answered with (contract §4.3:
+ * "replace your local copy with it whatever the result").
+ *
+ * Same guards as the change feed: the header is written only for an order
+ * this till does not own and has not finalised; the paid state always.
+ */
+export function applyServerOrder(localId: string, o: any) {
+  if (!o || typeof o !== 'object') return;
+  const ops = orderSyncOps();
+  const row = normPullOrder(o);
+  const found = ops.resolveLocalOrder(row.id, row.number || null);
+  const target = found.localId ?? localId;
+  if (found.row && !found.isLocalOrigin && !isTerminalLocalOrder(found.row)) {
+    ops.upPullOrder.run({
+      ...row,
+      id: target,
+      updated_at: Date.now(),
+      server_id: row.id,
+    });
+  }
+  applyServerPaid(db, target, o.paid);
+}
+
+/**
  * Fetch one order and its lines straight from the server.
  *
  * A header and its lines get separate change-log ids and are not guaranteed to
@@ -1914,8 +1958,12 @@ export async function reconcileOrderFromServer(
   const orderRow = normPullOrder(payload.order);
   const found = ops.resolveLocalOrder(orderRow.id, orderRow.number || null);
 
-  // This till rang the order up; its own lines are authoritative.
-  if (found.isLocalOrigin) return 0;
+  // This till rang the order up; its own lines are authoritative. Paid state
+  // still applies — it is the one part of the header this till never owns.
+  if (found.isLocalOrigin) {
+    applyServerPaid(db, found.localId, payload.order?.paid);
+    return 0;
+  }
 
   const target = found.localId ?? orderRow.id;
   const write = db.transaction(() => {
@@ -1937,6 +1985,9 @@ export async function reconcileOrderFromServer(
       }
     }
     ops.drainPendingLines(target);
+    // After the upsert, so a first fetch has a row to write to; and outside
+    // its terminal guard, because closed orders are marked paid too.
+    applyServerPaid(db, target, payload.order?.paid);
     return written;
   });
 
@@ -2490,6 +2541,7 @@ export async function pullChanges() {
         } else if (c.data) {
           const row = normPullOrder(c.data);
           const found = resolveLocalOrder(row.id, row.number || null);
+          const paidTarget = found.localId ?? row.id;
 
           if (isTerminalLocalOrder(found.row)) {
             // See TERMINAL_STATUS_CODES. An office edit made while this till
@@ -2509,6 +2561,10 @@ export async function pullChanges() {
             });
             drainPendingLines(target);
           }
+          // Outside the terminal guard on purpose: a closed order is the
+          // commonest one to be marked paid, and the header guard above must
+          // not swallow that. Same for the till's own orders. See paidState.ts.
+          applyServerPaid(db, paidTarget, c.data.paid);
         }
       } else if (
         tbl === 'order_line' ||

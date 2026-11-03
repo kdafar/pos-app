@@ -377,6 +377,46 @@ function ToastCard({
     }
   };
 
+  // A bare confirmation ("Marked paid", "Saved — will send") is a glance, not something to read:
+  // a small pill, so it does not cover the screen the cashier is working on.
+  // Anything with a message, a retry or a detail keeps the full card — those
+  // are the notices that must be readable from a step away.
+  const compact =
+    (tone === 'success' || tone === 'info') && !toast.message && !toast.onRetry && !toast.detail && toast.count <= 1;
+
+  if (compact) {
+    return (
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 8, transition: { duration: 0.14 } }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className='pointer-events-auto flex max-w-[420px] items-center gap-2 rounded-full border border-default-200 bg-content1 py-2 ps-3 pe-2 shadow-lg'
+        role='status'
+        aria-live='polite'
+      >
+        <span className={`inline-flex shrink-0 ${tone === 'success' ? 'text-success' : 'text-primary'}`}>
+          {tone === 'success' ? <CheckCircle2 className='h-5 w-5' /> : <Info className='h-5 w-5' />}
+        </span>
+        <span className='min-w-0 truncate text-base font-semibold text-foreground'>
+          {toast.title}
+        </span>
+        <Button
+          isIconOnly
+          variant='light'
+          size='sm'
+          radius='full'
+          className='shrink-0'
+          aria-label={t('toast.dismiss')}
+          onPress={onDismiss}
+        >
+          <X className='h-4 w-4 text-default-700' />
+        </Button>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       layout

@@ -2,6 +2,8 @@ import type { IpcMain } from 'electron';
 import https from 'node:https';
 import os from 'node:os';
 import { approvalsForPush } from '../utils/approvals';
+import { drainPaidActions, type PaidDeps } from '../paidMarks';
+import { drainEndDays, type BusinessDayDeps } from '../businessDay';
 import { URL } from 'node:url';
 import axios from 'axios';
 import db, {
@@ -46,6 +48,8 @@ import {
   reclaimDevice,
   pullChanges,
   pushOutbox,
+  posApi,
+  applyServerOrder,
 } from '../sync';
 
 import { prefetchItemImages } from '../imageCache';
@@ -107,7 +111,7 @@ function hasColumn(table: string, column: string): boolean {
  * unresolvable claim is nulled by the server anyway, and sending it garbage
  * only makes its audit log harder to read.
  */
-function toServerUserId(raw: unknown): number | null {
+export function toServerUserId(raw: unknown): number | null {
   if (raw === null || raw === undefined) return null;
 
   // Digits only, matching the server's own rule character for character.
@@ -240,6 +244,52 @@ function safeBuildOrderPayload(orderId: string) {
     // has is harmless — it is idempotent by id.
     approvals: approvalsForPush(db, o.id),
   };
+}
+
+/** Deps for the paid-mark outbox, built from the live sync configuration. */
+export function paidDeps(): PaidDeps {
+  return {
+    db,
+    api: posApi,
+    isLive: () => (getMeta('pos.mode') || 'live') === 'live',
+    applyOrder: applyServerOrder,
+  };
+}
+
+/** Deps for the business-day lookups and the End day outbox. */
+export function businessDayDeps(): BusinessDayDeps {
+  return {
+    db,
+    api: posApi,
+    isLive: () => (getMeta('pos.mode') || 'live') === 'live',
+  };
+}
+
+/**
+ * Push one order now if it is waiting in the outbox. Used before sending a
+ * paid mark for the till's own order: the endpoint checks the amount against
+ * the server's total, so an unsent edit has to land first (§4.4). Never
+ * throws; false means the order is still queued.
+ */
+export async function pushOrderNowIfPending(orderId: string): Promise<boolean> {
+  try {
+    if ((getMeta('pos.mode') || 'live') !== 'live' || !posApi()) return false;
+    const pending = db
+      .prepare(`SELECT COUNT(*) FROM orders WHERE id = ? AND ${PUSH_ELIGIBLE}`)
+      .pluck()
+      .get(orderId) as number;
+    if (!pending) return true;
+    const payload = safeBuildOrderPayload(orderId);
+    if (!payload) return false;
+    const result = await pushOutbox(
+      { client_msg_id: `pos-paid-${Date.now()}-${Math.random().toString(36).slice(2)}` },
+      { orders: [payload] }
+    );
+    return applyPushResult(result).acked > 0;
+  } catch (e) {
+    console.warn('[paid] push before mark failed; the mark stays queued', (e as any)?.message);
+    return false;
+  }
 }
 
 function safeCollectUnsyncedOrders(limit = 20) {
@@ -1023,6 +1073,21 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       } catch (err) {
         console.warn('[Sync] post-push pull failed; next sync will catch up', err);
       }
+    }
+
+    // Paid marks go after the push, so a mark on this till's own order finds
+    // the order acked and the server's total current (§4.4). Never fatal: the
+    // queue simply waits for the next run.
+    try {
+      await drainPaidActions(paidDeps());
+    } catch (err) {
+      console.warn('[Sync] paid-mark outbox failed; will retry next sync', err);
+    }
+    // End day the till recorded while offline (or whose send failed).
+    try {
+      await drainEndDays(businessDayDeps());
+    } catch (err) {
+      console.warn('[Sync] End day outbox failed; will retry next sync', err);
     }
 
     setMeta('sync.last_at', String(Date.now()));

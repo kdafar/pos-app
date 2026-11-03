@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Printer, QrCode, Eye } from 'lucide-react';
 import { Chip } from '@heroui/react';
-import { PaymentBadge } from '../components/PaymentBadge';
 import { OrderStatusCell } from './OrderStatusCell';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
 import { PaymentMethodCell } from './PaymentMethodCell';
 import { OrderDetailModal } from './OrderDetailModal';
+import { MarkPaidControl } from '../components/MarkPaidControl';
+import { SYNCED_EVENT } from '../utils/syncEvents';
 import { DataTable } from '../components/DataTable';
 import { PaymentLinkModal } from './pos/components/PaymentLinkModal';
 import { useRootTheme } from './pos/useRootTheme';
@@ -128,11 +129,6 @@ const bestUpdatedMs = (row: Order) => {
   return 0;
 };
 
-function localDateValue(date = new Date()) {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 export default function TodayOrdersReport() {
   const theme = useRootTheme();
   const { t, money, lang } = useI18n();
@@ -143,8 +139,11 @@ export default function TodayOrdersReport() {
   // filters
   const [q, setQ] = useState('');
   const [type, setType] = useState<'all' | '1' | '2' | '3'>('all');
-  const [fromDate, setFromDate] = useState(() => localDateValue());
-  const [toDate, setToDate] = useState(() => localDateValue());
+  // Empty until the first load: "today" is the server's business day, which is
+  // not the calendar date in the small hours (01:30 on 3 Nov is still 2 Nov),
+  // so the main process picks it and the pickers are filled from its answer.
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   // table state
   const [pageSize, setPageSize] = useState(25);
@@ -203,15 +202,20 @@ export default function TodayOrdersReport() {
   const canChangeStatus = can('orders.change_status');
   const canViewDetail = can('orders.view_all') || can('orders.view_own');
 
-  const refresh = async () => {
-    setLoading(true);
+  // `quiet`: the re-read after a background sync. No spinner and no error
+  // toast every minute; a failure keeps the rows already on screen.
+  const refresh = async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
+    if (!quiet) setLoading(true);
     try {
-      const range = await window.api.invoke('report:operationalWindow', {
-        fromDate,
-        toDate,
-      });
+      const range = await window.api.invoke(
+        'report:operationalWindow',
+        fromDate || toDate ? { fromDate, toDate } : undefined
+      );
       const start_ms = Number(range?.fromMs);
       const end_ms = Number(range?.toMs);
+      if (!fromDate && range?.fromDate) setFromDate(String(range.fromDate));
+      if (!toDate && range?.toDate) setToDate(String(range.toDate));
 
       let list: Order[] = [];
       try {
@@ -226,15 +230,38 @@ export default function TodayOrdersReport() {
           return ms >= start_ms && ms <= end_ms;
         });
       }
-      setRows(list || []);
+      const next = list || [];
+      if (quiet) {
+        // Keep every unchanged row as the same object, and skip the update
+        // entirely when nothing changed, so a background refresh does not
+        // re-render the table under the cashier — an open status menu or
+        // Mark paid dialog stays exactly as it was.
+        setRows((prev) => {
+          const byId = new Map(prev.map((r) => [String((r as any).id), r]));
+          let changed = prev.length !== next.length;
+          const merged = next.map((r, i) => {
+            const old = byId.get(String((r as any).id));
+            if (old && JSON.stringify(old) === JSON.stringify(r)) {
+              if (prev[i] !== old) changed = true;
+              return old;
+            }
+            changed = true;
+            return r;
+          });
+          return changed ? merged : prev;
+        });
+      } else {
+        setRows(next);
+      }
     } catch (e) {
+      if (quiet) return;
       // Was try/finally with no catch: a rejected invoke escaped as an
       // unhandled rejection and left the table empty with nothing on screen,
       // which read as "there are no orders today" rather than as a failure.
       setRows([]);
       toast.error(e, { title: t('admin.loadFailed') });
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   };
 
@@ -242,6 +269,19 @@ export default function TodayOrdersReport() {
     refresh();
     // Initial load only; date changes are applied with the Filter button.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The list is the till's database as it was when the page opened. A sync
+  // brings orders placed on the web and payments made online; without this an
+  // order paid by the customer kept showing "Unpaid" until the page was left
+  // and reopened. Through a ref so the listener runs this render's refresh,
+  // with the dates currently in the filter.
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    const onSynced = () => void refreshRef.current({ quiet: true });
+    window.addEventListener(SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(SYNCED_EVENT, onSynced);
   }, []);
 
   const filtered = useMemo(() => {
@@ -309,20 +349,24 @@ export default function TodayOrdersReport() {
             status={row.original.status}
             statusCode={row.original.status_code}
             disabled={!canChangeStatus}
-            onChanged={refresh}
+            onChanged={() => refreshRef.current()}
           />
         ),
       },
       {
         id: 'paid',
         header: () => t('admin.orders.paid'),
-        size: 105,
+        // Room for "Paid · KNET · Admin".
+        size: 170,
         enableSorting: false,
-        meta: { nowrap: true, className: 'hidden xl:table-cell' },
+        // Always visible now: it is also where an order is marked paid.
+        meta: { nowrap: true },
         // The till creates payment links and then never surfaced the outcome,
         // so a cashier handing over food had no way to tell whether the
-        // customer had actually paid.
-        cell: ({ row }) => <PaymentBadge order={row.original as any} />,
+        // customer had actually paid. Pressing an unpaid badge marks it paid.
+        cell: ({ row }) => (
+          <MarkPaidControl order={row.original as any} onChanged={() => refreshRef.current()} trigger='badge' />
+        ),
       },
       {
         accessorKey: 'order_type',
@@ -433,7 +477,7 @@ export default function TodayOrdersReport() {
               mobile={row.original.mobile}
               amount={Number(row.original.grand_total ?? 0)}
               orderNumber={row.original.reference_no || row.original.number}
-              onChanged={refresh}
+              onChanged={() => refreshRef.current()}
               onPaymentLink={({ url, mobile, delivery }) => {
                 toast({
                   tone: 'success',
@@ -550,7 +594,7 @@ export default function TodayOrdersReport() {
 
           <button
             className={btnCls + ' w-full'}
-            onClick={refresh}
+            onClick={() => refresh()}
             disabled={loading}
             title={t('admin.refresh')}
           >
@@ -582,6 +626,7 @@ export default function TodayOrdersReport() {
         pageSize={pageSize}
         onPageSizeChange={setPageSize}
         getRowId={(r, i) => String((r as any).id ?? i)}
+        resetPageKey={`${q}|${type}|${fromDate}|${toDate}`}
         empty={
           q || type !== 'all'
             ? t('admin.orders.noneFiltered')
@@ -599,6 +644,7 @@ export default function TodayOrdersReport() {
             showPaymentQr(id);
           }}
           onClose={() => setDetailId(null)}
+          onChanged={refresh}
         />
       )}
 

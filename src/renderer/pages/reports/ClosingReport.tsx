@@ -7,6 +7,7 @@ import {
   DollarSign,
   FileSpreadsheet,
   Moon,
+  MoonStar,
   Printer,
   ReceiptText,
   XCircle,
@@ -21,7 +22,17 @@ import { DataState, PageShell, StatCard } from '../../components/PageShell';
 
 import { errorLine as errLine } from '../../utils/posError';
 import { buildThermalReportHtml } from './thermalReport';
+import { useConfirmDialog } from '../../components/ConfirmDialogProvider';
+import { useToast } from '../../components/ToastProvider';
 import { hoistCommonPrefix } from './orderRefs';
+
+/**
+ * End day is hidden until it has been run once against the real server.
+ * POST /day-close was never called on dev before 0.6.0, and on a server
+ * without it a pressed End day would retry in the background forever while the
+ * cashier believed the day was closed. Flip to true once it is verified.
+ */
+const END_DAY_ENABLED = false;
 type BackendOrderRow = {
   id: string;
   order_number: string;
@@ -89,6 +100,14 @@ type ReportData = {
   canPickRange?: boolean;
   /** The requested range reached outside that day and was pulled back in. */
   clamped?: boolean;
+  /** Business dates of the range, for the pickers. */
+  fromDate?: string;
+  toDate?: string;
+  /** Mark order paid §10 — null while the server records no payment. */
+  paidInfo?: {
+    paid_open: { count: number; total: number };
+    closed_unmarked: { count: number; total: number };
+  } | null;
 };
 
 /** The closing report's own status vocabulary (not the server enum). */
@@ -145,6 +164,9 @@ export default function ClosingReport() {
   const [fromStr, setFromStr] = useState('');
   const [toStr, setToStr] = useState('');
   const [data, setData] = useState<ReportData | null>(null);
+  const [ending, setEnding] = useState(false);
+  const confirm = useConfirmDialog();
+  const toast = useToast();
 
   // Who may look outside the current operational day.
   //
@@ -169,8 +191,11 @@ export default function ClosingReport() {
         )) as ReportData;
         if (resp) {
           setData(resp);
-          setFromStr((prev) => prev || (resp.fromMs ? toLocalInput(resp.fromMs) : ''));
-          setToStr((prev) => prev || (resp.toMs ? toLocalInput(resp.toMs) : ''));
+          // Business dates from the server's day. Not toLocalInput(toMs): the
+          // window ends where the next day starts (4 Nov 03:00 for 3 Nov), so
+          // reading a date off it showed one day too many.
+          setFromStr((prev) => prev || resp.fromDate || (resp.fromMs ? toLocalInput(resp.fromMs) : ''));
+          setToStr((prev) => prev || resp.toDate || (resp.toMs ? toLocalInput(resp.toMs) : ''));
         }
       } catch (e) {
         // A closing report that fails silently and shows zeroes is worse than
@@ -199,6 +224,14 @@ export default function ClosingReport() {
   };
 
   const applyPreset = async (preset: 'today' | 'yesterday' | 'last7' | 'month') => {
+    // "Today" is the business day in progress, which the server names — at
+    // 01:30 on 3 Nov that is still 2 Nov. The pickers refill from its answer.
+    if (preset === 'today') {
+      setFromStr('');
+      setToStr('');
+      await loadReport();
+      return;
+    }
     const end = new Date();
     const start = new Date(end);
     if (preset === 'yesterday') {
@@ -481,6 +514,39 @@ export default function ClosingReport() {
    * in `thermalReport.ts`, which is pure and unit tested; everything language-
    * or money-shaped is resolved here, where the formatters are.
    */
+  const endDay = async () => {
+    const ok = await confirm({
+      title: t('bday.endDayTitle'),
+      message: t('bday.endDayBody'),
+      confirmLabel: t('bday.endDay'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
+    setEnding(true);
+    try {
+      const r = (await window.api.invoke('business:endDay')) as {
+        state: 'done' | 'queued';
+        nextDay: { date: string; fromMs: number } | null;
+      };
+      toast({
+        tone: r.state === 'done' ? 'success' : 'info',
+        title: t('bday.endedTitle'),
+        message:
+          r.state === 'done'
+            ? t('bday.endedBody', { time: fmtDateTime(r.nextDay?.fromMs ?? Date.now()) })
+            : t('bday.endedQueued'),
+      });
+      // The report now opens on the new day.
+      setFromStr('');
+      setToStr('');
+      await loadReport();
+    } catch (e) {
+      toast.error(e, { title: t('bday.endFailed') });
+    } finally {
+      setEnding(false);
+    }
+  };
+
   const printThermalReport = async () => {
     if (!data || !f) return;
     const sync = (await window.api.invoke('sync:status').catch(() => null)) as
@@ -570,6 +636,18 @@ export default function ClosingReport() {
         { label: t('admin.rep.deliveryFees'), value: fmt(f.delivery_fees) },
         { label: t('admin.rep.netTotal'), value: fmt(f.grand_total) },
       ],
+      paidInfo: data.paidInfo
+        ? [
+            {
+              label: `${t('admin.rep.paidOpen')} · ${t('admin.rep.ordersCount', { n: data.paidInfo.paid_open.count })}`,
+              value: fmt(data.paidInfo.paid_open.total),
+            },
+            {
+              label: `${t('admin.rep.closedUnmarked')} · ${t('admin.rep.ordersCount', { n: data.paidInfo.closed_unmarked.count })}`,
+              value: fmt(data.paidInfo.closed_unmarked.total),
+            },
+          ]
+        : undefined,
     });
 
     await window.api.invoke('reports:printThermal', html);
@@ -695,6 +773,14 @@ export default function ClosingReport() {
 ${errLine(error, lang)}`); }
             finally { printLock.current = false; setBusy(null); }
           }}>{t('admin.rep.printThermal')}</Button>
+          {/* End day closes the business day for the whole branch (the latest
+              End day of any till counts). After it, new sales go to the next
+              day — so it sits after the print buttons, as the last step. */}
+          {END_DAY_ENABLED && (
+            <Button color='danger' variant='flat' isLoading={ending} isDisabled={busy !== null || ending} startContent={<MoonStar size={16} />} onPress={endDay}>
+              {t('bday.endDay')}
+            </Button>
+          )}
         </div>
       }
       filters={
@@ -877,6 +963,38 @@ ${errLine(error, lang)}`); }
                 tone='danger'
                 negative
               />
+            </div>
+          )}
+
+          {/* Mark order paid §10: information under the takings, which do
+              not change in this version. Hidden until the server records
+              payment, when "every closed order is unmarked" would be noise. */}
+          {data?.paidInfo && (
+            <div className='max-w-xl ms-auto space-y-1'>
+              <div className='rounded-lg border border-default-200 bg-content1 overflow-hidden divide-y divide-default-200'>
+                {(
+                  [
+                    ['admin.rep.paidOpen', data.paidInfo.paid_open],
+                    ['admin.rep.closedUnmarked', data.paidInfo.closed_unmarked],
+                  ] as const
+                ).map(([key, line]) => (
+                  <div
+                    key={key}
+                    className='flex items-center justify-between gap-4 px-4 py-2.5 font-medium'
+                  >
+                    <span className='text-default-700'>{t(key)}</span>
+                    <span className='flex items-center gap-4 whitespace-nowrap'>
+                      <span className='text-default-700'>
+                        {t('admin.rep.ordersCount', { n: line.count })}
+                      </span>
+                      <span className='money text-foreground'>{fmt(line.total)}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className='text-xs font-medium text-default-700 text-end'>
+                {t('admin.rep.paidInfoNote')}
+              </p>
             </div>
           )}
         </div>

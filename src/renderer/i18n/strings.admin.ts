@@ -86,6 +86,14 @@ export const adminStrings = {
     en: "Approve other staff's actions with an approval code",
     ar: 'الموافقة على إجراءات الموظفين برمز الموافقة',
   },
+  'permissions.orders.mark_paid': {
+    en: 'Mark orders paid',
+    ar: 'تسجيل الطلبات كمدفوعة',
+  },
+  'permissions.orders.mark_unpaid': {
+    en: 'Undo a payment mark, and approve others undoing one',
+    ar: 'إلغاء تسجيل الدفع، والموافقة على إلغائه للآخرين',
+  },
   'permissions.tables.force_close': {
     en: 'Free a table that still has an open order',
     ar: 'تحرير طاولة عليها طلب مفتوح',
@@ -511,6 +519,29 @@ export const adminStrings = {
     en: 'Not counted — no total',
     ar: 'غير محسوب — بدون إجمالي',
   },
+  // Business day / End day (BUSINESS-DAY contract).
+  'bday.endDay': { en: 'End day', ar: 'إنهاء اليوم' },
+  'bday.endDayTitle': { en: 'End the business day?', ar: 'إنهاء يوم العمل؟' },
+  'bday.endDayBody': {
+    en: 'Print the closing report first. After this, new sales go to the next day for the whole branch.',
+    ar: 'اطبع تقرير الإغلاق أولاً. بعد ذلك تُسجَّل المبيعات الجديدة على اليوم التالي للفرع كله.',
+  },
+  'bday.endedTitle': { en: 'Day ended', ar: 'تم إنهاء اليوم' },
+  'bday.endedBody': { en: 'The new day started at {time}.', ar: 'بدأ اليوم الجديد في {time}.' },
+  'bday.endedQueued': {
+    en: 'Ended on this till. It will be sent when the connection is back.',
+    ar: 'تم الإنهاء على نقطة البيع. سيُرسل عند عودة الاتصال.',
+  },
+  'bday.endFailed': { en: 'Could not end the day', ar: 'تعذّر إنهاء اليوم' },
+  'admin.act.business.endDay': { en: 'Day ended', ar: 'تم إنهاء اليوم' },
+  // Mark order paid §10 — information only, takings do not change.
+  'admin.rep.paidOpen': { en: 'Paid, still open', ar: 'مدفوع وما زال مفتوحاً' },
+  'admin.rep.closedUnmarked': { en: 'Closed, not marked paid', ar: 'مغلق وغير مسجّل كمدفوع' },
+  'admin.rep.ordersCount': { en: '{n} orders', ar: '{n} طلب' },
+  'admin.rep.paidInfoNote': {
+    en: 'For information. The takings above do not change.',
+    ar: 'للعلم فقط. الإيراد أعلاه لا يتغيّر.',
+  },
   'admin.rep.grossSales': { en: 'Gross Sales Total', ar: 'إجمالي المبيعات' },
   'admin.rep.discounts': { en: 'Discounts', ar: 'الخصومات' },
   'admin.rep.deliveryFees': { en: 'Delivery fees', ar: 'رسوم التوصيل' },
@@ -603,6 +634,8 @@ export const adminStrings = {
     en: 'Payment method changed',
     ar: 'تم تغيير طريقة الدفع',
   },
+  'admin.act.orders.markPaid': { en: 'Marked paid', ar: 'تم التسجيل كمدفوع' },
+  'admin.act.orders.markUnpaid': { en: 'Paid mark removed', ar: 'تمت إزالة علامة الدفع' },
   'admin.act.orders.print': { en: 'Receipt printed', ar: 'تمت طباعة الفاتورة' },
   'admin.act.add_line': { en: 'Item added', ar: 'تمت إضافة صنف' },
   'admin.act.set_qty': { en: 'Quantity changed', ar: 'تم تغيير الكمية' },

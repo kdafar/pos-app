@@ -66,10 +66,17 @@ export type CatalogEntry = {
  * PosErrorCatalogueTest records it under ALIASED_BY_THE_APP; shipping both
  * would give two codes that open an identical dialog.
  *
+ * 49 with pos-errors.json 1.6.0 (Talabat & Keeta prices:
+ * POS_PUSH_PRICE_LIST_SPLIT, POS_PUSH_PRICE_LIST_PRICE_DIFFERS — not mirrored
+ * yet, that feature is not built), 59 with 1.7.0 and the ten POS_PAID_* codes
+ * for Mark order paid, all mirrored; 61 with 1.8.0 and the two business-day
+ * codes (POS_BUSINESS_DAY_INPUT_INVALID, POS_DAY_CLOSE_INPUT_INVALID), mirrored;
+ * 62 with 1.9.0 and POS_PAID_REFERENCE_MISSING (KNET slip reference), mirrored.
+ *
  * Kept next to the catalogue rather than inside the drift test so the export
  * and the test cannot disagree about the target.
  */
-export const BACKEND_SENT_CODE_COUNT = 47;
+export const BACKEND_SENT_CODE_COUNT = 62;
 
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
@@ -594,6 +601,216 @@ export const ERROR_CATALOG = {
     ar: {
       title: 'تم تمييز الموافقة على الخادم',
       body: 'تم الإبقاء على التعديل، لكن من وافق عليه لا يملك هذه الصلاحية على الخادم. ستظهر مميزة في تقرير الإلغاءات والموافقات.',
+    },
+  },
+  /* ───────────────────── business day (pos-errors 1.8.0) ───────────────────── */
+  POS_BUSINESS_DAY_INPUT_INVALID: {
+    severity: 'toast',
+    retry: false,
+    where: 'GET /business-day',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Business day not found',
+      body: 'The till asked for a business day with a wrong date. Tell your developer.',
+    },
+    ar: {
+      title: 'لم يُعثر على يوم العمل',
+      body: 'طلبت نقطة البيع يوم عمل بتاريخ غير صحيح. أبلغ المطوّر.',
+    },
+  },
+  POS_DAY_CLOSE_INPUT_INVALID: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST /day-close',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Day not ended',
+      body: 'The server refused the End day request. Tell your developer.',
+    },
+    ar: {
+      title: 'لم يُغلق اليوم',
+      body: 'رفض الخادم طلب إنهاء اليوم. أبلغ المطوّر.',
+    },
+  },
+  /* ───────────────────── mark order paid (§11) ───────────────────── */
+  POS_PAID_INPUT_MISSING: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Payment not recorded',
+      body: 'The till sent an incomplete request. Tell your developer.',
+    },
+    ar: {
+      title: 'لم يُسجَّل الدفع',
+      body: 'أرسلت نقطة البيع طلباً غير مكتمل. أبلغ المطوّر.',
+    },
+  },
+  POS_PAID_REFERENCE_MISSING: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST /orders/{order}/paid',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'KNET reference needed',
+      body: 'Type the reference printed on the card machine slip, then mark it paid again.',
+    },
+    ar: {
+      title: 'مطلوب رقم مرجع كي نت',
+      body: 'اكتب رقم المرجع المطبوع على إيصال جهاز البطاقات، ثم سجّل الدفع مرة أخرى.',
+    },
+  },
+  POS_PAID_ORDER_CANCELLED: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 409,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Order is cancelled',
+      body: 'A cancelled or rejected order cannot be marked paid.',
+    },
+    ar: {
+      title: 'الطلب ملغى',
+      body: 'لا يمكن تسجيل طلب ملغى أو مرفوض كمدفوع.',
+    },
+  },
+  POS_PAID_ALREADY_PAID: {
+    severity: 'info',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 409,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Already paid',
+      body: 'This order is already marked paid. The order shows who took the payment.',
+    },
+    ar: {
+      title: 'مدفوع مسبقاً',
+      body: 'هذا الطلب مسجّل كمدفوع مسبقاً. يظهر في الطلب من استلم المبلغ.',
+    },
+  },
+  POS_PAID_NOT_PERMITTED: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 403,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Not allowed',
+      body: 'You are not allowed to mark orders paid. Ask a manager.',
+    },
+    ar: {
+      title: 'غير مسموح',
+      body: 'لا تملك صلاحية تسجيل الطلبات كمدفوعة. اطلب من المدير.',
+    },
+  },
+  POS_PAID_AMOUNT_MISMATCH: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Total has changed',
+      body: 'The order total is now {grand_total}. Check it and confirm again.',
+    },
+    ar: {
+      title: 'تغيّر الإجمالي',
+      body: 'إجمالي الطلب الآن {grand_total}. راجعه وأكّد مرة أخرى.',
+    },
+  },
+  POS_PAID_METHOD_LOCKED: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Payment method is fixed',
+      body: 'This order is closed, so it can only be marked paid with the method it was closed with.',
+    },
+    ar: {
+      title: 'طريقة الدفع ثابتة',
+      body: 'هذا الطلب مغلق، لذا يمكن تسجيله كمدفوع بطريقة الدفع التي أُغلق بها فقط.',
+    },
+  },
+  POS_PAID_METHOD_PRICE_LIST: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Change the payment method first',
+      body: 'Talabat and Keeta use their own prices. Change the payment method on the order first, then mark it paid.',
+    },
+    ar: {
+      title: 'غيّر طريقة الدفع أولاً',
+      body: 'طلبات وكيتا لهما أسعار خاصة. غيّر طريقة الدفع في الطلب أولاً، ثم سجّله كمدفوع.',
+    },
+  },
+  POS_PAID_VERIFIED_LOCKED: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 409,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Paid online',
+      body: 'The payment provider confirmed this payment, so it cannot be undone here. Refunds are done in the office.',
+    },
+    ar: {
+      title: 'مدفوع إلكترونياً',
+      body: 'أكّدت شركة الدفع هذا المبلغ، لذا لا يمكن إلغاؤه من هنا. الاسترداد يتم من المكتب.',
+    },
+  },
+  POS_PAID_UNDO_NOT_PERMITTED: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST|DELETE /orders/{order}/paid',
+    http: 403,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Manager approval needed',
+      body: 'Undoing a payment needs a manager. Ask a manager to approve it.',
+    },
+    ar: {
+      title: 'يلزم موافقة المدير',
+      body: 'إلغاء الدفع يحتاج إلى المدير. اطلب من المدير الموافقة.',
+    },
+  },
+  POS_PAID_LINK_STILL_OPEN: {
+    severity: 'info',
+    retry: false,
+    where: 'POST /orders/{order}/paid',
+    http: 200,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Payment link still open',
+      body: 'The order is marked paid, but its payment link is still open. The customer could still pay it. Cancel the link in the office.',
+    },
+    ar: {
+      title: 'رابط الدفع ما زال مفتوحاً',
+      body: 'تم تسجيل الطلب كمدفوع، لكن رابط الدفع ما زال مفتوحاً وقد يدفعه العميل. ألغِ الرابط من المكتب.',
     },
   },
   POS_APPROVAL_REQUIRED: {

@@ -2,6 +2,9 @@ import { ipcMain } from 'electron';
 import db from '../db';
 import type { MainServices } from '../types/common';
 import { assertPermission, getCurrentPosUser } from '../utils/permissions';
+import { isCancelledForPaid, isClosedForPaid } from '../../shared/paid';
+import { isOutsideHours, resolveBusinessDay } from '../businessDay';
+import { businessDayDeps } from './sync';
 
 /* ========== meta helpers ========== */
 function getMeta(key: string): string | undefined {
@@ -61,204 +64,34 @@ function pickOrderTsColumn(): string {
   return 'opened_at';
 }
 
-/* ========== operational time rules (using `time` table) ========== */
+/* ========== business days ========== */
+//
+// Which business day a time belongs to is the SERVER's rule now
+// (businessDay.ts, contract BUSINESS-DAY-WIRE-CONTRACT): a day ends at End day
+// or at closing + grace, and the next one starts there. The till used to work
+// it out here from the `time` table — first opening→closing, then (23 Aug)
+// opening→next opening — and both disagreed with the back office for orders
+// taken while the branch was closed.
 
-type Rule = { is_open: number; open_at: string; close_at: string };
-
-/** Parse '9:00am' / '09:00' → 'HH:MM:SS' (24h) */
-function parseAmPmToHHMMSS(input: string | null | undefined): string {
-  if (!input) return '00:00:00';
-  const s = String(input).trim().toLowerCase();
-
-  const m = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
-  if (!m) {
-    // already time-ish
-    if (/^\d{1,2}:\d{2}$/.test(s)) return `${s}:00`;
-    if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s;
-    return '00:00:00';
+/** One window spanning the business days of two dates (date-only filters). */
+async function businessWindow(fromDate?: string, toDate?: string) {
+  const deps = businessDayDeps();
+  if (!fromDate && !toDate) {
+    const day = await resolveBusinessDay(deps);
+    return { fromMs: day.fromMs, toMs: day.toMs, fromDate: day.date, toDate: day.date, source: day.source };
   }
-
-  let hh = parseInt(m[1], 10);
-  const mm = parseInt(m[2], 10);
-  const ampm = m[3].toLowerCase();
-
-  if (ampm === 'pm' && hh !== 12) hh += 12;
-  if (ampm === 'am' && hh === 12) hh = 0;
-
-  const pad = (x: number) => String(x).padStart(2, '0');
-  return `${pad(hh)}:${pad(mm)}:00`;
-}
-
-const DAY_NAMES = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-];
-
-function getRuleForDay(jsDow: number): Rule | null {
-  // Prefer new `time` table (synced from Laravel)
-  if (tableExists('time')) {
-    const dayName = DAY_NAMES[jsDow];
-    const row = db
-      .prepare(
-        `
-        SELECT open_time, close_time, always_close
-        FROM time
-        WHERE
-          lower(day) IN (lower(?), lower(?))
-          OR day IN (?, ?)
-        LIMIT 1
-      `
-      )
-      .get(dayName, dayName.slice(0, 3), jsDow, String(jsDow)) as any;
-
-    if (row) {
-      return {
-        is_open: row.always_close ? 0 : 1,
-        open_at: parseAmPmToHHMMSS(row.open_time),
-        close_at: parseAmPmToHHMMSS(row.close_time),
-      };
-    }
-  }
-
-  // Legacy `times` table (if present)
-  if (tableExists('times')) {
-    const byNum = db
-      .prepare(
-        `SELECT always_close, open, close FROM times WHERE day IN (?, ?) LIMIT 1`
-      )
-      .get(jsDow, String(jsDow)) as any;
-
-    if (byNum) {
-      return {
-        is_open: byNum.always_close ? 0 : 1,
-        open_at: byNum.open || '00:00:00',
-        close_at: byNum.close || '23:59:59',
-      };
-    }
-
-    const dayName = DAY_NAMES[jsDow];
-    const byName = db
-      .prepare(
-        `SELECT always_close, open, close FROM times WHERE lower(day) = lower(?) LIMIT 1`
-      )
-      .get(dayName) as any;
-
-    if (byName) {
-      return {
-        is_open: byName.always_close ? 0 : 1,
-        open_at: byName.open || '00:00:00',
-        close_at: byName.close || '23:59:59',
-      };
-    }
-  }
-
-  // Fallback: always open
-  return { is_open: 1, open_at: '00:00:00', close_at: '23:59:59' };
-}
-
-function hhmmssToMs(base: Date, t: string): number {
-  const [hh, mm, ssRaw] = (t || '00:00:00').split(':');
-  const ss = Number(ssRaw ?? 0);
-  const d = new Date(base);
-  d.setHours(Number(hh) || 0, Number(mm) || 0, ss || 0, 0);
-  return d.getTime();
-}
-
-/** Return [this opening, next open day's opening), matching the online report. */
-function getOperationalDayRange(baseDay: Date): {
-  startMs: number;
-  endMs: number;
-  alwaysClose: boolean;
-} {
-  const rule = getRuleForDay(baseDay.getDay());
-  if (!rule) {
-    const s = new Date(baseDay);
-    s.setHours(0, 0, 0, 0);
-    const e = new Date(baseDay);
-    e.setHours(23, 59, 59, 999);
-    return { startMs: s.getTime(), endMs: e.getTime(), alwaysClose: false };
-  }
-
-  if (!rule.is_open) {
-    const s = new Date(baseDay);
-    s.setHours(0, 0, 0, 0);
-    const e = new Date(baseDay);
-    e.setHours(23, 59, 59, 999);
-    return { startMs: s.getTime(), endMs: e.getTime(), alwaysClose: true };
-  }
-
-  const startMs = hhmmssToMs(baseDay, rule.open_at || '00:00:00');
-  let nextOpeningMs: number | null = null;
-  for (let offset = 1; offset <= 7; offset += 1) {
-    const nextDay = new Date(baseDay);
-    nextDay.setDate(baseDay.getDate() + offset);
-    const nextRule = getRuleForDay(nextDay.getDay());
-    if (nextRule?.is_open) {
-      nextOpeningMs = hhmmssToMs(nextDay, nextRule.open_at || '00:00:00');
-      break;
-    }
-  }
-
-  // Half-open business-day boundary: closing time is intentionally not used.
+  const a = fromDate || toDate!;
+  const b = toDate || a;
+  const [first, last] = a <= b ? [a, b] : [b, a];
+  const start = await resolveBusinessDay(deps, { date: first });
+  const end = first === last ? start : await resolveBusinessDay(deps, { date: last });
   return {
-    startMs,
-    endMs: nextOpeningMs ?? startMs + 86_400_000,
-    alwaysClose: nextOpeningMs == null,
+    fromMs: start.fromMs,
+    toMs: end.toMs,
+    fromDate: start.date,
+    toDate: end.date,
+    source: end.source,
   };
-}
-
-/** Default range = today's operational window → now; if outside, yesterday's window → now. */
-function defaultOperationalWindow(now = new Date()): {
-  fromMs: number;
-  toMs: number;
-} {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-
-  const {
-    startMs: todayStart,
-    endMs: todayEnd,
-    alwaysClose,
-  } = getOperationalDayRange(today);
-
-  const nowMs = now.getTime();
-
-  if (!alwaysClose && nowMs >= todayStart && nowMs <= todayEnd) {
-    return { fromMs: todayStart, toMs: nowMs };
-  }
-
-  const y = new Date(today);
-  y.setDate(today.getDate() - 1);
-  const { startMs: yStart } = getOperationalDayRange(y);
-  return { fromMs: yStart, toMs: nowMs };
-}
-
-/** Resolve whole operational days for date-only filters used by report screens. */
-function operationalDateRange(fromDate?: string, toDate?: string): {
-  fromMs: number;
-  toMs: number;
-} {
-  if (!fromDate && !toDate) return defaultOperationalWindow(new Date());
-
-  const parseDate = (value: string | undefined) => {
-    const match = String(value ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return null;
-    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-    return Number.isNaN(date.getTime()) ? null : date;
-  };
-
-  const fromDay = parseDate(fromDate) ?? parseDate(toDate) ?? new Date();
-  const toDay = parseDate(toDate) ?? fromDay;
-  const first = fromDay.getTime() <= toDay.getTime() ? fromDay : toDay;
-  const last = fromDay.getTime() <= toDay.getTime() ? toDay : fromDay;
-  const fromRange = getOperationalDayRange(first);
-  const toRange = getOperationalDayRange(last);
-  return { fromMs: fromRange.startMs, toMs: toRange.endMs };
 }
 
 /**
@@ -326,6 +159,44 @@ export function isCancelled(row: any): boolean {
   return (
     s.startsWith('cancel') || s.startsWith('canceled') || s.startsWith('rejected')
   );
+}
+
+/**
+ * The two information lines under the takings (Mark order paid §10). Takings
+ * themselves do not change in this version — open question 4.
+ *
+ *   Paid, still open         — marked paid, not closed; amount = paid.amount
+ *   Closed, not marked paid  — closed, and the server says unpaid
+ *
+ * null when no row carries a paid state at all: the server does not record
+ * payment yet, and "every closed order is unmarked" would be noise, not news.
+ * A NULL paid_status is "unknown", so it never counts as unmarked.
+ */
+export type PaidInfo = {
+  paid_open: { count: number; total: number };
+  closed_unmarked: { count: number; total: number };
+};
+
+export function summarizePaid(rows: any[]): PaidInfo | null {
+  if (!rows.some((r) => r?.paid_status != null)) return null;
+  const out: PaidInfo = {
+    paid_open: { count: 0, total: 0 },
+    closed_unmarked: { count: 0, total: 0 },
+  };
+  for (const r of rows) {
+    if (isCancelledForPaid(r?.status, r?.status_code)) continue;
+    const closed = isClosedForPaid(r?.status, r?.status_code);
+    if (r?.paid_status === 'paid' && !closed) {
+      out.paid_open.count += 1;
+      out.paid_open.total += Number(r?.paid_amount ?? r?.grand_total ?? 0);
+    } else if (r?.paid_status === 'unpaid' && closed) {
+      out.closed_unmarked.count += 1;
+      out.closed_unmarked.total += Number(r?.grand_total ?? 0);
+    }
+  }
+  out.paid_open.total = +out.paid_open.total.toFixed(3);
+  out.closed_unmarked.total = +out.closed_unmarked.total.toFixed(3);
+  return out;
 }
 
 export type RowVerdict = {
@@ -420,26 +291,14 @@ export function soldFilterSql(
         `;
 }
 
+/**
+ * Inside working hours: within open–close of the sale's calendar day or the
+ * day before — the server's rule. The previous check compared against the
+ * opening→next-opening day, which covers the whole clock on an open day, so
+ * since 23 Aug no order was ever counted as outside hours.
+ */
 function insideOperational(tsMs: number): boolean {
-  const d = new Date(tsMs);
-  const d0 = new Date(d);
-  d0.setHours(0, 0, 0, 0);
-
-  const { startMs, endMs, alwaysClose } = getOperationalDayRange(d0);
-  if (!alwaysClose && tsMs >= startMs && tsMs <= endMs) return true;
-
-  // also consider previous day's cross-midnight window
-  const y = new Date(d0);
-  y.setDate(d0.getDate() - 1);
-  const {
-    startMs: yStart,
-    endMs: yEnd,
-    alwaysClose: yClose,
-  } = getOperationalDayRange(y);
-
-  if (!yClose && tsMs >= yStart && tsMs <= yEnd) return true;
-
-  return false;
+  return !isOutsideHours(db, tsMs);
 }
 
 /* ---- helper: turn any date column to ms safely (supports INTEGER ms or TEXT datetime) ---- */
@@ -461,16 +320,17 @@ export function registerOperationalReportHandlers(services: MainServices) {
   // route guard) was denied here and saw an empty order list all day.
   ipcMain.handle(
     'report:operationalWindow',
-    (_evt, opts?: { fromDate?: string; toDate?: string }) => {
-      return operationalDateRange(opts?.fromDate, opts?.toDate);
-    }
+    (_evt, opts?: { fromDate?: string; toDate?: string }) =>
+      businessWindow(opts?.fromDate, opts?.toDate)
   );
 
   ipcMain.handle(
     'report:sales:preview',
-    (_evt, opts?: { from?: number; to?: number }) => {
+    async (_evt, opts?: { from?: number; to?: number }) => {
       assertReportAccess();
-      const def = defaultOperationalWindow(new Date());
+      // The business day in progress, up to its End day once it has one.
+      const today = await businessWindow();
+      const def = { fromMs: today.fromMs, toMs: today.toMs };
 
       // Reaching back into previous days is a separate right from reading the
       // current one. A cashier closing the till needs the shift they are
@@ -1143,9 +1003,35 @@ export function registerOperationalReportHandlers(services: MainServices) {
         cancelled_total: +cancelled_total.toFixed(3),
       };
 
+      // ── 8) Mark-paid information lines (§10) ──────────
+      const paidInfo = tableHasColumn('orders', 'paid_status')
+        ? summarizePaid(
+            db
+              .prepare(
+                `SELECT o.status, o.status_code, o.grand_total, o.paid_status, o.paid_amount
+                   FROM orders o
+                  WHERE ${tsMs} >= @fromMs AND ${tsMs} < @toMs
+                  ${andBranch}`
+              )
+              .all({ fromMs, toMs, branch_id: branchId }) as any[]
+          )
+        : null;
+
+      // Business dates for the pickers: toMs is the NEXT day's start, so a
+      // date read off it would show one day too many.
+      const pickers =
+        fromMs === def.fromMs && toMs === def.toMs
+          ? { fromDate: today.fromDate, toDate: today.toDate }
+          : {
+              fromDate: (await resolveBusinessDay(businessDayDeps(), { at: fromMs })).date,
+              toDate: (await resolveBusinessDay(businessDayDeps(), { at: Math.max(fromMs, toMs - 1) })).date,
+            };
+
       return {
         fromMs,
         toMs,
+        ...pickers,
+        paidInfo,
         // The screen needs to know the range is fixed, so it can say so rather
         // than show a date picker that silently does nothing.
         canPickRange,

@@ -249,6 +249,9 @@ const FEATURE_MARKERS = [
   ['fail-closed RBAC', 'denying admin'],
   ['print timeout guard', 'did not respond'],
   ['table floors', 'table_sections'],
+  ['mark order paid', 'orders:markPaid'],
+  ['KNET slip reference', 'POS_PAID_REFERENCE_MISSING'],
+  ['business day from server', '/business-day'],
 ];
 
 /* ------------------------------- flags -------------------------------- */
