@@ -421,7 +421,7 @@ export function MarkPaidControl({
           </div>
           <Button
             isIconOnly
-            size='sm'
+            size='md'
             variant='light'
             aria-label={t('common.close')}
             onPress={dismissRefusal}

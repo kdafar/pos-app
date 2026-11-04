@@ -474,55 +474,59 @@ export default function OrderProcessPage() {
   };
 
   return (
-    <div className='pos-screen h-screen flex flex-col bg-canvas'>
+    <div className='pos-screen h-full flex flex-col bg-canvas'>
       {/* Header: a calm bar on the canvas. Wraps on narrow screens. */}
       <header className='shrink-0 z-20 px-3 lg:px-4 py-2'>
-        <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
+        <div className='flex flex-wrap items-center gap-x-2 gap-y-2'>
           {/*
             "Signed in as <name> <role>" lives in the sidebar only; it is on
-            every screen and keeps the avatar when collapsed. The open orders
-            strip scrolls sideways instead of wrapping.
+            every screen and keeps the avatar when collapsed. One row from
+            768px: tabs (hugging their content, scrolling when many), then NEW,
+            order type, help. On a phone the order type drops to its own row.
           */}
-          <div className='ui-seg min-w-0 max-w-full flex-1 basis-48 overflow-x-auto chip-scroll'>
-            {activeOrders.map((order) => (
-              <button
-                key={order.id}
-                onClick={() => selectOrder(order.id)}
-                aria-pressed={currentOrder?.id === order.id}
-                className='ui-seg-item shrink-0 select-none min-w-[108px]'
-              >
-                <div className='flex items-center justify-between gap-2 w-full'>
-                  <span>{labelForType(order.order_type)}</span>
-                  <span className='ink-2 text-[10px] flex items-center gap-1'>
-                    {shortOrderLabel(order as any)}
-                    <PaymentBadge
-                      status={(order as any).payment_link_status}
-                      theme={theme}
-                    />
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <div className='flex flex-wrap items-center gap-2 min-w-0 max-w-full'>
-            <button
-              onClick={() => createNewOrder(2)}
-              className='ui-btn ui-btn-primary'
-            >
-              <Plus size={16} strokeWidth={1.8} />
-              <span>{t('pos.new')}</span>
-            </button>
-
-            {currentOrder && (
-              <div className='max-w-full overflow-x-auto chip-scroll'>
-                <OrderTypePicker
-                  value={currentOrder.order_type}
-                  onChange={changeOrderType}
-                  allowDelivery={deliveryEnabled}
-                />
+          <div className='min-w-0 flex-1 basis-0'>
+            {activeOrders.length > 0 && (
+              <div className='ui-seg max-w-full overflow-x-auto chip-scroll'>
+                {activeOrders.map((order) => (
+                  <button
+                    key={order.id}
+                    onClick={() => selectOrder(order.id)}
+                    aria-pressed={currentOrder?.id === order.id}
+                    className='ui-seg-item shrink-0 select-none min-w-[108px]'
+                  >
+                    <div className='flex items-center justify-between gap-2 w-full'>
+                      <span>{labelForType(order.order_type)}</span>
+                      <span className='ink-2 text-[10px] flex items-center gap-1'>
+                        {shortOrderLabel(order as any)}
+                        <PaymentBadge
+                          status={(order as any).payment_link_status}
+                          theme={theme}
+                        />
+                      </span>
+                    </div>
+                  </button>
+                ))}
               </div>
             )}
+          </div>
+
+          <button
+            onClick={() => createNewOrder(2)}
+            className='ui-btn ui-btn-primary shrink-0'
+          >
+            <Plus size={16} strokeWidth={1.8} />
+            <span>{t('pos.new')}</span>
+          </button>
+
+          {currentOrder && (
+            <OrderTypePicker
+              value={currentOrder.order_type}
+              onChange={changeOrderType}
+              allowDelivery={deliveryEnabled}
+              className='order-last basis-full md:order-none md:basis-auto md:shrink-0 overflow-x-auto chip-scroll'
+            />
+          )}
+          <div className='shrink-0'>
             <HelpButton />
           </div>
         </div>
@@ -549,7 +553,7 @@ export default function OrderProcessPage() {
         catalog rather than crushing it.
       */}
       <div
-        className='grid grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-1
+        className='grid grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1
           lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26vw,30rem)]
           flex-1 min-h-0 overflow-hidden'
       >

@@ -102,10 +102,10 @@ export function ItemsPage() {
           return (
             <div className='flex items-center gap-1'>
               {v && (
-                <span className='ui-chip ui-chip-amber'>{t('pos.sizes')}</span>
+                <span className='ui-chip ui-chip-gray'>{t('pos.sizes')}</span>
               )}
               {a && (
-                <span className='ui-chip ui-chip-blue'>{t('pos.addons')}</span>
+                <span className='ui-chip ui-chip-gray'>{t('pos.addons')}</span>
               )}
             </div>
           );

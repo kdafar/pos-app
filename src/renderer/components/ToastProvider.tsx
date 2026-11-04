@@ -405,7 +405,7 @@ function ToastCard({
         <Button
           isIconOnly
           variant='light'
-          size='sm'
+          size='md'
           radius='full'
           className='h-11 w-11 shrink-0'
           aria-label={t('toast.dismiss')}
@@ -478,7 +478,7 @@ function ToastCard({
               )}
               {toast.detail && (
                 <Button
-                  size='sm'
+                  size='md'
                   variant='light'
                   className='h-11 text-base ink-2'
                   endContent={
@@ -516,7 +516,7 @@ function ToastCard({
                     {toast.detail}
                   </div>
                   <Button
-                    size='sm'
+                    size='md'
                     variant='light'
                     className='mt-1 h-11 text-base ink-2'
                     startContent={
@@ -660,7 +660,7 @@ function BlockerDialog({
             </span>
             {blocker.detail && (
               <Button
-                size='sm'
+                size='md'
                 variant='light'
                 className='h-11 text-base ink-2'
                 endContent={
@@ -693,7 +693,7 @@ function BlockerDialog({
                     {blocker.detail}
                   </div>
                   <Button
-                    size='sm'
+                    size='md'
                     variant='light'
                     className='mt-1 h-11 text-base ink-2'
                     startContent={

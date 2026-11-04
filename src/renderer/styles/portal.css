@@ -104,6 +104,16 @@ body {
   }
 }
 
+/* An icon beside a long button label must keep its size; as a flex item it
+   would otherwise shrink to a dot (seen on "Close order"). */
+@layer base {
+  button > svg,
+  a > svg,
+  [role='button'] > svg {
+    flex-shrink: 0;
+  }
+}
+
 /* ---------- motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -306,10 +316,14 @@ body {
     box-shadow: none;
     transition: border-color 150ms, box-shadow 150ms;
   }
+  /* One ring only: HeroUI draws its own focus ring with the same box-shadow
+     property, which showed as a second, offset ring around the glow. */
   .ui-input[data-focus='true'],
+  .ui-input[data-focus-visible='true'],
   .ui-input:focus-within {
-    border-color: var(--brand);
-    box-shadow: 0 0 0 4px var(--brand-ring);
+    border-color: var(--brand) !important;
+    box-shadow: 0 0 0 4px var(--brand-ring) !important;
+    outline: none !important;
   }
 
   /* Notice: a surface with a thin border, never a tinted box. */

@@ -1,6 +1,7 @@
 // src/renderer/components/useConfirmUnpair.tsx
 import React, { useRef, useState } from 'react';
 import { Checkbox } from '@heroui/react';
+import { AlertTriangle } from 'lucide-react';
 import { useConfirmDialog } from './ConfirmDialogProvider';
 import { useI18n } from '../i18n';
 
@@ -26,7 +27,7 @@ export function useConfirmUnpair() {
       message: (
         <div className='space-y-2 text-sm'>
           <p>{t('auth.unpairConfirmBody')}</p>
-          <p className='text-xs text-foreground-500'>
+          <p className='text-xs ink-2'>
             {t('auth.unpairConfirmNote')}
           </p>
           <WipeChoice
@@ -77,22 +78,30 @@ function WipeChoice({
   const [on, setOn] = useState(false);
 
   return (
-    <div className='rounded-md border border-danger-200 bg-danger-50 px-3 py-2 space-y-1'>
-      <Checkbox
-        color='danger'
-        isSelected={on}
-        onValueChange={(v) => {
-          setOn(v);
-          onChange(v);
-        }}
-      >
-        <span className='text-sm font-medium'>{t('auth.unpairWipe')}</span>
-      </Checkbox>
-      <p className='text-xs text-foreground-500'>{t('auth.unpairWipeHint')}</p>
+    <div className='space-y-2'>
+      <div className='rounded-[11px] border border-line-strong bg-surface-2 px-3 py-2 space-y-1'>
+        <Checkbox
+          color='danger'
+          isSelected={on}
+          onValueChange={(v) => {
+            setOn(v);
+            onChange(v);
+          }}
+        >
+          <span className='text-sm font-semibold ink'>{t('auth.unpairWipe')}</span>
+        </Checkbox>
+        <p className='text-xs ink-2'>{t('auth.unpairWipeHint')}</p>
+      </div>
       {on && unsent > 0 && (
-        <p className='text-xs font-medium text-danger'>
-          {t('auth.unpairWipeUnsent', { count: unsent })}
-        </p>
+        <div className='ui-notice'>
+          <AlertTriangle
+            className='mt-0.5 h-4 w-4 shrink-0 text-[var(--st-amber)]'
+            strokeWidth={1.8}
+          />
+          <p className='min-w-0 text-xs font-medium ink'>
+            {t('auth.unpairWipeUnsent', { count: unsent })}
+          </p>
+        </div>
       )}
     </div>
   );

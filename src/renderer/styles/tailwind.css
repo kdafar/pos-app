@@ -41,7 +41,7 @@
 /* Nice default “form control” look you can reuse (optional) */
 @layer components {
   .ui-field{
-    @apply w-full rounded-lg border px-3 py-2.5 text-sm outline-none shadow-sm;
+    @apply w-full rounded-[11px] border px-3 py-2.5 text-sm outline-none;
     background-color: rgb(var(--c-surface-2) / .85);
     color: rgb(var(--c-text));
     border-color: rgb(var(--c-border));

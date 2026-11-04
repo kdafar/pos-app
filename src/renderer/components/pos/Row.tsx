@@ -1,12 +1,10 @@
 import React from 'react';
-import { useThemeTokens } from '../../hooks/useThemeTokens';
 
 export default function Row({ label, value }: { label: string; value: string }) {
-  const { t } = useThemeTokens();
   return (
-    <div className={`flex justify-between ${t.textMuted}`}>
-      <span>{label}</span>
-      <span className="font-medium">{value}</span>
+    <div className="flex justify-between gap-3 ink-2">
+      <span className="min-w-0">{label}</span>
+      <span className="font-medium ink tabular-nums money">{value}</span>
     </div>
   );
 }

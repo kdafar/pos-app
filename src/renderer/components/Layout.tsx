@@ -33,8 +33,20 @@ import {
   ChefHat,
   LogOut,
   CircleHelp,
+  Ellipsis,
+  ChevronDown,
+  X,
   type LucideIcon,
 } from 'lucide-react';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerBody,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@heroui/react';
 
 type SyncStatus = {
   mode: 'live' | 'offline';
@@ -299,6 +311,17 @@ export function Layout() {
   const rail = narrow ? !openOnNarrow : collapsed;
   const toggleRail = () => (narrow ? setOpenOnNarrow((v) => !v) : toggleCollapsed());
 
+  /*
+   * Phones (< 768px) get no side rail: a bottom dock with the main screens
+   * and a "More" sheet for everything else.
+   */
+  const phone = useMediaQuery('(max-width: 767px)');
+  const [sheetOpen, setSheetOpen] = useState(false);
+  useEffect(() => setSheetOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!phone) setSheetOpen(false);
+  }, [phone]);
+
   // The restaurant, as in the portal's rail: its initial in a brand square.
   const storeName = sync?.branch_name || APP_VENDOR;
   const storeInitial = (storeName.trim()[0] || 'M').toUpperCase();
@@ -306,6 +329,317 @@ export function Layout() {
     user?.name || t('pos.operator'),
     user?.role || (user?.is_admin ? t('nav.role.admin') : t('nav.role.staff')),
   ].join(' · ');
+
+  /*
+   * Every link and the permission it is gated on, in ONE place. The rail, the
+   * "More" group, the popup, the dock and the phone sheet all read these
+   * lists, so they can never disagree about who sees what.
+   */
+  const path = location.pathname;
+  const mainItems: NavItemDef[] = [
+    can('orders.create') && { to: '/', text: t('nav.orderProcess'), icon: ShoppingCart },
+    can('orders.view_own') && { to: '/orders', text: t('nav.recentOrders'), icon: ReceiptText },
+    can('orders.kitchen_view') && { to: '/kitchen', text: t('nav.kitchen'), icon: ChefHat },
+    // Closing Report: reports.view
+    canReport && { to: '/reports/closing', text: t('nav.closingReport'), icon: BarChart3 },
+  ].filter(Boolean) as NavItemDef[];
+  const catalogItems: NavItemDef[] = canCatalog
+    ? [
+        { to: '/categories', text: t('nav.categories'), icon: FolderTree },
+        { to: '/items', text: t('nav.items'), icon: Package },
+        { to: '/promos', text: t('nav.promocodes'), icon: Ticket },
+      ]
+    : [];
+  const systemItems: NavItemDef[] = canSystemAny
+    ? ([
+        can('payments.manage') && { to: '/payment-methods', text: t('nav.paymentMethods'), icon: CreditCard },
+        can('locations.manage') && { to: '/locations', text: t('nav.locations'), icon: MapPin },
+        can('tables.manage') && { to: '/tables', text: t('nav.tables'), icon: Armchair },
+        can('settings.manage') && { to: '/settings', text: t('nav.settings'), icon: Settings },
+        can('updates.manage') && { to: '/updates', text: t('nav.updates'), icon: ArrowUpCircle, dot: updateReady },
+        can('users.permissions') && { to: '/permissions', text: t('nav.permissions'), icon: ShieldCheck },
+      ].filter(Boolean) as NavItemDef[])
+    : [];
+  const moreItems = [...catalogItems, ...systemItems];
+  const inMore = moreItems.some((i) => i.to === path);
+
+  // Open by itself when the current screen is inside the group; the operator's
+  // own toggle is remembered for the session.
+  const [moreOpen, setMoreOpen] = useState(inMore);
+  useEffect(() => {
+    if (inMore) setMoreOpen(true);
+  }, [inMore]);
+  const [popupOpen, setPopupOpen] = useState(false);
+  useEffect(() => setPopupOpen(false), [path]);
+
+  const { dir } = useI18n();
+
+  const renderItem = (
+    i: NavItemDef,
+    opts?: { onClick?: () => void; collapsed?: boolean }
+  ) => (
+    <NavLink
+      key={i.to}
+      to={i.to}
+      text={i.text}
+      icon={i.icon}
+      collapsed={opts?.collapsed ?? rail}
+      active={path === i.to}
+      dot={i.dot}
+      onClick={opts?.onClick}
+    />
+  );
+
+  /* Sync card: one definition, shown in the rail and in the phone sheet. */
+  const syncCard = (
+    <section
+      className='
+        rounded-[14px] border border-line bg-surface-2
+        px-3 py-2.5 text-xs
+      '
+    >
+      {/*
+        The branch gets its own full-width line.
+        Previously the branch name, the last-sync time, a status pill and
+        the sync button all shared one row inside a 260px sidebar, and the
+        branch was capped at max-w-[140px] — so "Habiba Sweets - Salmiya"
+        rendered as "Habiba Sweets - " and the operator could not tell
+        which branch the till was posting to. That is the one fact on this
+        card that must never be ambiguous.
+      */}
+      <div className='flex items-center justify-between gap-2 mb-1'>
+        <Hint placement='bottom' content={lastSyncExact}>
+          <div className='flex min-w-0 items-center gap-1 text-xs ink-2'>
+            <Timer size={14} strokeWidth={1.8} className='shrink-0' />
+            <span className='truncate'>{lastSyncText}</span>
+          </div>
+        </Hint>
+
+        {/* RIGHT: status + sync button */}
+        <div className='flex items-center gap-2 shrink-0'>
+          <Hint
+            placement='bottom'
+            content={
+              <span className='block'>
+                {sync?.mode === 'live'
+                  ? t('sync.onlineHint')
+                  : t('sync.offlineHint')}
+                {sync?.base_url && (
+                  <span className='mt-0.5 block text-default-700'>
+                    {sync.base_url}
+                  </span>
+                )}
+              </span>
+            }
+          >
+            <div
+              className={`ui-chip ${
+                sync?.mode === 'live' ? 'ui-chip-green' : 'ui-chip-gray'
+              }`}
+            >
+              {sync?.mode === 'live' ? (
+                <Cloud size={13} />
+              ) : (
+                <CloudOff size={13} />
+              )}
+              <span>
+                {sync?.mode === 'live' ? t('sync.online') : t('sync.offline')}
+              </span>
+            </div>
+          </Hint>
+
+          <Hint
+            placement='bottom'
+            content={
+              sync?.mode === 'live' ? t('nav.sync') : t('sync.cannotSync')
+            }
+          >
+            <button
+              onClick={() => {
+                if (sync?.mode !== 'live' || syncing) return;
+                runSync();
+              }}
+              aria-disabled={sync?.mode !== 'live' || syncing}
+              aria-label={t('nav.sync')}
+              className='ui-icon-btn ui-icon-btn-outline aria-disabled:cursor-not-allowed aria-disabled:opacity-50'
+            >
+              <RefreshCw
+                size={16}
+                strokeWidth={1.8}
+                className={syncing ? 'animate-spin' : ''}
+              />
+            </button>
+          </Hint>
+        </div>
+      </div>
+
+      {/* Branch: the whole width of the card, and the whole name on
+          hover on the rare one that still outruns it. */}
+      <Hint placement='bottom' content={sync?.branch_name || ''}>
+        <div className='flex min-w-0 items-center gap-1.5 text-xs ink'>
+          <GitBranch size={14} strokeWidth={1.8} className='shrink-0 ink-2' />
+          <span className='truncate font-medium'>
+            {sync?.branch_name || t('sync.noBranch')}
+          </span>
+        </div>
+      </Hint>
+
+      {!sync?.paired && (
+        <button
+          onClick={() => navigate('/settings')}
+          className='ui-btn ui-btn-sm mt-2 w-full bg-[var(--st-amber)] text-white'
+        >
+          <AlertTriangle size={16} strokeWidth={1.8} />
+          <span className='truncate'>{t('sync.notPaired')}</span>
+        </button>
+      )}
+    </section>
+  );
+
+  const updateButton = updateReady ? (
+    <button
+      onClick={() => navigate('/updates')}
+      className='ui-btn ui-btn-sm mb-1 w-full bg-[var(--st-green)] text-white'
+    >
+      <Rocket size={16} strokeWidth={1.8} />
+      <span className='truncate'>{t('update.badgeReady')}</span>
+    </button>
+  ) : null;
+
+  const versionLine = (
+    <div className='px-3 pt-1 text-[11px] ink-3 flex items-center justify-between'>
+      {/* Version + vendor are identifiers, never localized. */}
+      <span className='font-mono' dir='ltr'>
+        v{shownVersion}
+      </span>
+      <span className='uppercase tracking-[0.14em] text-[10px]' dir='ltr'>
+        {APP_VENDOR}
+      </span>
+    </div>
+  );
+
+  /* The Catalog + System links, with their section labels. */
+  const moreLinks = (opts?: { collapsed?: boolean; onClick?: () => void }) => (
+    <>
+      {catalogItems.length > 0 && (
+        <>
+          <SectionLabel>{t('nav.section.catalog')}</SectionLabel>
+          {catalogItems.map((i) => renderItem(i, opts))}
+        </>
+      )}
+      {systemItems.length > 0 && (
+        <>
+          <SectionLabel>{t('nav.section.system')}</SectionLabel>
+          {systemItems.map((i) => renderItem(i, opts))}
+        </>
+      )}
+    </>
+  );
+
+  /* ---------------- Phone: bottom dock + "More" sheet ---------------- */
+  if (phone) {
+    const closeSheet = () => setSheetOpen(false);
+    return (
+      <div className='h-screen w-screen overflow-hidden grid grid-cols-1 bg-background min-h-0 min-w-0'>
+        <main
+          className='h-full overflow-y-auto nice-scroll min-h-0 min-w-0'
+          style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+        >
+          <Outlet />
+        </main>
+
+        <nav
+          aria-label={t('nav.orders')}
+          className='fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface shadow-[var(--shadow-2)]'
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
+          <div className='flex items-stretch justify-around gap-1 px-1 py-1'>
+            {mainItems.slice(0, 4).map((i) => (
+              <DockItem
+                key={i.to}
+                to={i.to}
+                text={i.text}
+                icon={i.icon}
+                active={path === i.to}
+              />
+            ))}
+            <DockItem
+              text={t('nav.more')}
+              icon={Ellipsis}
+              active={sheetOpen || inMore}
+              dot={updateReady}
+              onPress={() => setSheetOpen(true)}
+              expanded={sheetOpen}
+            />
+          </div>
+        </nav>
+
+        <Drawer
+          isOpen={sheetOpen}
+          onOpenChange={setSheetOpen}
+          placement='bottom'
+          hideCloseButton
+          classNames={{
+            base: 'ui-popup rounded-b-none max-h-[calc(100dvh-2rem)]',
+          }}
+        >
+          <DrawerContent>
+            <DrawerHeader className='flex items-center justify-between gap-2 pb-1 text-base font-semibold ink'>
+              <span className='truncate'>{t('nav.more')}</span>
+              <button
+                type='button'
+                className='ui-icon-btn'
+                aria-label={t('common.close')}
+                onClick={closeSheet}
+              >
+                <X size={20} strokeWidth={1.8} />
+              </button>
+            </DrawerHeader>
+            <DrawerBody
+              className='gap-2 overflow-y-auto nice-scroll'
+              style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+            >
+              {syncCard}
+              {updateButton}
+              <nav className='space-y-0.5'>
+                {moreLinks({ collapsed: false, onClick: closeSheet })}
+              </nav>
+              <div className='mt-1 pt-2 border-t border-line space-y-0.5'>
+                <LanguageToggle row />
+                <button
+                  type='button'
+                  onClick={toggleTheme}
+                  className='ui-nav flex min-h-11 w-full items-center gap-3 px-3 text-sm'
+                >
+                  {theme === 'light' ? (
+                    <IconMoon className='h-5 w-5 shrink-0' />
+                  ) : (
+                    <IconSun className='h-5 w-5 shrink-0' />
+                  )}
+                  <span className='truncate'>{t('nav.toggleTheme')}</span>
+                </button>
+                <NavLink
+                  to='/help'
+                  text={t('nav.help')}
+                  icon={CircleHelp}
+                  active={path === '/help'}
+                  onClick={closeSheet}
+                />
+                <NavLink
+                  to='/logout'
+                  text={t('auth.logout')}
+                  icon={LogOut}
+                  active={false}
+                  onClick={closeSheet}
+                />
+                {versionLine}
+              </div>
+            </DrawerBody>
+          </DrawerContent>
+        </Drawer>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -372,222 +706,90 @@ export function Layout() {
         </div>
 
         {/* Sync card */}
-        {!rail && (
-          <section
-            className='
-              rounded-[14px] border border-line bg-surface-2
-              px-3 py-2.5 text-xs
-            '
-          >
-            {/*
-              The branch gets its own full-width line.
-              Previously the branch name, the last-sync time, a status pill and
-              the sync button all shared one row inside a 260px sidebar, and the
-              branch was capped at max-w-[140px] — so "Habiba Sweets - Salmiya"
-              rendered as "Habiba Sweets - " and the operator could not tell
-              which branch the till was posting to. That is the one fact on this
-              card that must never be ambiguous.
-            */}
-            <div className='flex items-center justify-between gap-2 mb-1'>
-              <Hint placement='bottom' content={lastSyncExact}>
-                <div className='flex min-w-0 items-center gap-1 text-xs ink-2'>
-                  <Timer size={14} strokeWidth={1.8} className='shrink-0' />
-                  <span className='truncate'>{lastSyncText}</span>
-                </div>
-              </Hint>
-
-              {/* RIGHT: status + sync button */}
-              <div className='flex items-center gap-2 shrink-0'>
-                <Hint
-                  placement='bottom'
-                  content={
-                    <span className='block'>
-                      {sync?.mode === 'live'
-                        ? t('sync.onlineHint')
-                        : t('sync.offlineHint')}
-                      {sync?.base_url && (
-                        <span className='mt-0.5 block text-default-700'>
-                          {sync.base_url}
-                        </span>
-                      )}
-                    </span>
-                  }
-                >
-                  <div
-                    className={`ui-chip ${
-                      sync?.mode === 'live' ? 'ui-chip-green' : 'ui-chip-gray'
-                    }`}
-                  >
-                    {sync?.mode === 'live' ? (
-                      <Cloud size={13} />
-                    ) : (
-                      <CloudOff size={13} />
-                    )}
-                    <span>
-                      {sync?.mode === 'live'
-                        ? t('sync.online')
-                        : t('sync.offline')}
-                    </span>
-                  </div>
-                </Hint>
-
-                <Hint
-                  placement='bottom'
-                  content={
-                    sync?.mode === 'live' ? t('nav.sync') : t('sync.cannotSync')
-                  }
-                >
-                  <button
-                    onClick={() => {
-                      if (sync?.mode !== 'live' || syncing) return;
-                      runSync();
-                    }}
-                    aria-disabled={sync?.mode !== 'live' || syncing}
-                    aria-label={t('nav.sync')}
-                    className='ui-icon-btn ui-icon-btn-outline aria-disabled:cursor-not-allowed aria-disabled:opacity-50'
-                  >
-                    <RefreshCw
-                      size={16}
-                      strokeWidth={1.8}
-                      className={syncing ? 'animate-spin' : ''}
-                    />
-                  </button>
-                </Hint>
-              </div>
-            </div>
-
-            {/* Branch: the whole width of the card, and the whole name on
-                hover on the rare one that still outruns it. */}
-            <Hint placement='bottom' content={sync?.branch_name || ''}>
-              <div className='flex min-w-0 items-center gap-1.5 text-xs ink'>
-                <GitBranch size={14} strokeWidth={1.8} className='shrink-0 ink-2' />
-                <span className='truncate font-medium'>
-                  {sync?.branch_name || t('sync.noBranch')}
-                </span>
-              </div>
-            </Hint>
-
-            {!sync?.paired && (
-              <button
-                onClick={() => navigate('/settings')}
-                className='ui-btn ui-btn-sm mt-2 w-full bg-[var(--st-amber)] text-white'
-              >
-                <AlertTriangle size={16} strokeWidth={1.8} />
-                <span className='truncate'>{t('sync.notPaired')}</span>
-              </button>
-            )}
-          </section>
-        )}
+        {!rail && syncCard}
 
         {/* Nav (RBAC) */}
         <nav className='space-y-0.5 flex-grow overflow-y-auto nice-scroll rail-scroll min-h-0'>
           <SectionLabel hidden={rail}>{t('nav.orders')}</SectionLabel>
-          {can('orders.create') && <NavLink
-            to='/'
-            text={t('nav.orderProcess')}
-            icon={ShoppingCart}
-            collapsed={rail}
-            active={location.pathname === '/'}
-          />}
-          {can('orders.view_own') && <NavLink
-            to='/orders'
-            text={t('nav.recentOrders')}
-            icon={ReceiptText}
-            collapsed={rail}
-            active={location.pathname === '/orders'}
-          />}
-          {can('orders.kitchen_view') && <NavLink to='/kitchen' text={t('nav.kitchen')} icon={ChefHat} collapsed={rail} active={location.pathname === '/kitchen'} />}
-          {/* Closing Report → admin only */}{' '}
-          {canReport && <NavLink to='/reports/closing' text={t('nav.closingReport')} icon={BarChart3} collapsed={rail} active={location.pathname === '/reports/closing'} />}
-          {canCatalog && (
+          {mainItems.map((i) => renderItem(i))}
+
+          {moreItems.length > 0 && !rail && (
             <>
-              <SectionLabel hidden={rail}>
-                {t('nav.section.catalog')}
-              </SectionLabel>
-              <NavLink
-                to='/categories'
-                text={t('nav.categories')}
-                icon={FolderTree}
-                collapsed={rail}
-                active={location.pathname === '/categories'}
-              />
-              <NavLink
-                to='/items'
-                text={t('nav.items')}
-                icon={Package}
-                collapsed={rail}
-                active={location.pathname === '/items'}
-              />
-              <NavLink
-                to='/promos'
-                text={t('nav.promocodes')}
-                icon={Ticket}
-                collapsed={rail}
-                active={location.pathname === '/promos'}
-              />
+              <button
+                type='button'
+                id='nav-more-toggle'
+                aria-expanded={moreOpen}
+                aria-controls='nav-more-group'
+                onClick={() => setMoreOpen((v) => !v)}
+                className='ui-nav group relative mt-2 flex w-full min-h-11 items-center gap-3 px-3 text-sm'
+              >
+                <span className='relative flex-shrink-0 inline-flex items-center justify-center'>
+                  <Ellipsis size={20} strokeWidth={1.8} />
+                  {updateReady && !moreOpen && (
+                    <span className='absolute -top-1 -end-1 h-2.5 w-2.5 rounded-full bg-[var(--st-green)] ring-2 ring-[var(--surface)]' />
+                  )}
+                </span>
+                <span className='truncate'>{t('nav.more')}</span>
+                <ChevronDown
+                  size={16}
+                  strokeWidth={1.8}
+                  className={`ms-auto shrink-0 transition-transform duration-150 ${
+                    moreOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+              {moreOpen && (
+                <div
+                  id='nav-more-group'
+                  role='group'
+                  aria-labelledby='nav-more-toggle'
+                  className='space-y-0.5'
+                >
+                  {moreLinks()}
+                </div>
+              )}
             </>
           )}
 
-          {canSystemAny && (
+          {moreItems.length > 0 && rail && (
             <>
-              <SectionLabel hidden={rail}>
-                {t('nav.section.system')}
-              </SectionLabel>
-              {can('payments.manage') && (
-                <NavLink
-                  to='/payment-methods'
-                  text={t('nav.paymentMethods')}
-                  icon={CreditCard}
-                  collapsed={rail}
-                  active={location.pathname === '/payment-methods'}
-                />
-              )}
-              {can('locations.manage') && (
-                <NavLink
-                  to='/locations'
-                  text={t('nav.locations')}
-                  icon={MapPin}
-                  collapsed={rail}
-                  active={location.pathname === '/locations'}
-                />
-              )}
-              {can('tables.manage') && (
-                <NavLink
-                  to='/tables'
-                  text={t('nav.tables')}
-                  icon={Armchair}
-                  collapsed={rail}
-                  active={location.pathname === '/tables'}
-                />
-              )}
-              {can('settings.manage') && (
-                <NavLink
-                  to='/settings'
-                  text={t('nav.settings')}
-                  icon={Settings}
-                  collapsed={rail}
-                  active={location.pathname === '/settings'}
-                />
-              )}
-              {can('updates.manage') && (
-                <NavLink
-                  to='/updates'
-                  text={t('nav.updates')}
-                  icon={ArrowUpCircle}
-                  collapsed={rail}
-                  active={location.pathname === '/updates'}
-                  dot={updateReady}
-                />
-              )}
-              {can('users.permissions') && (
-                <NavLink
-                  to='/permissions'
-                  text={t('nav.permissions')}
-                  icon={ShieldCheck}
-                  collapsed={rail}
-                  active={location.pathname === '/permissions'}
-                />
-              )}
+              <SectionLabel hidden />
+              <Hint content={t('nav.more')} isDisabled={popupOpen}>
+                <div className='mx-auto w-11'>
+                  <Popover
+                    isOpen={popupOpen}
+                    onOpenChange={setPopupOpen}
+                    placement={dir === 'rtl' ? 'left-start' : 'right-start'}
+                    offset={12}
+                  >
+                    <PopoverTrigger>
+                      <button
+                        type='button'
+                        aria-label={t('nav.more')}
+                        aria-current={inMore ? 'page' : undefined}
+                        aria-haspopup='menu'
+                        aria-expanded={popupOpen}
+                        className='ui-nav group relative flex h-11 w-11 items-center justify-center'
+                      >
+                        <span className='relative inline-flex items-center justify-center'>
+                          <Ellipsis size={20} strokeWidth={1.8} />
+                          {updateReady && (
+                            <span className='absolute -top-1 -end-1 h-2.5 w-2.5 rounded-full bg-[var(--st-green)] ring-2 ring-[var(--surface)]' />
+                          )}
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className='ui-popup w-60 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto nice-scroll p-2 items-stretch'>
+                      <div className='space-y-0.5'>
+                        {moreLinks({
+                          collapsed: false,
+                          onClick: () => setPopupOpen(false),
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </Hint>
             </>
           )}
         </nav>
@@ -602,15 +804,7 @@ export function Layout() {
 
           {/* A downloaded update is announced to every operator, not just
               admins, because whoever closes the till is who applies it. */}
-          {updateReady && !rail && (
-            <button
-              onClick={() => navigate('/updates')}
-              className='ui-btn ui-btn-sm mb-1 w-full bg-[var(--st-green)] text-white'
-            >
-              <Rocket size={16} strokeWidth={1.8} />
-              <span className='truncate'>{t('update.badgeReady')}</span>
-            </button>
-          )}
+          {!rail && updateButton}
 
           {/* Help is for everyone, so it is not under System/Settings. */}
           <NavLink
@@ -618,7 +812,7 @@ export function Layout() {
             text={t('nav.help')}
             icon={CircleHelp}
             collapsed={rail}
-            active={location.pathname === '/help'}
+            active={path === '/help'}
           />
           <NavLink
             to='/logout'
@@ -628,17 +822,7 @@ export function Layout() {
             active={false}
           />
           {/* Tiny version badge */}
-          {!rail && (
-            <div className='px-3 pt-1 text-[11px] ink-3 flex items-center justify-between'>
-              {/* Version + vendor are identifiers, never localized. */}
-              <span className='font-mono' dir='ltr'>
-                v{shownVersion}
-              </span>
-              <span className='uppercase tracking-[0.14em] text-[10px]' dir='ltr'>
-                {APP_VENDOR}
-              </span>
-            </div>
-          )}
+          {!rail && versionLine}
 
           {rail && (
             <div
@@ -659,6 +843,75 @@ export function Layout() {
   );
 }
 
+type NavItemDef = {
+  to: string;
+  text: string;
+  icon: LucideIcon;
+  dot?: boolean;
+};
+
+/**
+ * A phone dock entry: icon over a small label, 44px+ tall. The current screen
+ * is the brand-filled pill around the icon with the label in brand-strong.
+ * With `to` it is a router Link; without, a button (the "More" sheet opener).
+ */
+function DockItem({
+  to,
+  text,
+  icon: Icon,
+  active,
+  dot = false,
+  onPress,
+  expanded,
+}: {
+  to?: string;
+  text: string;
+  icon: LucideIcon;
+  active: boolean;
+  dot?: boolean;
+  onPress?: () => void;
+  expanded?: boolean;
+}) {
+  const cls =
+    'group flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[12px] px-1 py-1 text-[11px] font-medium transition-colors duration-150 ' +
+    (active ? 'text-[var(--brand-strong)] font-semibold' : 'ink-2');
+  const inner = (
+    <>
+      <span
+        className={`relative inline-flex h-7 w-12 items-center justify-center rounded-full transition-colors duration-150 ${
+          active
+            ? 'bg-[var(--brand)] text-[var(--brand-ink)]'
+            : 'group-hover:bg-[var(--hover)]'
+        }`}
+      >
+        <Icon size={22} strokeWidth={1.8} />
+        {dot && (
+          <span className='absolute top-0 end-2 h-2.5 w-2.5 rounded-full bg-[var(--st-green)] ring-2 ring-[var(--surface)]' />
+        )}
+      </span>
+      <span className='max-w-full text-center leading-tight line-clamp-2 break-words'>{text}</span>
+    </>
+  );
+  if (to) {
+    return (
+      <Link to={to} aria-current={active ? 'page' : undefined} className={cls}>
+        {inner}
+      </Link>
+    );
+  }
+  return (
+    <button
+      type='button'
+      onClick={onPress}
+      aria-haspopup='dialog'
+      aria-expanded={expanded}
+      className={cls}
+    >
+      {inner}
+    </button>
+  );
+}
+
 /**
  * A sidebar entry.
  *
@@ -676,6 +929,7 @@ function NavLink({
   collapsed,
   active = false,
   dot = false,
+  onClick,
 }: {
   to: string;
   text: string;
@@ -684,6 +938,7 @@ function NavLink({
   active?: boolean;
   /** Small marker for "something is waiting here" — e.g. a downloaded update. */
   dot?: boolean;
+  onClick?: () => void;
 }) {
   // The portal's nav item: the current screen is a brand fill with the
   // brand's own text colour (`.ui-nav[aria-current=page]`), the rest ink-2.
@@ -699,6 +954,7 @@ function NavLink({
     <Hint content={text} isDisabled={!collapsed}>
       <Link
         to={to}
+        onClick={onClick}
         aria-label={collapsed ? text : undefined}
         aria-current={active ? 'page' : undefined}
         className={`${baseClasses} ${collapsed ? collapsedClasses : expandedClasses}`}
@@ -719,7 +975,7 @@ function SectionLabel({
   children,
   hidden,
 }: {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   hidden?: boolean;
 }) {
   // Collapsed, the heading has no room — but the grouping it conveys still
@@ -743,7 +999,7 @@ const IconPanelLeft = ({ className }: { className?: string }) => (
     viewBox='0 0 24 24'
     fill='none'
     stroke='currentColor'
-    strokeWidth='2'
+    strokeWidth='1.8'
     strokeLinecap='round'
     strokeLinejoin='round'
     className={className}
@@ -758,7 +1014,7 @@ const IconPanelRight = ({ className }: { className?: string }) => (
     viewBox='0 0 24 24'
     fill='none'
     stroke='currentColor'
-    strokeWidth='2'
+    strokeWidth='1.8'
     strokeLinecap='round'
     strokeLinejoin='round'
     className={className}
@@ -773,7 +1029,7 @@ const IconMoon = ({ className }: { className?: string }) => (
     viewBox='0 0 24 24'
     fill='none'
     stroke='currentColor'
-    strokeWidth='2'
+    strokeWidth='1.8'
     strokeLinecap='round'
     strokeLinejoin='round'
     className={className}
@@ -787,7 +1043,7 @@ const IconSun = ({ className }: { className?: string }) => (
     viewBox='0 0 24 24'
     fill='none'
     stroke='currentColor'
-    strokeWidth='2'
+    strokeWidth='1.8'
     strokeLinecap='round'
     strokeLinejoin='round'
     className={className}

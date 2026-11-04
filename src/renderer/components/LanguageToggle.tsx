@@ -40,7 +40,7 @@ export function LanguageToggle({
         lang={other.code}
         className='ui-nav flex min-h-11 w-full items-center gap-2.5 px-2.5 py-2 text-sm'
       >
-        <Languages size={18} strokeWidth={1.9} className='shrink-0' />
+        <Languages size={18} strokeWidth={1.8} className='shrink-0' />
         <span className='truncate'>{other.label}</span>
       </button>
     );

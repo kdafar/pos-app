@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import type { ColumnDef } from '@tanstack/react-table';
 import { Printer, QrCode, Eye } from 'lucide-react';
 import { Button, DatePicker, Input, Select, SelectItem } from '@heroui/react';
 import { parseDate } from '@internationalized/date';
@@ -10,13 +9,14 @@ import { PaymentMethodCell } from './PaymentMethodCell';
 import { OrderDetailModal } from './OrderDetailModal';
 import { MarkPaidControl } from '../components/MarkPaidControl';
 import { SYNCED_EVENT } from '../utils/syncEvents';
-import { DataTable } from '../components/DataTable';
+import { OrderCard } from '../components/OrderCard';
 import { PaymentLinkModal } from './pos/components/PaymentLinkModal';
 import { useRootTheme } from './pos/useRootTheme';
 import { usePermissions } from '../hooks/usePermissions';
 import { useI18n, useOrderTypeLabel, useStatusLabel } from '../i18n';
 import type { StringKey } from '../i18n';
 import { HelpButton } from '../help/HelpButton';
+import { shortOrderLabel } from '../utils/orderLabel';
 
 declare global {
   interface Window {
@@ -177,7 +177,7 @@ export default function TodayOrdersReport() {
   );
 
   // small icon button for row actions (44px on touch via .ui-icon-btn)
-  const rowBtnCls = 'ui-icon-btn ui-icon-btn-outline !h-9 !w-9';
+  const rowBtnCls = 'ui-icon-btn ui-icon-btn-outline';
   const selectClasses = {
     trigger: 'ui-input min-h-10 px-3 shadow-none',
     value: 'text-sm ink',
@@ -319,123 +319,104 @@ export default function TodayOrdersReport() {
     [t]
   );
 
-  const columns = useMemo<ColumnDef<Order>[]>(
-    () => [
-      {
-        id: 'reference_no',
-        accessorFn: (row) => row.reference_no || row.number,
-        header: () => t('admin.orders.number'),
-        cell: (info) => info.getValue() as string,
-        size: 105,
-      },
-      {
-        accessorKey: 'status',
-        header: () => t('admin.status'),
-        cell: ({ row }) => <StatusBadge order={row.original} />,
-        enableSorting: false,
-        size: 100,
-      },
-      {
-        id: 'setStatus',
-        header: () => t('admin.orders.changeStatus'),
-        size: 135,
-        enableSorting: false,
-        meta: { nowrap: true },
-        // Read-only badge above shows where the order is; this moves it on.
-        cell: ({ row }) => (
-          <OrderStatusCell
-            orderId={String((row.original as any).id)}
-            status={row.original.status}
-            statusCode={row.original.status_code}
-            disabled={!canChangeStatus}
-            onChanged={() => refreshRef.current()}
-          />
-        ),
-      },
-      {
-        id: 'paid',
-        header: () => t('admin.orders.paid'),
-        // Room for "Paid · KNET · Admin".
-        size: 170,
-        enableSorting: false,
-        // Always visible now: it is also where an order is marked paid.
-        meta: { nowrap: true },
-        // The till creates payment links and then never surfaced the outcome,
-        // so a cashier handing over food had no way to tell whether the
-        // customer had actually paid. Pressing an unpaid badge marks it paid.
-        cell: ({ row }) => (
-          <MarkPaidControl order={row.original as any} onChanged={() => refreshRef.current()} trigger='badge' />
-        ),
-      },
-      {
-        accessorKey: 'order_type',
-        header: () => t('admin.type'),
-        cell: ({ row }) => typeLabel(row.original.order_type),
-        sortingFn: 'alphanumeric',
-        size: 85,
-      },
-      {
-        id: 'customer',
-        header: () => t('admin.orders.customer'),
-        cell: ({ row }) => (
-          <div className='leading-tight'>
-            <div className='font-medium'>{row.original.full_name || '—'}</div>
-            <div className='text-xs ink-2'>
-              {row.original.mobile || ''}
-            </div>
-          </div>
-        ),
-        enableSorting: false,
-        size: 170,
-      },
-      {
-        accessorKey: 'grand_total',
-        header: () => t('common.total'),
-        cell: (info) => (
-          <span className='font-semibold money'>
-            {money(info.getValue() as number)}
-          </span>
-        ),
-        sortingFn: 'alphanumeric',
-        size: 85,
-      },
-      {
-        id: 'updated_at',
-        header: () => t('admin.orders.updated'),
-        accessorFn: (row) => bestUpdatedMs(row),
-        cell: ({ row }) => {
-          const ms = bestUpdatedMs(row.original);
-          // Latin numerals in both languages — Kuwaiti receipts never use
-          // Arabic-Indic digits, so the report must match.
-          return ms ? (
-            <span className='money'>
-              {new Date(ms).toLocaleString(
-                lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB'
-              )}
-            </span>
-          ) : (
-            '—'
-          );
-        },
-        sortingFn: 'basic',
-        size: 145,
-        meta: { nowrap: true, className: 'hidden' },
-      },
-      {
-        id: 'actions',
-        header: () => t('admin.actions'),
-        enableSorting: false,
-        // Wide enough for three buttons. Under `table-fixed` an undersized
-        // column does not clip — it overflows and overlaps its neighbour.
-        size: 110,
-        cell: ({ row }) =>
+  const timeText = (row: Order) => {
+    const ms = bestUpdatedMs(row);
+    // Latin numerals in both languages, as the table showed.
+    return ms
+      ? new Date(ms).toLocaleTimeString(
+          lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB',
+          { hour: '2-digit', minute: '2-digit' }
+        )
+      : '—';
+  };
+
+  // Same default order the table had: last update first.
+  const sorted = useMemo(
+    () => [...filtered].sort((a, b) => bestUpdatedMs(b) - bestUpdatedMs(a)),
+    [filtered]
+  );
+  const [pageIndex, setPageIndex] = useState(0);
+  const resetKey = `${q}|${type}|${fromDate}|${toDate}|${pageSize}`;
+  useEffect(() => setPageIndex(0), [resetKey]);
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const page = Math.min(pageIndex, pageCount - 1);
+  const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize);
+
+  const renderCard = (o: Order) => {
+    const id = o.id ? String(o.id) : null;
+    const label = o.reference_no || o.number;
+    const settled =
+      ['closed', 'completed', 'cancelled'].includes(
+        String(o.status ?? '').toLowerCase()
+      ) || [4, 5, 6, 8, 9].includes(Number(o.status_code));
+    const canOpen = canViewDetail && !!id;
+    return (
+      <OrderCard
+        key={id ?? o.number}
+        header={shortOrderLabel(o as any)}
+        type={<span className='ui-chip ui-chip-outline'>{typeLabel(o.order_type)}</span>}
+        time={<span className='ui-chip ui-chip-outline money'>{timeText(o)}</span>}
+        meta={[o.full_name || '—', o.mobile].filter(Boolean).join(' · ')}
+        money={money(o.grand_total as number)}
+        payment={
+          <MarkPaidControl order={o as any} onChanged={() => refreshRef.current()} trigger='badge' />
+        }
+        // The Update status control below already shows the status to anyone
+        // who may change it; the chip is for everyone else.
+        status={canChangeStatus ? undefined : <StatusBadge order={o} />}
+        onOpen={canOpen ? () => setDetailId(id!) : undefined}
+        footer={
+          <>
+            <OrderStatusCell
+              orderId={String(o.id)}
+              status={o.status}
+              statusCode={o.status_code}
+              disabled={!canChangeStatus}
+              onChanged={() => refreshRef.current()}
+            />
+            {id && !settled ? (
+              <PaymentMethodCell
+                orderId={id}
+                slug={(o as any).payment_method_slug}
+                mobile={o.mobile}
+                amount={Number(o.grand_total ?? 0)}
+                orderNumber={label}
+                onChanged={() => refreshRef.current()}
+                onPaymentLink={({ url, mobile, delivery }) => {
+                  toast({
+                    tone: 'success',
+                    title: t('admin.orders.payLinkSent'),
+                    message: t('admin.orders.payLinkDelivery', {
+                      sms: delivery?.sms?.sent ? t('common.yes') : t('common.no'),
+                      whatsapp: delivery?.whatsapp?.sent
+                        ? t('common.yes')
+                        : t('common.no'),
+                    }),
+                  });
+                  setQrOrder({
+                    url,
+                    mobile,
+                    amount: Number(o.grand_total ?? 0),
+                    label,
+                    orderId: id,
+                  });
+                }}
+              />
+            ) : (
+              <span className='text-sm ink-2'>
+                {(o as any).payment_method_slug || '—'}
+              </span>
+            )}
+          </>
+        }
+        actions={
           canViewDetail ? (
-            <div className='flex items-center gap-1.5'>
-              {row.original.id && (
+            <>
+              {id && (
                 <Hint content={t('admin.orders.viewDetail')} placement='top'>
                   <button
                     className={rowBtnCls}
-                    onClick={() => setDetailId(String(row.original.id))}
+                    onClick={() => setDetailId(id)}
                     aria-label={t('admin.orders.viewDetail')}
                   >
                     <Eye size={16} strokeWidth={1.8} />
@@ -445,104 +426,30 @@ export default function TodayOrdersReport() {
               <Hint content={t('admin.orders.printReceipt')} placement='top'>
                 <button
                   className={rowBtnCls}
-                  onClick={() => handlePrint(row.original.id)}
+                  onClick={() => handlePrint(o.id)}
                   aria-label={t('admin.orders.printReceipt')}
                 >
                   <Printer size={16} strokeWidth={1.8} />
                 </button>
               </Hint>
-              {(row.original as any).payment_link_url && row.original.id && (
+              {(o as any).payment_link_url && id && (
                 <Hint content={t('admin.orders.showQr')} placement='top'>
                   <button
                     className={rowBtnCls}
-                    onClick={() => showPaymentQr(String(row.original.id))}
+                    onClick={() => showPaymentQr(id)}
                     aria-label={t('admin.orders.showQr')}
                   >
                     <QrCode size={16} strokeWidth={1.8} />
                   </button>
                 </Hint>
               )}
-            </div>
-          ) : null,
-      },
-      {
-        id: 'payment',
-        header: () => t('cust.paymentMethod'),
-        enableSorting: false,
-        size: 105,
-        cell: ({ row }) =>
-          row.original.id &&
-          !['closed', 'completed', 'cancelled'].includes(
-            String(row.original.status ?? '').toLowerCase()
-          ) &&
-          ![4, 5, 6, 8, 9].includes(Number(row.original.status_code)) ? (
-            <PaymentMethodCell
-              orderId={String(row.original.id)}
-              slug={(row.original as any).payment_method_slug}
-              mobile={row.original.mobile}
-              amount={Number(row.original.grand_total ?? 0)}
-              orderNumber={row.original.reference_no || row.original.number}
-              onChanged={() => refreshRef.current()}
-              onPaymentLink={({ url, mobile, delivery }) => {
-                toast({
-                  tone: 'success',
-                  title: t('admin.orders.payLinkSent'),
-                  message: t('admin.orders.payLinkDelivery', {
-                    sms: delivery?.sms?.sent ? t('common.yes') : t('common.no'),
-                    whatsapp: delivery?.whatsapp?.sent
-                      ? t('common.yes')
-                      : t('common.no'),
-                  }),
-                });
-                setQrOrder({
-                  url,
-                  mobile,
-                  amount: Number(row.original.grand_total ?? 0),
-                  label: row.original.reference_no || row.original.number,
-                  orderId: String(row.original.id),
-                });
-              }}
-            />
-          ) : (
-            <span className='ink-2'>
-              {(row.original as any).payment_method_slug || '—'}
-            </span>
-          ),
-      },
-      {
-        id: 'order_time',
-        header: () => t('admin.orders.time'),
-        accessorFn: (row) => bestUpdatedMs(row),
-        cell: ({ row }) => {
-          const ms = bestUpdatedMs(row.original);
-          return ms ? (
-            <span className='money'>
-              {new Date(ms).toLocaleTimeString(
-                lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB',
-                { hour: '2-digit', minute: '2-digit' }
-              )}
-            </span>
-          ) : (
-            '—'
-          );
-        },
-        sortingFn: 'basic',
-        size: 75,
-        meta: { nowrap: true },
-      },
-    ],
-    [
-      handlePrint,
-      showPaymentQr,
-      canViewDetail,
-      canChangeStatus,
-      t,
-      money,
-      lang,
-      typeLabel,
-      theme,
-    ]
-  ); // keep in sync with admin state
+            </>
+          ) : null
+        }
+      />
+    );
+  };
+
 
 
 
@@ -566,7 +473,7 @@ export default function TodayOrdersReport() {
             onValueChange={setQ}
             placeholder={t('admin.orders.searchPlaceholder')}
             aria-label={t('admin.orders.searchPlaceholder')}
-            classNames={{ base: 'min-w-[12rem] flex-1 sm:max-w-sm', inputWrapper: 'ui-input' }}
+            classNames={{ base: 'basis-full sm:basis-auto min-w-[12rem] flex-1 sm:max-w-sm', inputWrapper: 'ui-input' }}
           />
 
           <Select
@@ -577,7 +484,7 @@ export default function TodayOrdersReport() {
               const next = Array.from(keys)[0];
               if (next != null) setType(String(next) as any);
             }}
-            className='w-36 min-w-[8.5rem]'
+            className='flex-1 sm:flex-none sm:w-36 min-w-[8.5rem]'
             classNames={selectClasses}
           >
             <SelectItem key='all'>{t('admin.orders.allTypes')}</SelectItem>
@@ -590,7 +497,7 @@ export default function TodayOrdersReport() {
             aria-label={t('admin.orders.fromDate')}
             value={toCalendar(fromDate)}
             onChange={(v) => setFromDate(v ? v.toString() : '')}
-            className='w-44 min-w-[10.5rem]'
+            className='flex-1 sm:flex-none sm:w-44 min-w-[9.5rem]'
             classNames={dateClasses}
           />
 
@@ -599,7 +506,7 @@ export default function TodayOrdersReport() {
             value={toCalendar(toDate)}
             minValue={toCalendar(fromDate) ?? undefined}
             onChange={(v) => setToDate(v ? v.toString() : '')}
-            className='w-44 min-w-[10.5rem]'
+            className='flex-1 sm:flex-none sm:w-44 min-w-[9.5rem]'
             classNames={dateClasses}
           />
 
@@ -637,21 +544,42 @@ export default function TodayOrdersReport() {
       <HelpButton />
       </div>
 
-      <DataTable
-        data={filtered}
-        columns={columns}
-        loading={loading}
-        initialSorting={[{ id: 'updated_at', desc: true }]}
-        pageSize={pageSize}
-        onPageSizeChange={setPageSize}
-        getRowId={(r, i) => String((r as any).id ?? i)}
-        resetPageKey={`${q}|${type}|${fromDate}|${toDate}`}
-        empty={
-          q || type !== 'all'
+      {loading && rows.length === 0 ? (
+        <div className='py-12 text-center text-base ink-2'>{t('common.loading')}</div>
+      ) : sorted.length === 0 ? (
+        <div className='rounded-[20px] border border-dashed border-line-strong py-12 text-center text-base ink-2'>
+          {q || type !== 'all'
             ? t('admin.orders.noneFiltered')
-            : t('admin.orders.noneToday')
-        }
-      />
+            : t('admin.orders.noneToday')}
+        </div>
+      ) : (
+        <>
+          <div className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 sm:gap-4'>
+            {pageRows.map(renderCard)}
+          </div>
+          <div className='mt-4 flex flex-wrap items-center justify-center gap-3'>
+            <button
+              type='button'
+              className='ui-btn ui-btn-outline ui-btn-sm'
+              disabled={page <= 0}
+              onClick={() => setPageIndex(page - 1)}
+            >
+              {t('admin.prev')}
+            </button>
+            <span className='text-sm ink-2'>
+              {t('admin.pageOf', { page: page + 1, pages: pageCount })}
+            </span>
+            <button
+              type='button'
+              className='ui-btn ui-btn-outline ui-btn-sm'
+              disabled={page >= pageCount - 1}
+              onClick={() => setPageIndex(page + 1)}
+            >
+              {t('admin.next')}
+            </button>
+          </div>
+        </>
+      )}
 
 
       {detailId && (

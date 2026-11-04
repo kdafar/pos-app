@@ -5,16 +5,16 @@ import { useI18n } from '../../../i18n';
 import { floorsOf, initialFloor, NO_FLOOR, onFloor } from '../tableFloors';
 
 /**
- * Solid status fills, one meaning per colour, white text. Same in both themes.
- * The table on screen takes the brand fill and a brand ring.
+ * Quiet tables: every pill is a neutral surface with a hairline border; only a
+ * small solid dot carries the status. The table on screen takes the brand
+ * border and ring.
  */
-const STATUS_FILL: Record<TableInfo['status'], string> = {
-  available: 'bg-[var(--st-green)] text-white border-transparent',
-  reserved: 'bg-[var(--st-amber)] text-white border-transparent',
-  occupied: 'bg-[var(--st-red)] text-white border-transparent',
+const STATUS_DOT: Record<TableInfo['status'], string> = {
+  available: 'bg-[var(--st-green)]',
+  reserved: 'bg-[var(--st-amber)]',
+  occupied: 'bg-[var(--st-red)]',
 };
-const ACTIVE_FILL =
-  'bg-[var(--brand)] text-[var(--brand-ink)] border-transparent ring-4 ring-[var(--brand-ring)]';
+const ACTIVE_RING = 'border-[var(--brand)] ring-4 ring-[var(--brand-ring)]';
 
 export function TableQuickBar({
   theme: _theme,
@@ -61,8 +61,8 @@ export function TableQuickBar({
   if (!tables.length) return null;
 
   return (
-    <div className='px-4 py-2 bg-canvas'>
-      <div className="flex items-center gap-2 overflow-x-auto py-1 px-1">
+    <div className='px-3 lg:px-4 py-1 bg-canvas'>
+      <div className="flex items-center gap-2 overflow-x-auto chip-scroll py-1 px-1">
         <span className="text-xs font-semibold uppercase tracking-wide ink-2 whitespace-nowrap">
           {translate('nav.tables')}
         </span>
@@ -106,14 +106,23 @@ export function TableQuickBar({
               }}
               // Not faded when it cannot be tapped: a busy table still has to
               // read as busy from arm's length. The cursor says "not this one".
-              className={`min-h-11 px-4 rounded-full text-sm font-semibold whitespace-nowrap border transition disabled:cursor-not-allowed active:scale-[.98] ${
-                isActive ? ACTIVE_FILL : STATUS_FILL[t.status]
+              className={`inline-flex shrink-0 items-center gap-2 min-h-11 px-3.5 rounded-full text-sm font-semibold whitespace-nowrap border bg-[var(--surface)] text-[var(--ink)] transition disabled:cursor-not-allowed active:scale-[.98] ${
+                isActive ? ACTIVE_RING : 'border-[var(--line-strong)]'
               }`}
             >
+              <span
+                className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[t.status]}`}
+                aria-hidden
+              />
               {lang === 'ar' && t.name_ar ? t.name_ar : t.name}
               {t.seats ? (
-                <span className="ms-1 text-xs money">({t.seats})</span>
+                <span className="text-xs font-medium ink-2 money">({t.seats})</span>
               ) : null}
+              {t.status === 'occupied' && (
+                <span className="text-xs font-semibold text-[var(--st-red)]">
+                  {translate('tables.occupied')}
+                </span>
+              )}
             </button>
           );
         })}

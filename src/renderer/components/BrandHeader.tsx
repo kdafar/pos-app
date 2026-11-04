@@ -28,7 +28,7 @@ export function BrandHeader({
         <img
           src={logoUrl}
           alt={title}
-          className='h-10 w-10 rounded-xl border border-line bg-surface object-contain'
+          className='h-10 w-10 rounded-[11px] border border-line bg-surface object-contain'
           draggable={false}
         />
         <div className={`${align === 'center' ? 'hidden' : 'block'}`}>

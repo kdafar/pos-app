@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, Puzzle, Layers } from 'lucide-react';
+import { Puzzle, Layers } from 'lucide-react';
 import { fileUrl } from '../../../utils/fileUrl';
 import { useI18n } from '../../../i18n';
 import { Item } from '../types';
@@ -17,14 +17,18 @@ export function ItemCard({
 }) {
   const { t, name: localName, money, isRTL } = useI18n();
   const [localImageFailed, setLocalImageFailed] = useState(false);
+  const [remoteImageFailed, setRemoteImageFailed] = useState(false);
 
   const localSrc = item.image_local ? fileUrl(item.image_local) : null;
-  const remoteSrc = item.image || null;
+  const remoteSrc = item.image && !remoteImageFailed ? item.image : null;
   const activeSrc = localSrc && !localImageFailed ? localSrc : remoteSrc;
+  // No photo (or it failed to load): a compact text card, no empty image box.
+  const compact = !activeSrc;
 
   useEffect(() => {
     setLocalImageFailed(false);
-  }, [item.id, item.image_local]);
+    setRemoteImageFailed(false);
+  }, [item.id, item.image_local, item.image]);
 
   const hasAddons = !!item.has_addons;
   const hasVariations = !!item.has_variations;
@@ -50,65 +54,57 @@ export function ItemCard({
     }
   };
 
+  const optionsChip = needsOptions && (
+    <span className='ui-chip ui-chip-gray'>
+      {hasVariations ? (
+        <Layers size={12} strokeWidth={1.8} />
+      ) : (
+        <Puzzle size={12} strokeWidth={1.8} />
+      )}
+      {hasVariations
+        ? hasAddons
+          ? t('pos.options')
+          : t('pos.sizes')
+        : t('pos.addons')}
+    </span>
+  );
+
   return (
     <button
       key={item.id}
       onClick={handleClick}
       disabled={outOfStock}
-      // Out of stock: the card keeps full-strength text; a solid red chip over
-      // a surface scrim states it. No opacity on text, no black wash.
+      // Out of stock: the card SURFACE is dimmed and a solid red chip says why;
+      // the text stays full strength.
       className={`ui-card ui-card-raise group relative flex flex-col text-start p-3
-        ${outOfStock ? 'cursor-not-allowed' : 'hover:border-[var(--line-strong)] active:scale-[.99]'}`}
+        ${outOfStock ? 'cursor-not-allowed !bg-[var(--surface-2)]' : 'hover:border-[var(--line-strong)] active:scale-[.99]'}`}
     >
-      {/* IMAGE + OPTIONS BADGE */}
-      <div className='relative w-full pos-thumb rounded-[14px] overflow-hidden bg-surface-2 mb-2'>
-        {activeSrc ? (
+      {/* IMAGE (only when there is one) */}
+      {!compact && (
+        <div className='relative w-full pos-thumb rounded-[14px] overflow-hidden bg-surface-2 mb-2'>
           <img
-            src={activeSrc}
+            src={activeSrc!}
             alt={item.name}
             loading='lazy'
-            className='w-full h-full object-cover object-center'
-            onError={(e) => {
-              if (activeSrc === localSrc) {
-                setLocalImageFailed(true);
-              } else {
-                e.currentTarget.style.display = 'none';
-                e.currentTarget.parentElement?.classList.add(
-                  'flex',
-                  'items-center',
-                  'justify-center'
-                );
-              }
+            className={`w-full h-full object-cover object-center ${outOfStock ? 'opacity-50' : ''}`}
+            onError={() => {
+              if (activeSrc === localSrc) setLocalImageFailed(true);
+              else setRemoteImageFailed(true);
             }}
           />
-        ) : (
-          <div className='w-full h-full flex items-center justify-center'>
-            <Package size={30} strokeWidth={1.8} className='ink-2' />
-          </div>
-        )}
-
-        {needsOptions && (
-          <span
-            className={`ui-chip absolute start-1.5 bottom-1.5 ${
-              'ui-chip-gray'
-            }`}
-          >
-            {hasVariations ? (
-              <Layers size={12} strokeWidth={1.8} />
-            ) : (
-              <Puzzle size={12} strokeWidth={1.8} />
-            )}
-            {hasVariations
-              ? hasAddons
-                ? t('pos.options')
-                : t('pos.sizes')
-              : t('pos.addons')}
-          </span>
-        )}
-      </div>
+          {optionsChip && (
+            <span className='absolute start-1.5 bottom-1.5 flex'>{optionsChip}</span>
+          )}
+          {outOfStock && (
+            <span className='ui-chip ui-chip-red absolute start-1.5 top-1.5'>
+              {t('pos.outOfStock')}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* TITLE */}
-      <div className='flex-1 mb-1'>
+      <div className='mb-1'>
         <h3 className='font-semibold text-foreground pos-sm leading-snug line-clamp-2'>
           {localName(item)}
         </h3>
@@ -117,8 +113,18 @@ export function ItemCard({
         </p>
       </div>
 
+      {/* Compact card: chips inline under the name */}
+      {compact && (optionsChip || outOfStock) && (
+        <div className='mb-1 flex flex-wrap gap-1'>
+          {optionsChip}
+          {outOfStock && (
+            <span className='ui-chip ui-chip-red'>{t('pos.outOfStock')}</span>
+          )}
+        </div>
+      )}
+
       {/* PRICE ONLY */}
-      <div className='mt-1 flex items-baseline justify-end gap-1'>
+      <div className='mt-auto pt-1 flex items-baseline justify-end gap-1'>
         {hasVariations && (
           <span className='pos-xs font-medium ink-2'>
             {t('pos.from')}
@@ -129,12 +135,6 @@ export function ItemCard({
           <span className='money'>{money(displayPrice)}</span>
         </span>
       </div>
-
-      {outOfStock && (
-        <div className='absolute inset-0 flex items-center justify-center rounded-[20px] bg-surface/80'>
-          <span className='ui-chip ui-chip-red'>{t('pos.outOfStock')}</span>
-        </div>
-      )}
     </button>
   );
 }

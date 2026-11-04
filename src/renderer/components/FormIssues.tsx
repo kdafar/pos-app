@@ -187,7 +187,7 @@ export function ValidationSummary({
                   type='button'
                   onClick={onDismiss}
                   aria-label={t('toast.dismiss')}
-                  className='grid h-8 w-8 shrink-0 place-items-center rounded-lg ink-2 hover:bg-[var(--hover)] hover:text-[var(--ink)]'
+                  className='grid h-8 w-8 shrink-0 place-items-center rounded-[11px] ink-2 hover:bg-[var(--hover)] hover:text-[var(--ink)]'
                 >
                   <X className='h-4 w-4' />
                 </button>
@@ -202,7 +202,7 @@ export function ValidationSummary({
                   initial={{ opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
-                  className='flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5'
+                  className='flex items-center gap-2 rounded-[11px] border border-line bg-surface-2 px-3 py-1.5'
                 >
                   {/* Title only. The message under the control says the rest. */}
                   <span className='min-w-0 flex-1 truncate text-[15px] font-semibold ink'>
@@ -213,7 +213,7 @@ export function ValidationSummary({
                     <button
                       type='button'
                       onClick={() => onFocusField(issue.field)}
-                      className='inline-flex h-9 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[14px] font-semibold text-danger hover:bg-[var(--hover)]'
+                      className='inline-flex h-9 shrink-0 items-center gap-1 rounded-[11px] px-2.5 text-[14px] font-semibold text-danger hover:bg-[var(--hover)]'
                     >
                       {t('error.goToField')}
                       <Arrow className='h-3.5 w-3.5' />

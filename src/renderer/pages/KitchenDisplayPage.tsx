@@ -3,6 +3,7 @@ import { Button, Spinner } from '@heroui/react';
 import { Clock3, RefreshCw, UtensilsCrossed } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { useI18n, useOrderTypeLabel, type StringKey } from '../i18n';
+import { OrderCard } from '../components/OrderCard';
 import { shortOrderLabel } from '../utils/orderLabel';
 
 type Ticket = { order: any; lines: any[] };
@@ -62,12 +63,19 @@ export default function KitchenDisplayPage() {
           // The checkout "Order Notes" are stored as `note`; `order_notes` is
           // only the alias the receipt query gives it.
           const orderNote = String(order.note ?? order.order_notes ?? '').trim();
-          return <article key={order.id} className={`ui-card min-w-0 space-y-3 p-4 ${lane.key === 'placed' ? 'border-[var(--brand)] shadow-[0_0_0_3px_var(--brand-ring)]' : ''}`}>
-            <div className='flex flex-wrap items-center gap-2'><span className='money min-w-0 truncate text-lg font-bold'>{displayNumber}</span><span className='ui-chip ui-chip-outline'>{orderTypeLabel(order.order_type)}{order.table_name ? ` · ${order.table_name}` : ''}</span><span className={`ui-chip ms-auto ${timeChip}`}><Clock3 size={12} strokeWidth={1.8}/>{t('kitchen.minutes', { n: elapsed })}</span></div>
-            <div className='space-y-2'>{ticket.lines.length ? ticket.lines.map((line: any, index: number) => <div key={line.id || index} className='flex items-start gap-3'><b className='money min-w-10 shrink-0 rounded-lg border border-line-strong bg-surface-2 px-2 py-1 text-center text-sm font-bold'>{Number(line.qty || line.quantity || 1)}×</b><div className='min-w-0'><p className='break-words text-base font-semibold ink'>{name({ name: line.item_name || line.name || line.product_name, name_ar: line.name_ar || line.item_name_ar }) || t('kitchen.item')}</p>{(line.variation_name || line.notes) && <p className='break-words text-sm ink-2'>{line.variation_name || line.notes}</p>}</div></div>) : <p className='text-sm ink-2'>{t('kitchen.itemsMissing')}</p>}</div>
-            {orderNote && <div className='ui-notice'><span className='ui-chip ui-chip-amber shrink-0'>{t('cart.note')}</span><span className='min-w-0 break-words text-sm font-medium'>{orderNote}</span></div>}
-            <Button fullWidth size='lg' className='min-h-11 font-semibold' color='primary' variant='solid' isLoading={busy === String(order.id)} startContent={busy === String(order.id) ? undefined : <UtensilsCrossed size={16} strokeWidth={1.8}/>} onPress={() => advance(ticket)}>{t(lane.key === 'placed' ? 'kitchen.start' : lane.key === 'prepared' ? 'kitchen.markReady' : 'kitchen.complete')}</Button>
-          </article>;
+          return <OrderCard
+            key={order.id}
+            fresh={lane.key === 'placed'}
+            header={displayNumber}
+            type={<span className='ui-chip ui-chip-outline'>{orderTypeLabel(order.order_type)}{order.table_name ? ` · ${order.table_name}` : ''}</span>}
+            time={<span className={`ui-chip ${timeChip}`}><Clock3 size={12} strokeWidth={1.8}/>{t('kitchen.minutes', { n: elapsed })}</span>}
+            footer={<Button fullWidth size='lg' className='min-h-11 font-semibold' color='primary' variant='solid' isLoading={busy === String(order.id)} startContent={busy === String(order.id) ? undefined : <UtensilsCrossed size={16} strokeWidth={1.8}/>} onPress={() => advance(ticket)}>{t(lane.key === 'placed' ? 'kitchen.start' : lane.key === 'prepared' ? 'kitchen.markReady' : 'kitchen.complete')}</Button>}
+          >
+            <div className='space-y-3'>
+              <div className='space-y-2'>{ticket.lines.length ? ticket.lines.map((line: any, index: number) => <div key={line.id || index} className='flex items-start gap-3'><b className='money min-w-10 shrink-0 rounded-[11px] border border-line-strong bg-surface-2 px-2 py-1 text-center text-sm font-bold'>{Number(line.qty || line.quantity || 1)}×</b><div className='min-w-0'><p className='break-words text-base font-semibold ink'>{name({ name: line.item_name || line.name || line.product_name, name_ar: line.name_ar || line.item_name_ar }) || t('kitchen.item')}</p>{(line.variation_name || line.notes) && <p className='break-words text-sm ink-2'>{line.variation_name || line.notes}</p>}</div></div>) : <p className='text-sm ink-2'>{t('kitchen.itemsMissing')}</p>}</div>
+              {orderNote && <div className='ui-notice'><span className='ui-chip ui-chip-amber shrink-0'>{t('cart.note')}</span><span className='min-w-0 break-words text-sm font-medium'>{orderNote}</span></div>}
+            </div>
+          </OrderCard>;
         })}{!grouped[lane.key].length && <div className='rounded-[20px] border border-dashed border-line-strong py-10 text-center text-sm ink-2'>{t('kitchen.empty')}</div>}</div>
       </section>)}
     </div>}

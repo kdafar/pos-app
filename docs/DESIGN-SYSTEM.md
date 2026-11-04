@@ -49,6 +49,24 @@ The same screens run on **Android phones and small tablets**, **old low-resoluti
 - Toolbars wrap (`flex-wrap gap-2`); multi-column forms collapse to one column below `sm`.
 - Tap targets stay ≥ 44px on touch at every size.
 
+## Round 2 decisions (operator review, Nov 2026)
+
+- **Quiet tables.** Tables are neutral `surface` tiles/pills with a 1px `line-strong` border and
+  a small solid status dot; only *busy* (red dot + red text label) and *reserved* (amber dot)
+  carry colour. The current table = brand border + `--brand-ring`. No big solid green pills.
+- **Dish cards without a photo** drop the image box entirely and become a compact text card
+  (name, Arabic name, price, the Sizes/Options chip inline). Cards with a photo keep it.
+- **Compact order-screen header:** one row — open-order tabs (scroll), then NEW, order type,
+  help. With no or one open order the strip must not render as a long empty bar.
+  On phones it is at most two rows.
+- **Cart top:** Apply promo and Clear cart share one small row (small outline buttons or icon
+  buttons with Hint), never two full-width rows above the dishes.
+- **Phones (< 768px):** no side rail; a bottom dock with the main screens and a "More" sheet
+  holding everything else (same links, same permissions).
+- **Side menu:** Catalog and System links sit under one collapsible "More" group; it opens by
+  itself when the current screen is inside it.
+- **Order cards everywhere orders are listed** (Today's Orders, kitchen) — see "Order card".
+
 ## Tokens (CSS variables, `styles/portal.css`)
 
 | token | use |

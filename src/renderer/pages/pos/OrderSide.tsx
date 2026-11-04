@@ -359,7 +359,7 @@ export default function OrderSide({
       {/* Header (scrolls itself if a short screen cannot fit it) */}
       <div className='p-3 lg:p-4 border-b border-line shrink-0 max-h-[45%] overflow-y-auto nice-scroll'>
         {currentOrder ? (
-          <div className='space-y-3'>
+          <div className='space-y-2'>
             {/* Top row: order info + type + lock badges */}
             <div className='flex items-start justify-between gap-3'>
               {/* Left: order number + table button */}
@@ -406,7 +406,7 @@ export default function OrderSide({
                         variant='bordered'
                         className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
                         onPress={() => setShowTablePicker(true)}
-                        startContent={<Table2 size={16} strokeWidth={1.8} />}
+                        startContent={<Table2 size={16} strokeWidth={1.8} className='shrink-0' />}
                       >
                         {currentOrder.table_name || t('cust.table')} •{' '}
                         <span className='money'>{currentOrder.covers || 1}</span>
@@ -417,7 +417,7 @@ export default function OrderSide({
                         variant='bordered'
                         className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
                         onPress={() => setShowTablePicker(true)}
-                        startContent={<UtensilsCrossed size={16} strokeWidth={1.8} />}
+                        startContent={<UtensilsCrossed size={16} strokeWidth={1.8} className='shrink-0' />}
                       >
                         {t('tables.assign')}
                       </Button>
@@ -491,56 +491,58 @@ export default function OrderSide({
               </div>
             </div>
 
-            {/* Promo section */}
-            {currentOrder.promocode ? (
-              <div className='ui-notice items-center justify-between'>
-                <div className='flex items-center gap-2 min-w-0'>
-                  <Percent size={16} strokeWidth={1.8} className='shrink-0' />
-                  <span className='pos-sm font-semibold truncate'>
-                    {currentOrder.promocode}
-                  </span>
+            {/* Promo + Clear cart share one compact row */}
+            <div className='flex flex-wrap items-center gap-2'>
+              {currentOrder.promocode ? (
+                <div className='ui-notice items-center justify-between flex-1 min-w-0 !py-0.5'>
+                  <div className='flex items-center gap-2 min-w-0'>
+                    <Percent size={16} strokeWidth={1.8} className='shrink-0' />
+                    <span className='pos-sm font-semibold truncate'>
+                      {currentOrder.promocode}
+                    </span>
+                  </div>
+                  <Hint content={t('common.remove')} placement='top'>
+                    <Button
+                      isIconOnly
+                      size='md'
+                      variant='light'
+                      color='danger'
+                      className='shrink-0 text-danger'
+                      aria-label={t('common.remove')}
+                      onPress={onRemovePromo}
+                    >
+                      <X size={16} strokeWidth={1.8} />
+                    </Button>
+                  </Hint>
                 </div>
-                <Hint content={t('common.remove')} placement='top'>
-                  <Button
-                    isIconOnly
-                    size='md'
-                    variant='light'
-                    color='danger'
-                    className='shrink-0 text-danger'
-                    aria-label={t('common.remove')}
-                    onPress={onRemovePromo}
-                  >
-                    <X size={16} strokeWidth={1.8} />
-                  </Button>
-                </Hint>
-              </div>
-            ) : (
-              <Button
-                fullWidth
-                size='md'
-                variant='bordered'
-                className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
-                onPress={() => setShowPromoDialog(true)}
-                startContent={<Percent size={16} strokeWidth={1.8} />}
-              >
-                {t('promo.title')}
-              </Button>
-            )}
+              ) : (
+                <Button
+                  size='md'
+                  variant='bordered'
+                  className='flex-1 min-w-0 h-auto min-h-11 py-1.5 px-3 whitespace-normal leading-tight font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
+                  onPress={() => setShowPromoDialog(true)}
+                  startContent={<Percent size={16} strokeWidth={1.8} className='shrink-0' />}
+                >
+                  <span className='text-start'>{t('promo.title')}</span>
+                </Button>
+              )}
 
-            {/* Clear cart: outline with danger text, not a solid red block */}
-            {orderLines.length > 0 && (
-              <Button
-                fullWidth
-                size='md'
-                variant='bordered'
-                color='danger'
-                className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)] text-danger'
-                onPress={handleClearCart}
-                startContent={<X size={16} strokeWidth={1.8} />}
-              >
-                {t('cart.clearCart')}
-              </Button>
-            )}
+              {/* Clear cart: outline with danger text, not a solid red block */}
+              {orderLines.length > 0 && (
+                <Button
+                  size='md'
+                  variant='bordered'
+                  color='danger'
+                  className={`min-w-0 h-auto min-h-11 py-1.5 px-3 whitespace-normal leading-tight font-semibold border border-[var(--line-strong)] bg-[var(--surface)] text-danger ${
+                    currentOrder.promocode ? 'shrink-0' : 'flex-1'
+                  }`}
+                  onPress={handleClearCart}
+                  startContent={<X size={16} strokeWidth={1.8} className='shrink-0' />}
+                >
+                  <span className='text-start'>{t('cart.clearCart')}</span>
+                </Button>
+              )}
+            </div>
           </div>
         ) : (
           <div className='text-center py-3'>
@@ -641,7 +643,7 @@ export default function OrderSide({
                 }
                 isDisabled={orderLines.length === 0 || quickUpdating}
                 isLoading={quickUpdating}
-                startContent={!quickUpdating && <Check size={18} strokeWidth={1.8} />}
+                startContent={!quickUpdating && <Check size={18} strokeWidth={1.8} className='shrink-0' />}
               >
                 {currentOrder.order_type === 3
                   ? t('cart.updatePay')
@@ -672,7 +674,7 @@ export default function OrderSide({
                     ? handleReleaseTable
                     : handleClose
                 }
-                startContent={<X size={16} strokeWidth={1.8} />}
+                startContent={<X size={16} strokeWidth={1.8} className='shrink-0' />}
               >
                 {currentOrder.order_type === 3 &&
                 currentOrder.table_id &&

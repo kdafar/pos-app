@@ -70,7 +70,7 @@ function CrashScreen({ error, onReset }: { error: Error; onReset: () => void }) 
           </summary>
           <pre
             dir='ltr'
-            className='mt-2 max-h-40 overflow-auto rounded-lg bg-surface-2 border border-line p-3 text-start text-xs ink-2'
+            className='mt-2 max-h-40 overflow-auto rounded-[11px] bg-surface-2 border border-line p-3 text-start text-xs ink-2'
           >
             {stripIpcWrapper(error.message || String(error))}
             {error.stack ? `\n\n${error.stack}` : ''}

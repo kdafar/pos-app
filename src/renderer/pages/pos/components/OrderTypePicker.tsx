@@ -2,7 +2,7 @@ import { ShoppingBag, Truck, UtensilsCrossed } from 'lucide-react';
 import { OrderType } from '../types';
 import { useOrderTypeLabel } from '../../../i18n';
 
-export function OrderTypePicker({ value, onChange, allowDelivery = true }: {
+export function OrderTypePicker({ value, onChange, allowDelivery = true, className = '' }: {
   value: OrderType;
   onChange: (t: OrderType) => void;
   /**
@@ -11,6 +11,8 @@ export function OrderTypePicker({ value, onChange, allowDelivery = true }: {
    * go with the day's mix is worse than one extra button.
    */
   allowDelivery?: boolean;
+  /** Layout only (width / order in the header row). */
+  className?: string;
 }) {
   const label = useOrderTypeLabel();
   const all = [
@@ -24,7 +26,7 @@ export function OrderTypePicker({ value, onChange, allowDelivery = true }: {
   const types = all.filter((t) => t.key !== 1 || allowDelivery || value === 1);
 
   return (
-    <div className='ui-seg'>
+    <div className={`ui-seg max-w-full ${className}`}>
       {types.map(({ key, label: text, Icon }) => (
         <button
           key={key}
@@ -32,7 +34,7 @@ export function OrderTypePicker({ value, onChange, allowDelivery = true }: {
           onClick={() => onChange(key)}
           aria-pressed={key === value}
           aria-label={text}
-          className='ui-seg-item'
+          className='ui-seg-item flex-1 md:flex-none'
         >
           <Icon size={16} strokeWidth={1.8} />
           {text}

@@ -346,7 +346,7 @@ function Home({
                   onClick={() => onTopic(t.id)}
                   className='ui-card ui-card-raise flex min-w-0 items-start gap-3 p-4 text-start'
                 >
-                  <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-surface-2 ink'>
+                  <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border border-line bg-surface-2 ink'>
                     <Icon size={20} strokeWidth={1.8} />
                   </span>
                   <span className='min-w-0'>
@@ -437,7 +437,7 @@ function TopicPage({
   return (
     <div className='space-y-4'>
       <div className='flex items-center gap-3'>
-        <span className='flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-line bg-surface-2 ink'>
+        <span className='flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] border border-line bg-surface-2 ink'>
           <Icon size={22} strokeWidth={1.8} />
         </span>
         <div>
@@ -706,7 +706,7 @@ function Picture({ picture, notes, lang }: { picture: HelpPicture; notes: string
     <figure className='space-y-2'>
       {/* Shrink-wraps the picture so a narrow one (a side-menu crop) is not
           blown up and blurred; markers are % of this box, so they still land. */}
-      <div className='relative inline-block max-w-full overflow-hidden rounded-xl border border-line align-top' dir='ltr'>
+      <div className='relative inline-block max-w-full overflow-hidden rounded-[16px] border border-line align-top' dir='ltr'>
         <img src={url} alt={words.ui.picture} className='block h-auto max-w-full' loading='lazy' />
         {markers.map((m, i) => (
           <span

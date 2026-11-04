@@ -136,7 +136,7 @@ export default function PermissionsPage() {
             ))}
           </Autocomplete>
           {role ? (
-            <div className='flex items-center justify-between gap-4 rounded-xl border border-line bg-surface-2 px-4 py-3'>
+            <div className='flex items-center justify-between gap-4 rounded-[16px] border border-line bg-surface-2 px-4 py-3'>
               <div className='flex min-w-0 items-center gap-3'>
                 <div className='flex h-10 w-10 items-center justify-center rounded-full bg-surface ink-2 border border-line'>
                   <ShieldCheck size={20} strokeWidth={1.8} />
@@ -184,7 +184,7 @@ export default function PermissionsPage() {
                       this reaches every till — is the one shops actually
                       make, and it is wrong until the back office owns them. */}
                   <div className='ui-notice px-4 py-3 text-sm'>
-                    <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
+                    <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-amber)]' />
                     <span>{t('permissions.localOnly')}</span>
                   </div>
                   {role?.is_own_role && (
@@ -234,7 +234,7 @@ export default function PermissionsPage() {
                           <label
                             key={key}
                             className={
-                              'flex min-h-11 items-center justify-between gap-3 rounded-lg px-3 py-2.5 ' +
+                              'flex min-h-11 items-center justify-between gap-3 rounded-[11px] px-3 py-2.5 ' +
                               (locked
                                 ? 'cursor-default opacity-70'
                                 : 'cursor-pointer hover:bg-[var(--hover)]')

@@ -43,7 +43,7 @@ type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
  */
 const TONE: Record<Tone, { border: string; icon: string }> = {
   neutral: { border: 'border-s-default-300', icon: 'ink-2' },
-  info: { border: 'border-s-primary', icon: 'text-primary' },
+  info: { border: 'border-s-[var(--line-strong)]', icon: 'ink-2' },
   success: { border: 'border-s-success', icon: 'text-success' },
   warning: { border: 'border-s-warning', icon: 'text-warning' },
   danger: { border: 'border-s-danger', icon: 'text-danger' },
@@ -183,7 +183,7 @@ export function UpdatePage() {
                 {state.status === 'downloading' && (
                   <div className='mt-3'>
                     <div
-                      className='h-3 w-full rounded-full bg-default-200 overflow-hidden'
+                      className='h-3 w-full rounded-full bg-[var(--hover)] overflow-hidden'
                       role='progressbar'
                       aria-valuenow={state.percent}
                       aria-valuemin={0}
@@ -208,7 +208,7 @@ export function UpdatePage() {
                 {/* Raw error text from the network stack — never translated. */}
                 {state.status === 'error' && (
                   <pre
-                    className='mt-3 max-h-32 overflow-auto rounded-lg border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap break-all'
+                    className='mt-3 max-h-32 overflow-auto rounded-[11px] border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap break-all'
                     dir='ltr'
                   >
                     {state.message}
@@ -218,7 +218,7 @@ export function UpdatePage() {
                 {view.notes && (
                   <div className='mt-3'>
                     <FieldLabel>{t('update.releaseNotes')}</FieldLabel>
-                    <pre className='mt-1 max-h-48 overflow-auto rounded-lg border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap'>
+                    <pre className='mt-1 max-h-48 overflow-auto rounded-[11px] border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap'>
                       {view.notes}
                     </pre>
                   </div>
@@ -279,7 +279,7 @@ export function UpdatePage() {
                   return (
                     <div
                       key={n}
-                      className={`rounded-xl border p-3 min-w-0 ${
+                      className={`rounded-[16px] border p-3 min-w-0 ${
                         done ? 'border-primary' : 'border-line'
                       }`}
                     >
@@ -288,7 +288,7 @@ export function UpdatePage() {
                           className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${
                             done
                               ? 'bg-primary text-primary-foreground'
-                              : 'bg-default-200 text-default-700'
+                              : 'bg-[var(--hover)] ink-2'
                           }`}
                         >
                           <Icon size={15} />

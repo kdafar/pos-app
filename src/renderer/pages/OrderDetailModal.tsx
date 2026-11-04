@@ -179,7 +179,7 @@ export function OrderDetailModal({
     () => [
       {
         id: 'item',
-        header: () => t('opts.variation'),
+        header: () => t('admin.rep.colItem'),
         size: 240,
         enableSorting: false,
         cell: ({ row }) => {
@@ -386,7 +386,7 @@ export function OrderDetailModal({
                 {/* Items */}
                 <div className='min-w-0 space-y-2'>
                   <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ink-2'>
-                    {t('opts.variation')}
+                    {t('admin.rep.colItem')}
                     <span className='ui-count'>{lines.length}</span>
                   </div>
                   <div className='ui-card min-w-0 overflow-x-auto'>
