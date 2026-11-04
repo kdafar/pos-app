@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { SYNCED_EVENT } from '../../utils/syncEvents';
-import { Plus } from 'lucide-react';
+import { ChevronUp, Plus, ShoppingBag, X } from 'lucide-react';
 
 import CatalogPanel from './CatalogPanel';
 import OrderSide from './OrderSide';
@@ -46,7 +46,7 @@ type AuthStatus = {
 
 export default function OrderProcessPage() {
   const theme = useRootTheme();
-  const { t } = useI18n();
+  const { t, money } = useI18n();
   const labelForType = useOrderTypeLabel();
 
   const deliveryEnabled = useDeliveryEnabled();
@@ -80,6 +80,8 @@ export default function OrderProcessPage() {
   const [activeOrders, setActiveOrders] = useState<Order[]>([]);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [orderLines, setOrderLines] = useState<OrderLine[]>([]);
+  // Phones (< 768px): the cart is a sheet over the catalog, opened from a bar.
+  const [cartOpen, setCartOpen] = useState(false);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [states, setStates] = useState<State[]>([]);
   const [cities, setCities] = useState<City[]>([]);
@@ -473,6 +475,22 @@ export default function OrderProcessPage() {
     setBlocks(b || []);
   };
 
+  // Close the phone cart sheet when there is no order left to show.
+  useEffect(() => {
+    if (!currentOrder) setCartOpen(false);
+  }, [currentOrder]);
+  useEffect(() => {
+    if (!cartOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      // A popup opened from the cart (checkout, promo…) takes Escape first.
+      if (e.key !== 'Escape' || document.querySelector('section[role="dialog"]')) return;
+      setCartOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cartOpen]);
+  const cartCount = orderLines.reduce((n, l) => n + (Number(l.qty) || 0), 0);
+
   return (
     <div className='pos-screen h-full flex flex-col bg-canvas'>
       {/* Header: a calm bar on the canvas. Wraps on narrow screens. */}
@@ -553,7 +571,7 @@ export default function OrderProcessPage() {
         catalog rather than crushing it.
       */}
       <div
-        className='grid grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1
+        className='grid grid-cols-1 grid-rows-1 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1
           lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26vw,30rem)]
           flex-1 min-h-0 overflow-hidden'
       >
@@ -576,6 +594,39 @@ export default function OrderProcessPage() {
           onSelectWithAddons={(it) => setAddonItem(it)}
         />
 
+        {/* Phones: the cart slides up over the catalog. One OrderSide instance
+            for every size, so nothing in the cart is lost when it closes. */}
+        {cartOpen && (
+          <div
+            className='fixed inset-0 z-[45] bg-black/40 md:hidden'
+            aria-hidden='true'
+            onClick={() => setCartOpen(false)}
+          />
+        )}
+        <div
+          className={`min-h-0 min-w-0 ${
+            cartOpen
+              ? 'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-8 max-md:z-50 max-md:flex max-md:flex-col max-md:overflow-hidden max-md:rounded-t-[20px] max-md:bg-[var(--surface)] max-md:shadow-[var(--shadow-2)]'
+              : 'max-md:hidden'
+          }`}
+          role={cartOpen ? 'dialog' : undefined}
+          aria-modal={cartOpen ? true : undefined}
+          aria-label={cartOpen ? t('pos.cart') : undefined}
+        >
+          {cartOpen && (
+            <div className='flex shrink-0 items-center justify-between gap-2 border-b border-line px-3 py-2 md:hidden'>
+              <span className='text-base font-semibold ink'>{t('pos.cart')}</span>
+              <button
+                type='button'
+                className='ui-icon-btn'
+                aria-label={t('common.close')}
+                onClick={() => setCartOpen(false)}
+              >
+                <X size={20} strokeWidth={1.8} />
+              </button>
+            </div>
+          )}
+          <div className='h-full min-h-0 max-md:flex-1'>
         <OrderSide
           theme={theme}
           currentOrder={currentOrder}
@@ -594,6 +645,32 @@ export default function OrderProcessPage() {
           onLoadCities={onLoadCities}
           onLoadBlocks={onLoadBlocks}
         />
+          </div>
+        </div>
+      </div>
+
+      {/* Phones: the bar that opens the cart. */}
+      <div className='shrink-0 border-t border-line bg-surface px-3 py-2 md:hidden'>
+        <button
+          type='button'
+          className='ui-btn ui-btn-primary w-full justify-between'
+          onClick={() => setCartOpen(true)}
+          aria-expanded={cartOpen}
+        >
+          <span className='flex min-w-0 items-center gap-2'>
+            <ShoppingBag size={18} strokeWidth={1.8} />
+            <span className='truncate'>
+              {t('pos.viewCart')}
+              {cartCount > 0 && ` · ${t('pos.itemsCount', { n: cartCount })}`}
+            </span>
+          </span>
+          <span className='flex shrink-0 items-center gap-1.5'>
+            {currentOrder && (
+              <span className='money font-semibold'>{money(currentOrder.grand_total)}</span>
+            )}
+            <ChevronUp size={18} strokeWidth={1.8} />
+          </span>
+        </button>
       </div>
 
       {addonItem && (

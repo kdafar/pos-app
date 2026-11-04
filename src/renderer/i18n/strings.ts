@@ -60,6 +60,9 @@ const coreStrings = {
 
   /* ---------- POS header / orders bar ---------- */
   'pos.new': { en: 'NEW', ar: 'جديد' },
+  'pos.cart': { en: 'Cart', ar: 'السلة' },
+  'pos.viewCart': { en: 'View cart', ar: 'عرض السلة' },
+  'pos.itemsCount': { en: '{n} items', ar: '{n} أصناف' },
   'pos.signedInAs': { en: 'Signed in as', ar: 'تسجيل الدخول باسم' },
   'pos.operator': { en: 'Operator', ar: 'الكاشير' },
   'pos.noItems': { en: 'No items found', ar: 'لا توجد أصناف' },
