@@ -1,6 +1,7 @@
 // src/renderer/components/LanguageToggle.tsx
 import { Languages } from 'lucide-react';
 import { useI18n, LANGS } from '../i18n';
+import { Hint } from './Hint';
 
 /**
  * Two-state language switch. Deliberately a single visible control rather than
@@ -37,10 +38,7 @@ export function LanguageToggle({
         type='button'
         onClick={() => setLang(other.code)}
         lang={other.code}
-        title={other.label}
-        className='flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm
-          font-medium text-default-700 transition-colors
-          hover:text-foreground hover:bg-default-100'
+        className='ui-nav flex min-h-11 w-full items-center gap-2.5 px-2.5 py-2 text-sm'
       >
         <Languages size={18} strokeWidth={1.9} className='shrink-0' />
         <span className='truncate'>{other.label}</span>
@@ -51,40 +49,25 @@ export function LanguageToggle({
   if (collapsed) {
     const other = LANGS.find((l) => l.code !== lang) ?? LANGS[0];
     return (
-      <button
-        type='button'
-        onClick={() => setLang(other.code)}
-        // Label names the language you switch TO, so the button says what it
-        // does rather than what is currently selected.
-        title={other.label}
-        aria-label={other.label}
-        className={`w-10 h-10 mx-auto flex items-center justify-center rounded-xl
-          text-xs font-bold transition-colors
-          ${
-            'bg-default-100 text-foreground hover:bg-default-200'
-          }`}
-      >
-        {other.code === 'ar' ? 'ع' : 'EN'}
-      </button>
+      <Hint content={other.label} placement='bottom'>
+        <button
+          type='button'
+          onClick={() => setLang(other.code)}
+          // Label names the language you switch TO, so the button says what it
+          // does rather than what is currently selected.
+          aria-label={other.label}
+          className='ui-icon-btn ui-icon-btn-outline mx-auto text-xs font-bold'
+        >
+          {other.code === 'ar' ? 'ع' : 'EN'}
+        </button>
+      </Hint>
     );
   }
 
-  const shell =
-    'bg-default-100 border-default-200';
-  const active =
-    'bg-primary text-primary-foreground shadow';
-  const idle =
-    'text-default-700 hover:text-foreground';
-
   return (
-    <div className={`inline-flex items-center rounded-lg border p-1 ${shell}`}>
+    <div className='ui-seg'>
       {!compact && (
-        <Languages
-          size={14}
-          className={`ms-1 me-1.5 ${
-            'text-default-700'
-          }`}
-        />
+        <Languages size={14} strokeWidth={1.8} className='ms-1 me-1.5 ink-2' />
       )}
       {LANGS.map((l) => (
         <button
@@ -93,9 +76,7 @@ export function LanguageToggle({
           lang={l.code}
           aria-pressed={lang === l.code}
           onClick={() => setLang(l.code)}
-          className={`px-2.5 py-1 rounded-md text-xs font-semibold transition ${
-            lang === l.code ? active : idle
-          }`}
+          className='ui-seg-item'
         >
           {l.label}
         </button>

@@ -43,15 +43,15 @@ type GroupWithAddons = AddonGroup & { addons: Addon[] };
 
 /**
  * A tile in this modal is either chosen or not, and a cashier has to tell which
- * at a glance mid-order. So the chosen state is the primary token — a real
- * border plus a tint of the same hue — and never a hand-mixed `bg-primary/15`,
- * which is invisible on the dark theme.
+ * at a glance mid-order. So the chosen state is the brand border plus its
+ * focus glow on the same surface, and never a tinted fill.
  */
 const TILE_BASE =
-  'w-full flex items-center justify-between gap-2 min-h-12 px-3 py-2.5 rounded-lg border text-start text-sm transition';
-const TILE_SELECTED = 'border-primary bg-primary/20 text-foreground';
+  'w-full flex items-center justify-between gap-2 min-h-12 px-3 py-2.5 rounded-[13px] border text-start text-sm transition';
+const TILE_SELECTED =
+  'border-[var(--brand)] bg-surface ink shadow-[0_0_0_3px_var(--brand-ring)]';
 const TILE_IDLE =
-  'border-default-200 bg-default-100 text-foreground hover:bg-default-200';
+  'border-line-strong bg-surface ink hover:bg-surface-2';
 
 export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
   const { t, name: localName, money } = useI18n();
@@ -252,29 +252,33 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
       }}
       size='2xl'
       placement='center'
-      backdrop='blur'
+      backdrop='opaque'
       scrollBehavior='inside'
-      className='rounded-2xl'
+      classNames={{
+        wrapper: 'p-2 sm:p-4',
+        base: 'ui-popup !rounded-[24px] m-0 w-full max-h-[calc(100dvh-2rem)]',
+        backdrop: 'bg-black/50',
+      }}
     >
       <ModalContent>
         {() => (
           <>
             <ModalHeader className='flex flex-col gap-1'>
-              <span className='text-[11px] font-semibold uppercase tracking-[0.14em] text-default-700'>
+              <span className='text-xs font-semibold uppercase tracking-wide ink-2'>
                 {t('opts.title')}
               </span>
-              <span className='text-lg font-bold leading-snug text-foreground'>
+              <span className='text-lg font-semibold leading-snug ink'>
                 {localName(item)}
               </span>
-              <span className='text-sm font-medium text-default-700'>
+              <span className='text-sm font-medium ink-2'>
                 {t('opts.basePrice')}:{' '}
-                <span className='money font-semibold text-foreground'>
+                <span className='money font-semibold ink'>
                   {money(itemBasePrice)}
                 </span>
               </span>
             </ModalHeader>
 
-            <ModalBody className='gap-4'>
+            <ModalBody className='gap-4 overflow-y-auto'>
               <DataState
                 loading={loading}
                 // A load failure also leaves this empty, but it already speaks
@@ -286,9 +290,9 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                 <div className='flex flex-col gap-4'>
                   {/* Variations — exactly one must be picked */}
                   {variations.length > 0 && (
-                    <div className='space-y-3 rounded-xl border border-default-200 p-3.5 sm:p-4'>
+                    <div className='space-y-3 rounded-[16px] border border-line bg-surface p-3 sm:p-4'>
                       <div className='space-y-1.5'>
-                        <div className='font-semibold text-foreground'>
+                        <div className='font-semibold ink'>
                           {t('opts.variation')}
                         </div>
                         <div className='flex flex-wrap items-center gap-2'>
@@ -300,13 +304,13 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                           >
                             {t('common.required')}
                           </Chip>
-                          <span className='text-xs font-medium text-default-700'>
+                          <span className='text-xs font-medium ink-2'>
                             {t('opts.chooseOne')}
                           </span>
                         </div>
                       </div>
 
-                      <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                      <div className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))] gap-2'>
                         {variations.map((v) => {
                           const isSelected = String(v.id) === variationId;
                           return (
@@ -317,6 +321,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                                 setVariationId(String(v.id));
                                 setError(null);
                               }}
+                              aria-pressed={isSelected}
                               className={`${TILE_BASE} ${
                                 isSelected ? TILE_SELECTED : TILE_IDLE
                               }`}
@@ -326,13 +331,18 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                                   {localName(v)}
                                 </div>
                                 {v.name_ar && (
-                                  <div className='truncate text-xs font-medium text-default-700'>
+                                  <div className='truncate text-xs font-medium ink-2'>
                                     {v.name_ar}
                                   </div>
                                 )}
                               </div>
-                              <span className='money ms-2 shrink-0 text-sm font-semibold'>
-                                {money(v.effective_price)}
+                              <span className='ms-2 flex shrink-0 items-center gap-1.5'>
+                                <span className='money text-sm font-semibold'>
+                                  {money(v.effective_price)}
+                                </span>
+                                {isSelected && (
+                                  <Check size={16} strokeWidth={1.8} className='text-[var(--brand-strong)]' />
+                                )}
                               </span>
                             </button>
                           );
@@ -356,11 +366,11 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                     return (
                       <div
                         key={g.id}
-                        className='space-y-3 rounded-xl border border-default-200 p-3.5 sm:p-4'
+                        className='space-y-3 rounded-[16px] border border-line bg-surface p-3 sm:p-4'
                       >
                         <div className='flex items-start justify-between gap-2'>
-                          <div className='space-y-1.5'>
-                            <div className='font-semibold text-foreground'>
+                          <div className='min-w-0 space-y-1.5'>
+                            <div className='font-semibold ink'>
                               {localName(g)}
                             </div>
                             <div className='flex flex-wrap items-center gap-2'>
@@ -375,7 +385,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                                   : t('common.optional')}
                               </Chip>
                               {max != null && max > 0 && (
-                                <span className='text-xs font-medium text-default-700'>
+                                <span className='text-xs font-medium ink-2'>
                                   {t('opts.maxChoices', { n: max })}
                                 </span>
                               )}
@@ -388,7 +398,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                               variant='solid'
                               color='primary'
                               className='shrink-0 font-semibold'
-                              startContent={<Check size={13} />}
+                              startContent={<Check size={13} strokeWidth={1.8} />}
                             >
                               {t('opts.selected', { n: selectedCount })}
                             </Chip>
@@ -396,7 +406,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                         </div>
 
                         {/* Addons grid */}
-                        <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                        <div className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))] gap-2'>
                           {g.addons.map((a) => {
                             const qty = selection[a.id] ?? 0;
                             const isSelected = qty > 0;
@@ -414,7 +424,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                                   <div className='truncate font-medium'>
                                     {localName(a)}
                                   </div>
-                                  <div className='text-xs font-medium text-default-700'>
+                                  <div className='text-xs font-medium ink-2'>
                                     + <span className='money'>{money(a.price)}</span>
                                     {qty > 1 && (
                                       <span className='ms-1 font-semibold'>
@@ -436,7 +446,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                                     onChange={(n) => setAddonQty(a, n)}
                                   />
                                 ) : (
-                                  <span className='shrink-0 text-xs font-medium text-default-700'>
+                                  <span className='shrink-0 text-xs font-medium ink-2'>
                                     {t('opts.tapToAdd')}
                                   </span>
                                 )}
@@ -451,17 +461,17 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
               </DataState>
 
               {error && (
-                <div className='flex items-start gap-2 rounded-lg border border-danger bg-danger/10 px-3 py-2.5 text-sm font-medium text-danger'>
-                  <AlertTriangle size={16} className='mt-0.5 shrink-0' />
+                <div className='ui-notice text-sm font-medium'>
+                  <AlertTriangle size={16} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-red)]' />
                   <span>{error}</span>
                 </div>
               )}
             </ModalBody>
 
-            <ModalFooter className='flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-              <div className='flex items-center gap-4'>
+            <ModalFooter className='flex-col items-stretch gap-3 border-t border-line sm:flex-row sm:items-center sm:justify-between'>
+              <div className='flex flex-wrap items-center gap-x-4 gap-y-2'>
                 <div className='flex items-center gap-2'>
-                  <span className='text-[11px] font-semibold uppercase tracking-wide text-default-700'>
+                  <span className='text-xs font-semibold uppercase tracking-wide ink-2'>
                     {t('common.qty')}
                   </span>
                   <QtyStepper
@@ -474,10 +484,10 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                   />
                 </div>
 
-                <div className='text-xs font-medium text-default-700'>
+                <div className='text-xs font-medium ink-2'>
                   <div>
                     {t('common.each')}:{' '}
-                    <span className='money font-semibold text-foreground'>
+                    <span className='money font-semibold ink'>
                       {money(totalWithAddons)}
                     </span>{' '}
                     (<span className='money'>{money(itemBasePrice)}</span> +{' '}
@@ -485,7 +495,7 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                   </div>
                   <div className='mt-0.5'>
                     {t('opts.lineTotal')}:&nbsp;
-                    <span className='money font-bold text-primary'>
+                    <span className='money font-bold ink'>
                       {money(lineTotal)}
                     </span>
                   </div>
@@ -493,14 +503,19 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
               </div>
 
               <div className='flex items-center justify-end gap-2'>
-                <Button variant='flat' size='lg' onPress={onClose}>
+                <Button
+                  variant='bordered'
+                  size='lg'
+                  className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                  onPress={onClose}
+                >
                   {t('common.cancel')}
                 </Button>
                 <Button
                   color='primary'
                   size='lg'
-                  className='font-semibold'
-                  startContent={<Check size={18} />}
+                  className='rounded-[13px] font-semibold'
+                  startContent={<Check size={18} strokeWidth={1.8} />}
                   // Blocked outright rather than left clickable-and-refused:
                   // the options are unknown, so there is no correct price to
                   // add at.

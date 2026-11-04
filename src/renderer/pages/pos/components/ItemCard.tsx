@@ -10,11 +10,7 @@ export function ItemCard({
   onSelectWithAddons,
 }: {
   item: Item;
-  /**
-   * No longer read: every colour on this card is a HeroUI semantic token that
-   * resolves correctly under both themes. Kept on the type so existing call
-   * sites still compile until they are cleaned up.
-   */
+  /** Not read: colours come from tokens. Kept so call sites compile. */
   theme: 'light' | 'dark';
   onAddItem: (it: Item) => void;
   onSelectWithAddons?: (it: Item) => void;
@@ -59,25 +55,13 @@ export function ItemCard({
       key={item.id}
       onClick={handleClick}
       disabled={outOfStock}
-      /*
-        The whole card used to drop to opacity-50 when out of stock, which faded
-        the "out of stock" label itself along with the name and the price — the
-        one card on the grid that has something to say was the hardest to read.
-        The card now stays at full strength and only the image dims; the state
-        is stated by a solid danger pill instead.
-      */
-      className={`group relative flex flex-col rounded-xl border text-start transition-colors
-        ${
-          outOfStock
-            ? 'bg-default-100 border-default-200 cursor-not-allowed'
-            : 'bg-content1 border-default-200 hover:bg-default-100 hover:border-primary'
-        } p-2.5`}
+      // Out of stock: the card keeps full-strength text; a solid red chip over
+      // a surface scrim states it. No opacity on text, no black wash.
+      className={`ui-card ui-card-raise group relative flex flex-col text-start p-3
+        ${outOfStock ? 'cursor-not-allowed' : 'hover:border-[var(--line-strong)] active:scale-[.99]'}`}
     >
-      {/* IMAGE + ADDONS BADGE */}
-      <div
-        className={`relative w-full pos-thumb rounded-lg overflow-hidden border border-default-200 mb-2
-          bg-default-100 ${outOfStock ? 'opacity-40' : ''}`}
-      >
+      {/* IMAGE + OPTIONS BADGE */}
+      <div className='relative w-full pos-thumb rounded-[14px] overflow-hidden bg-surface-2 mb-2'>
         {activeSrc ? (
           <img
             src={activeSrc}
@@ -99,24 +83,21 @@ export function ItemCard({
           />
         ) : (
           <div className='w-full h-full flex items-center justify-center'>
-            <Package size={30} className='text-default-700' />
+            <Package size={30} strokeWidth={1.8} className='ink-2' />
           </div>
         )}
 
         {needsOptions && (
-          // Both badges are solid fills paired with their own `-foreground`
-          // token, which is the only combination that is guaranteed legible on
-          // either theme — the previous four-way light/dark branch put white on
-          // amber, which is under 2:1.
           <span
-            className={`absolute start-1.5 bottom-1.5 inline-flex items-center gap-1 pos-xs px-1.5 py-0.5 rounded-full font-semibold shadow-sm
-              ${
-                hasVariations
-                  ? 'bg-warning text-warning-foreground'
-                  : 'bg-primary text-primary-foreground'
-              }`}
+            className={`ui-chip absolute start-1.5 bottom-1.5 ${
+              'ui-chip-gray'
+            }`}
           >
-            {hasVariations ? <Layers size={11} /> : <Puzzle size={11} />}
+            {hasVariations ? (
+              <Layers size={12} strokeWidth={1.8} />
+            ) : (
+              <Puzzle size={12} strokeWidth={1.8} />
+            )}
             {hasVariations
               ? hasAddons
                 ? t('pos.options')
@@ -131,7 +112,7 @@ export function ItemCard({
         <h3 className='font-semibold text-foreground pos-sm leading-snug line-clamp-2'>
           {localName(item)}
         </h3>
-        <p className='pos-xs text-default-700 line-clamp-1'>
+        <p className='pos-xs ink-2 line-clamp-1'>
           {isRTL ? item.name : item.name_ar}
         </p>
       </div>
@@ -139,34 +120,19 @@ export function ItemCard({
       {/* PRICE ONLY */}
       <div className='mt-1 flex items-baseline justify-end gap-1'>
         {hasVariations && (
-          <span className='pos-xs font-medium text-default-700'>
+          <span className='pos-xs font-medium ink-2'>
             {t('pos.from')}
           </span>
         )}
-        {/*
-          `text-foreground`, not `text-primary`, and this is not a style
-          preference: theme/brand.ts writes the operator's brand hex straight
-          into --heroui-primary and shares that one ramp between the light and
-          the dark theme. Only `-foreground` is recomputed per brand, so
-          `bg-primary text-primary-foreground` is always safe while bare
-          `text-primary` is only as legible as the shop's brand colour happens
-          to be — a navy or maroon brand hides it on the dark theme. The price
-          is the number the card exists to show, so it does not get to depend on
-          that. Same call PageShell's StatCard makes for its headline figure.
-        */}
-        <span className='pos-price font-bold text-foreground'>
+        {/* `--ink`, not brand: bare brand text is only as legible as the shop's colour. */}
+        <span className='pos-price font-semibold tabular-nums text-foreground'>
           <span className='money'>{money(displayPrice)}</span>
         </span>
       </div>
 
       {outOfStock && (
-        // A scrim in `content1` rather than black: on the light theme a black
-        // wash turned a pale card into a dark one, so the grid read as if the
-        // unavailable items were the selected ones.
-        <div className='absolute inset-0 flex items-center justify-center rounded-xl bg-content1/70'>
-          <span className='rounded-md bg-danger px-2.5 py-1 pos-sm font-bold text-danger-foreground shadow-sm'>
-            {t('pos.outOfStock')}
-          </span>
+        <div className='absolute inset-0 flex items-center justify-center rounded-[20px] bg-surface/80'>
+          <span className='ui-chip ui-chip-red'>{t('pos.outOfStock')}</span>
         </div>
       )}
     </button>

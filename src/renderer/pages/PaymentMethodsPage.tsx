@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Chip } from '@heroui/react';
 import { useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import { errorLine as errLine } from '../utils/posError';
@@ -64,14 +63,9 @@ function StatusChip({ active }: { active: any }) {
   const { t } = useI18n();
   const on = parseBool(active);
   return (
-    <Chip
-      size='sm'
-      variant='solid'
-      color={on ? 'success' : 'default'}
-      className='font-semibold'
-    >
+    <span className={`ui-chip ${on ? 'ui-chip-green' : 'ui-chip-gray'}`}>
       {on ? t('admin.enabled') : t('admin.disabled')}
-    </Chip>
+    </span>
   );
 }
 
@@ -150,7 +144,7 @@ export default function PaymentMethodsPage() {
             <div className='leading-tight'>
               <div className='font-semibold'>{primary || secondary || '—'}</div>
               {primary && secondary && (
-                <div className='text-xs text-default-700'>{secondary}</div>
+                <div className='text-xs ink-2'>{secondary}</div>
               )}
             </div>
           );

@@ -1,6 +1,7 @@
 // src/renderer/components/QtyStepper.tsx
 import { useState } from 'react';
 import { Plus, Minus } from 'lucide-react';
+import { Hint } from './Hint';
 
 
 export function clampQty(n: number, min: number, max?: number | null): number {
@@ -45,12 +46,11 @@ export function QtyStepper({
 }) {
   const [draft, setDraft] = useState<string | null>(null);
 
-  const btnSize = size === 'md' ? 'w-8 h-8' : 'w-7 h-7';
-  const inputSize = size === 'md' ? 'w-12 h-8 text-base' : 'w-10 h-7 text-sm';
+  // 44px targets on touch (the till), compact on a mouse.
+  const btnSize = size === 'md' ? 'w-9 h-9' : 'w-8 h-8';
+  const inputSize = size === 'md' ? 'w-12 h-9 text-base' : 'w-10 h-8 text-sm';
 
-  const btn = `${btnSize} rounded-md flex items-center justify-center font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${
-    'bg-default-200 hover:bg-default-300 text-foreground'
-  }`;
+  const btn = `${btnSize} pointer-coarse:w-11 pointer-coarse:h-11 rounded-[11px] flex items-center justify-center font-bold transition disabled:opacity-40 disabled:cursor-not-allowed bg-surface border border-line-strong hover:bg-surface-2 text-foreground active:scale-[.98]`;
 
   const commit = (raw: string) => {
     setDraft(null);
@@ -67,16 +67,17 @@ export function QtyStepper({
       className='flex items-center gap-1.5 shrink-0'
       onClick={(e) => e.stopPropagation()}
     >
+      <Hint content={decHint} isDisabled={!atMin} placement='top'>
       <button
         type='button'
         aria-label={`Decrease ${label}`}
         className={btn}
         disabled={disabled || atMin}
-        title={atMin ? decHint : undefined}
         onClick={() => onChange(clampQty(value - 1, min, max))}
       >
-        <Minus size={14} />
+        <Minus size={16} strokeWidth={1.8} />
       </button>
+      </Hint>
 
       <input
         type='text'
@@ -111,22 +112,20 @@ export function QtyStepper({
             onChange(clampQty(value - 1, min, max));
           }
         }}
-        className={`${inputSize} text-center font-semibold tabular-nums rounded-md outline-none transition disabled:opacity-50
-          ${
-            'bg-default-200 text-foreground border border-default-200 focus:border-primary'
-          }`}
+        className={`${inputSize} pointer-coarse:h-11 text-center font-semibold tabular-nums rounded-[11px] outline-none transition disabled:opacity-50 bg-surface text-foreground border border-line-strong focus:border-primary`}
       />
 
+      <Hint content='Limit reached' isDisabled={!atMax} placement='top'>
       <button
         type='button'
         aria-label={`Increase ${label}`}
         className={btn}
         disabled={disabled || atMax}
-        title={atMax ? 'Limit reached' : undefined}
         onClick={() => onChange(clampQty(value + 1, min, max))}
       >
-        <Plus size={14} />
+        <Plus size={16} strokeWidth={1.8} />
       </button>
+      </Hint>
     </div>
   );
 }

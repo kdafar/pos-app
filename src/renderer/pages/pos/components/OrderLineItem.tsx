@@ -6,6 +6,7 @@ import { OrderLine } from '../types';
 import { QtyStepper } from '../../../components/QtyStepper';
 import { useI18n } from '../../../i18n';
 import { useApproval } from '../../../components/ApprovalProvider';
+import { Hint } from '../../../components/Hint';
 import { useToast } from '../../../components/ToastProvider';
 
 declare global {
@@ -23,18 +24,8 @@ type OrderLineWithExtras = OrderLine & {
 };
 
 /**
- * One line in the cart.
- *
- * Every colour here is a HeroUI semantic token, so the row, its meta pills and
- * the price all resolve themselves in either theme from a single definition.
- * The previous version branched on `theme === 'dark'` for the variation pill,
- * the addon pills, the name and the line total — four places where the light
- * branch (`bg-primary/15`, `text-primary`) rendered near-invisibly whenever the
- * dark theme was actually on.
- *
- * Sizes come from the fluid POS scale rather than fixed 11px: this is read at
- * arm's length while a customer waits, so nothing that carries meaning is
- * rendered at a size or tone that has to be leaned into.
+ * One line in the cart: a bordered surface row. Colours are tokens only.
+ * Sizes use the fluid POS scale; read at arm's length.
  */
 export function OrderLineItem({
   line,
@@ -43,10 +34,7 @@ export function OrderLineItem({
 }: {
   line: OrderLineWithExtras;
   orderId: string;
-  /**
-   * Unused — colour comes from semantic tokens now. Kept declared and optional
-   * only because OrderSide.tsx still passes it; it can go with that call site.
-   */
+  /** Unused (tokens). Kept because OrderSide.tsx still passes it. */
   theme?: 'light' | 'dark';
   onUpdate: () => void;
 }) {
@@ -106,10 +94,8 @@ export function OrderLineItem({
 
   const remove = async () => setQty(0);
 
-  const bg = 'bg-default-100 hover:bg-default-200';
-  const border = 'border-default-200';
   const text = 'text-foreground';
-  const textMuted = 'text-default-700';
+  const textMuted = 'ink-2';
 
   const unitPrice = Number(line.unit_price || 0);
   const qty = Number(line.qty || 0);
@@ -128,10 +114,10 @@ export function OrderLineItem({
     : [];
 
   return (
-    <div className={`${bg} border ${border} rounded-lg p-3 transition`}>
+    <div className='bg-surface border border-line rounded-[14px] p-3 min-w-0'>
       {/* Top row: name + remove */}
       <div className='flex items-start justify-between gap-2 mb-2'>
-        <div className='flex-1 pe-1'>
+        <div className='flex-1 min-w-0 pe-1'>
           <h4 className={`font-semibold pos-base ${text} leading-snug line-clamp-2`}>
             {localName(line)}
           </h4>
@@ -140,7 +126,7 @@ export function OrderLineItem({
           <div className='mt-1 space-y-1'>
             {hasVariation && (
               <div className='flex flex-wrap items-center gap-1'>
-                <Chip size='sm' variant='solid' color='primary' className='font-semibold'>
+                <Chip size='sm' variant='bordered' className='font-semibold border-[var(--line-strong)] text-foreground'>
                   {line.variation}
                 </Chip>
               </div>
@@ -152,9 +138,8 @@ export function OrderLineItem({
                   <Chip
                     key={idx}
                     size='sm'
-                    variant='solid'
-                    color='success'
-                    className='font-semibold'
+                    variant='bordered'
+                    className='font-semibold border-[var(--line-strong)] ink-2'
                   >
                     + {label}
                   </Chip>
@@ -177,22 +162,23 @@ export function OrderLineItem({
 
         {/* A finger-sized target rather than a bare 16px glyph — this is the
             control that deletes a line mid-order. */}
+        <Hint content={t('common.remove')} placement='top'>
         <Button
           isIconOnly
-          size='sm'
+          size='md'
           variant='light'
           color='danger'
           onPress={remove}
-          title={t('common.remove')}
           aria-label={t('common.remove')}
           className='shrink-0 text-danger'
         >
-          <Trash2 size={18} />
+          <Trash2 size={18} strokeWidth={1.8} />
         </Button>
+        </Hint>
       </div>
 
       {/* Bottom row: qty controls + total */}
-      <div className='flex items-center justify-between gap-2'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
         <QtyStepper
           value={qty}
           min={1}
@@ -204,7 +190,7 @@ export function OrderLineItem({
           onChange={setQty}
         />
 
-        <div className='pos-price font-bold text-primary'>
+        <div className='pos-price font-semibold tabular-nums text-foreground'>
           <span className='money'>{money(lineTotal)}</span>
         </div>
       </div>

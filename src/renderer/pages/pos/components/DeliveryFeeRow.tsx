@@ -1,5 +1,6 @@
 // src/renderer/pages/pos/components/DeliveryFeeRow.tsx
 import { useEffect, useState } from 'react';
+import { Hint } from '../../../components/Hint';
 import { Check, Pencil, X } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 
@@ -42,7 +43,7 @@ export function DeliveryFeeRow({
   useEffect(() => {
     if (!editing) setDraft(String(value ?? 0));
   }, [value, editing]);
-  const muted = 'text-default-700';
+  const muted = 'ink-2';
 
   const apply = async (mode: 'auto' | 'manual' | 'none', amount?: number) => {
     setBusy(true);
@@ -71,9 +72,8 @@ export function DeliveryFeeRow({
     apply(n === 0 ? 'none' : 'manual', n);
   };
 
-  const btn = `h-8 px-2 rounded-md text-xs font-medium transition disabled:opacity-40 ${
-    'bg-default-200 hover:bg-default-300 text-foreground'
-  }`;
+  const btn =
+    'ui-btn ui-btn-outline ui-btn-sm disabled:opacity-40';
 
   if (editing) {
     return (
@@ -101,32 +101,33 @@ export function DeliveryFeeRow({
               if (e.key === 'Enter') save();
               if (e.key === 'Escape') setEditing(false);
             }}
-            className={`money w-24 h-8 px-2 rounded-md text-sm text-end outline-none
-              focus:ring-2 focus:ring-blue-500/40 ${
-                'bg-default-200 border border-default-200 text-foreground'
-              }`}
+            className='money w-24 min-h-11 px-2 rounded-[11px] text-sm text-end outline-none bg-surface border border-line-strong text-foreground focus:border-[var(--brand)] focus:ring-4 focus:ring-[var(--brand-ring)]'
           />
-          <button
-            type='button'
-            onClick={save}
-            disabled={busy}
-            title={t('common.save')}
-            className={`${btn} text-success dark:text-emerald-300`}
-          >
-            <Check size={15} />
-          </button>
-          <button
-            type='button'
-            onClick={() => {
-              setEditing(false);
-              setError(null);
-            }}
-            disabled={busy}
-            title={t('common.cancel')}
-            className={btn}
-          >
-            <X size={15} />
-          </button>
+          <Hint content={t('common.save')} placement='top'>
+            <button
+              type='button'
+              onClick={save}
+              disabled={busy}
+              aria-label={t('common.save')}
+              className={`${btn} text-success`}
+            >
+              <Check size={16} strokeWidth={1.8} />
+            </button>
+          </Hint>
+          <Hint content={t('common.cancel')} placement='top'>
+            <button
+              type='button'
+              onClick={() => {
+                setEditing(false);
+                setError(null);
+              }}
+              disabled={busy}
+              aria-label={t('common.cancel')}
+              className={btn}
+            >
+              <X size={16} strokeWidth={1.8} />
+            </button>
+          </Hint>
         </div>
 
         <div className='flex items-center gap-2 flex-wrap'>
@@ -149,7 +150,7 @@ export function DeliveryFeeRow({
         </div>
 
         {error && (
-          <div className='text-[11px] text-rose-500 leading-snug'>{error}</div>
+          <div className='text-[11px] text-danger leading-snug'>{error}</div>
         )}
       </div>
     );
@@ -170,20 +171,20 @@ export function DeliveryFeeRow({
           </span>
         )}
       </span>
-      <span className={`money text-[13px] ${'text-foreground'}`}>
+      <span className='money text-[13px] text-foreground'>
         {money(value)}
       </span>
       {editable && (
-        <button
-          type='button'
-          onClick={() => setEditing(true)}
-          title={t('cart.editDeliveryFee')}
-          className={`shrink-0 rounded-md p-1 ${
-            'hover:bg-default-200 text-default-700'
-          }`}
-        >
-          <Pencil size={13} />
-        </button>
+        <Hint content={t('cart.editDeliveryFee')} placement='top'>
+          <button
+            type='button'
+            onClick={() => setEditing(true)}
+            aria-label={t('cart.editDeliveryFee')}
+            className='ui-icon-btn shrink-0'
+          >
+            <Pencil size={16} strokeWidth={1.8} />
+          </button>
+        </Hint>
       )}
     </div>
   );

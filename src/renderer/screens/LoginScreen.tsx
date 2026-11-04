@@ -1,20 +1,10 @@
 // src/renderer/screens/LoginScreen.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  CardFooter,
-  Chip,
-  Input,
-  Switch,
-  Divider,
-} from '@heroui/react';
+import { Button, Input, Switch } from '@heroui/react';
 import { BrandHeader } from '../components/BrandHeader';
 import { LanguageToggle } from '../components/LanguageToggle';
-import { Wifi, WifiOff, Link2, RefreshCcw } from 'lucide-react';
+import { Wifi, WifiOff, Link2, RefreshCcw, TriangleAlert } from 'lucide-react';
 import { unpairDevice, useConfirmUnpair } from '../components/useConfirmUnpair';
 import { HelpButton } from '../help/HelpButton';
 import { useI18n } from '../i18n';
@@ -255,77 +245,71 @@ export function LoginScreen() {
     t('auth.branchSubtitle', { name: branch.name || '-' }) +
     (branch.id ? t('auth.branchIdSuffix', { id: branch.id }) : '');
 
+  const modes: { value: PosMode; label: string }[] = [
+    { value: 'live', label: t('auth.modeLiveOption') },
+    { value: 'offline', label: t('auth.modeOfflineOption') },
+  ];
+
   return (
-    <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
-      <Card className='w-full max-w-5xl shadow-2xl border border-slate-200 bg-white'>
+    <div className='min-h-dvh flex items-center justify-center bg-canvas p-3 sm:p-4 lg:p-6'>
+      <div className='ui-card w-full max-w-5xl min-w-0'>
         {/* HEADER */}
-        <CardHeader className='flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-200 pb-4'>
+        <div className='flex flex-col gap-3 border-b border-line p-4 sm:flex-row sm:items-center sm:justify-between lg:px-6'>
           <BrandHeader
             title='Majestic POS'
             subtitle={branchSubtitle}
             align='left'
           />
 
-          <div className='flex flex-wrap gap-2 justify-end items-center'>
-            <LanguageToggle theme='light' compact />
+          <div className='flex flex-wrap items-center gap-2 sm:justify-end'>
+            <LanguageToggle compact />
             <HelpButton />
-            <Chip
-              variant='bordered'
-              color={mode === 'live' ? 'success' : 'warning'}
-              size='sm'
-              className='font-medium'
+            <span
+              className={`ui-chip ${mode === 'live' ? 'ui-chip-green' : 'ui-chip-amber'}`}
             >
               {mode === 'live' ? t('auth.modeLive') : t('auth.modeOffline')}
-            </Chip>
-            <Chip
-              variant='bordered'
-              color={paired ? 'success' : 'warning'}
-              size='sm'
-              startContent={<Link2 className='w-3 h-3' />}
+            </span>
+            <span
+              className={`ui-chip ${paired ? 'ui-chip-green' : 'ui-chip-amber'}`}
             >
+              <Link2 size={14} strokeWidth={1.8} />
               {paired ? t('auth.paired') : t('auth.notPaired')}
-            </Chip>
-            <Chip
-              variant='bordered'
-              color={online ? 'primary' : 'default'}
-              size='sm'
-              startContent={
-                online ? (
-                  <Wifi className='w-3 h-3' />
-                ) : (
-                  <WifiOff className='w-3 h-3' />
-                )
-              }
+            </span>
+            <span
+              className={`ui-chip ${online ? 'ui-chip-green' : 'ui-chip-gray'}`}
             >
+              {online ? (
+                <Wifi size={14} strokeWidth={1.8} />
+              ) : (
+                <WifiOff size={14} strokeWidth={1.8} />
+              )}
               {online ? t('auth.online') : t('auth.deviceOffline')}
-            </Chip>
+            </span>
           </div>
-        </CardHeader>
+        </div>
 
-        <CardBody className='pt-5 pb-4'>
+        <div className='p-4 lg:p-6'>
           <div className='grid gap-6 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]'>
             {/* LEFT: LOGIN */}
-            <div className='space-y-5'>
+            <div className='min-w-0 space-y-5'>
               <div>
-                <div className='text-base font-semibold mb-1.5 text-slate-900'>
+                <div className='mb-1 text-xl font-semibold ink'>
                   {t('auth.login')}
                 </div>
-                <p className='text-xs text-slate-500 mb-4'>
-                  {t('auth.signInHelp')}
-                </p>
+                <p className='mb-4 text-xs ink-2'>{t('auth.signInHelp')}</p>
 
                 <Input
                   label={t('auth.email')}
                   variant='bordered'
                   size='lg'
-                  radius='md'
                   value={login}
                   onChange={(e) => setLogin(e.target.value)}
                   placeholder='staff@restaurant.com'
                   type='email'
                   dir='ltr'
                   classNames={{
-                    label: 'text-xs text-slate-600',
+                    inputWrapper: 'ui-input',
+                    label: 'text-sm font-semibold',
                     input: 'text-sm text-start',
                   }}
                 />
@@ -335,20 +319,20 @@ export function LoginScreen() {
                     label={t('auth.password')}
                     variant='bordered'
                     size='lg'
-                    radius='md'
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     type={showPwd ? 'text' : 'password'}
                     onKeyDown={onPwdKeyDown}
                     placeholder={t('auth.passwordPlaceholder')}
                     classNames={{
-                      label: 'text-xs text-slate-600',
+                      inputWrapper: 'ui-input',
+                      label: 'text-sm font-semibold',
                       input: 'text-sm',
                     }}
                     endContent={
                       <button
                         type='button'
-                        className='text-xs text-slate-500 hover:text-slate-900'
+                        className='ui-btn ui-btn-ghost ui-btn-sm'
                         onClick={() => setShowPwd((v) => !v)}
                       >
                         {showPwd ? t('auth.hide') : t('auth.show')}
@@ -356,15 +340,15 @@ export function LoginScreen() {
                     }
                   />
 
-                  <div className='flex items-center justify-between'>
-                    <span className='text-[11px] text-slate-500'>
+                  <div className='flex flex-wrap items-center justify-between gap-2'>
+                    <span className='text-xs'>
                       {capsOn && (
-                        <span className='text-amber-500'>
+                        <span className='font-semibold text-warning'>
                           {t('auth.capsLock')}
                         </span>
                       )}
                     </span>
-                    <div className='flex items-center gap-2 text-xs text-slate-700'>
+                    <label className='flex min-h-11 items-center gap-2 text-xs ink-2'>
                       <input
                         type='checkbox'
                         className='accent-primary h-4 w-4'
@@ -372,7 +356,7 @@ export function LoginScreen() {
                         onChange={(e) => setRememberLogin(e.target.checked)}
                       />
                       {t('auth.rememberEmail')}
-                    </div>
+                    </label>
                   </div>
                 </div>
 
@@ -380,8 +364,7 @@ export function LoginScreen() {
                   fullWidth
                   color='primary'
                   size='lg'
-                  radius='md'
-                  className='mt-4 font-medium'
+                  className='mt-4 font-semibold'
                   isDisabled={pwdLoading || !login.trim() || !password}
                   isLoading={pwdLoading}
                   onPress={doPassword}
@@ -389,145 +372,140 @@ export function LoginScreen() {
                   {pwdLoading ? t('auth.signingIn') : t('auth.login')}
                 </Button>
 
-                <p className='text-[11px] text-slate-500 mt-3'>
-                  {t('auth.branchRuleNote')}
-                </p>
+                <p className='mt-3 text-xs ink-3'>{t('auth.branchRuleNote')}</p>
               </div>
 
               {/* QUICK USERS */}
               <div>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='text-sm font-semibold text-slate-900'>
+                <div className='mb-2 flex flex-wrap items-center justify-between gap-2'>
+                  <div className='text-xs font-semibold uppercase tracking-wide ink-2'>
                     {t('auth.quickUsers')}
                   </div>
                   {hasUsers && (
-                    <span className='text-[11px] text-slate-500'>
+                    <span className='text-xs ink-3'>
                       {t('auth.quickUsersHint')}
                     </span>
                   )}
                 </div>
-                <div className='flex flex-wrap gap-2 max-h-24 overflow-auto pe-1'>
-                  {hasUsers ? (
-                    users.map((u) => (
-                      <Chip
+                {hasUsers ? (
+                  <div className='grid max-h-64 gap-2 overflow-auto pe-1 sm:grid-cols-2'>
+                    {users.map((u) => (
+                      <button
                         key={u.id}
-                        size='sm'
-                        variant='solid'
-                        className='cursor-pointer bg-slate-100 hover:bg-slate-200 transition'
+                        type='button'
                         onClick={() => handleQuickUserClick(u)}
+                        className='flex min-h-11 min-w-0 items-center justify-between gap-2 rounded-[11px] border border-line-strong bg-surface px-3 py-2 text-start transition-colors hover:bg-surface-2'
                       >
-                        <span className='truncate max-w-[130px]'>{u.name}</span>
+                        <span className='truncate text-sm font-semibold ink'>
+                          {u.name}
+                        </span>
                         {u.role && (
-                          <span className='ms-2 text-[10px] text-slate-600'>
+                          <span className='ui-chip ui-chip-outline shrink-0'>
                             {u.role}
                           </span>
                         )}
-                      </Chip>
-                    ))
-                  ) : (
-                    <span className='text-[11px] text-slate-500'>
-                      {t('auth.noUsers')}
-                    </span>
-                  )}
-                </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <span className='text-xs ink-3'>{t('auth.noUsers')}</span>
+                )}
               </div>
             </div>
 
             {/* RIGHT: STATUS / SYNC */}
-            <div className='space-y-4'>
-              <div className='rounded-xl border border-slate-200 bg-slate-50 p-4'>
-                <div className='text-base font-semibold mb-3 text-slate-900'>
+            <div className='min-w-0 space-y-4'>
+              <div className='rounded-2xl border border-line bg-surface-2 p-4'>
+                <div className='mb-3 text-base font-semibold ink'>
                   {t('auth.deviceStatus')}
                 </div>
 
-                <div className='space-y-2 text-xs text-slate-700 mb-4'>
+                <div className='mb-4 space-y-2 text-xs ink-2'>
                   <div className='flex justify-between gap-2'>
-                    <span className='opacity-80'>{t('auth.server')}</span>
-                    <span className='text-end truncate max-w-[220px]' dir='ltr'>
+                    <span>{t('auth.server')}</span>
+                    <span className='min-w-0 truncate text-end ink' dir='ltr'>
                       {baseUrl
                         ? baseUrl.replace(/^https?:\/\//, '')
                         : t('auth.notConfigured')}
                     </span>
                   </div>
                   <div className='flex justify-between gap-2'>
-                    <span className='opacity-80'>{t('auth.lastSync')}</span>
-                    <span className='text-end' dir='ltr'>
+                    <span>{t('auth.lastSync')}</span>
+                    <span className='text-end ink' dir='ltr'>
                       {fmtTime(status?.last_sync_at)}
                     </span>
                   </div>
-                  <div className='flex justify-between gap-2 items-center'>
-                    <span className='opacity-80'>{t('auth.outbox')}</span>
-                    <Chip
-                      size='sm'
-                      variant='solid'
-                      color={unsynced > 0 ? 'warning' : 'success'}
-                      className='text-[11px]'
+                  <div className='flex items-center justify-between gap-2'>
+                    <span>{t('auth.outbox')}</span>
+                    <span
+                      className={`ui-chip ${unsynced > 0 ? 'ui-chip-amber' : 'ui-chip-green'}`}
                     >
                       {unsynced > 0
                         ? t('auth.pendingCount', { n: unsynced })
                         : t('auth.upToDate')}
-                    </Chip>
+                    </span>
                   </div>
                 </div>
 
-                <Divider className='my-2 bg-slate-200' />
-
-                <div className='flex flex-wrap items-center gap-3 text-xs mt-1'>
-                  <Switch
-                    size='sm'
-                    isSelected={syncOn}
-                    onValueChange={toggleSync}
-                    aria-label={t('auth.syncToggle')}
-                  >
-                    {t('auth.sync')}
-                  </Switch>
-
-                  <div className='flex items-center gap-2'>
-                    <span className='opacity-80'>{t('auth.mode')}</span>
-                    <select
-                      className='bg-white border border-slate-300 rounded-md px-2 py-1 text-[11px] text-slate-800'
-                      value={mode}
-                      onChange={(e) => changeMode(e.target.value as PosMode)}
+                <div className='border-t border-line pt-3'>
+                  <div className='flex flex-wrap items-center gap-3 text-xs'>
+                    <Switch
+                      size='sm'
+                      isSelected={syncOn}
+                      onValueChange={toggleSync}
+                      aria-label={t('auth.syncToggle')}
                     >
-                      <option value='live'>{t('auth.modeLiveOption')}</option>
-                      <option value='offline'>
-                        {t('auth.modeOfflineOption')}
-                      </option>
-                    </select>
+                      {t('auth.sync')}
+                    </Switch>
+
+                    <div className='flex items-center gap-2'>
+                      <span className='ink-2'>{t('auth.mode')}</span>
+                      <div className='ui-seg' role='group' aria-label={t('auth.mode')}>
+                        {modes.map((m) => (
+                          <button
+                            key={m.value}
+                            type='button'
+                            aria-pressed={mode === m.value}
+                            onClick={() => changeMode(m.value)}
+                            className='ui-seg-item'
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <Button
+                      size='md'
+                      variant='bordered'
+                      startContent={<RefreshCcw size={16} strokeWidth={1.8} />}
+                      className='ms-auto border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                      isDisabled={syncRunning || mode !== 'live'}
+                      isLoading={syncRunning}
+                      onPress={doManualSync}
+                    >
+                      {t('nav.sync')}
+                    </Button>
                   </div>
 
-                  <Button
-                    size='sm'
-                    radius='md'
-                    variant='bordered'
-                    startContent={<RefreshCcw className='w-3 h-3' />}
-                    className='ms-auto text-xs'
-                    isDisabled={syncRunning || mode !== 'live'}
-                    isLoading={syncRunning}
-                    onPress={doManualSync}
-                  >
-                    {t('nav.sync')}
-                  </Button>
-                </div>
-
-                {/* 🔹 NEW: Unpair button */}
-                <div className='mt-3 flex justify-end'>
-                  <Button
-                    size='sm'
-                    radius='md'
-                    color='danger'
-                    variant='light'
-                    className='text-[11px]'
-                    isLoading={unpairLoading}
-                    onPress={doUnpair}
-                  >
-                    {t('auth.unpairDevice')}
-                  </Button>
+                  {/* Unpair button */}
+                  <div className='mt-3 flex justify-end'>
+                    <Button
+                      size='md'
+                      color='danger'
+                      variant='light'
+                      className='font-semibold'
+                      isLoading={unpairLoading}
+                      onPress={doUnpair}
+                    >
+                      {t('auth.unpairDevice')}
+                    </Button>
+                  </div>
                 </div>
               </div>
 
-              <div className='rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-700 space-y-1.5'>
-                <div className='font-semibold text-xs text-slate-900 mb-1'>
+              <div className='space-y-1.5 rounded-2xl border border-line bg-surface-2 p-4 text-xs ink-2'>
+                <div className='mb-1 text-xs font-semibold uppercase tracking-wide ink-2'>
                   {t('auth.shiftTips')}
                 </div>
                 <div>
@@ -544,36 +522,42 @@ export function LoginScreen() {
           </div>
 
           {err && (
-            <div className='mt-4 rounded-lg border border-red-500/40 bg-red-50 px-3 py-2 text-sm text-red-600'>
-              {err}
+            <div className='ui-notice mt-4 text-sm' role='alert'>
+              <TriangleAlert
+                size={18}
+                strokeWidth={1.8}
+                className='mt-0.5 shrink-0 text-danger'
+              />
+              <span className='min-w-0 break-words'>{err}</span>
             </div>
           )}
-        </CardBody>
+        </div>
 
-        <CardFooter className='flex flex-wrap gap-2 justify-between border-t border-slate-200 pt-3 pb-4 px-6'>
+        <div className='flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 lg:px-6'>
           <Button
             variant='light'
-            size='sm'
+            size='md'
             onPress={() => window.history.back()}
           >
             {t('auth.back')}
           </Button>
           <AppVersion />
-          <div className='flex gap-2'>
-            <Button variant='light' size='sm' onPress={() => nav('/pair')}>
+          <div className='flex flex-wrap gap-2'>
+            <Button variant='light' size='md' onPress={() => nav('/pair')}>
               {t('auth.pairDevice')}
             </Button>
             <Button
               variant='bordered'
-              size='sm'
+              size='md'
+              className='border border-[var(--line-strong)] bg-[var(--surface)]'
               onPress={() => window.location.reload()}
-              startContent={<RefreshCcw className='w-3 h-3' />}
+              startContent={<RefreshCcw size={16} strokeWidth={1.8} />}
             >
               {t('auth.reload')}
             </Button>
           </div>
-        </CardFooter>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

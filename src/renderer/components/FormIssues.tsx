@@ -83,7 +83,7 @@ export function focusField(root: HTMLElement | Document | null, field: string) {
 /** Border/ring classes for an input that is currently flagged. */
 export function fieldRing(invalid: boolean): string {
   return invalid
-    ? 'border-danger ring-2 ring-danger/30 focus:ring-danger/40'
+    ? 'border-danger ring-2 ring-danger focus:ring-danger'
     : '';
 }
 
@@ -163,22 +163,22 @@ export function ValidationSummary({
             // ±6px, 3 cycles, 300ms. The shake means "look here".
             animate={{ x: [0, -6, 6, -6, 6, -6, 6, 0] }}
             transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className='pointer-events-auto w-full max-w-[34rem] rounded-xl border border-danger/50
-              bg-content1 p-3.5 shadow-2xl ring-1 ring-danger/10'
+            className='pointer-events-auto ui-popup w-full max-w-[34rem] border-danger
+              p-3.5'
             role='alert'
             aria-live='assertive'
           >
             <div className='flex items-center gap-2.5'>
-              <span className='inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-danger/15 text-danger'>
-                <AlertTriangle className='h-5 w-5' />
+              <span className='inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-danger text-white'>
+                <AlertTriangle strokeWidth={1.8} className='h-5 w-5' />
               </span>
               <div className='min-w-0 flex-1'>
-                <div className='text-[17px] font-bold leading-tight text-danger'>
+                <div className='text-[17px] font-bold leading-tight ink'>
                   {issues.length === 1
                     ? t('error.oneLeft')
                     : t('error.manyLeft', { count: issues.length })}
                 </div>
-                <div className='text-[14px] font-medium leading-tight text-default-700'>
+                <div className='text-[14px] leading-tight ink-2'>
                   {t('error.fixToContinue')}
                 </div>
               </div>
@@ -187,7 +187,7 @@ export function ValidationSummary({
                   type='button'
                   onClick={onDismiss}
                   aria-label={t('toast.dismiss')}
-                  className='grid h-8 w-8 shrink-0 place-items-center rounded-lg text-default-700 hover:bg-default-100 hover:text-foreground'
+                  className='grid h-8 w-8 shrink-0 place-items-center rounded-lg ink-2 hover:bg-[var(--hover)] hover:text-[var(--ink)]'
                 >
                   <X className='h-4 w-4' />
                 </button>
@@ -202,10 +202,10 @@ export function ValidationSummary({
                   initial={{ opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
-                  className='flex items-center gap-2 rounded-lg bg-default-100 px-3 py-1.5'
+                  className='flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5'
                 >
                   {/* Title only. The message under the control says the rest. */}
-                  <span className='min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground'>
+                  <span className='min-w-0 flex-1 truncate text-[15px] font-semibold ink'>
                     {interpolate(ERROR_CATALOG[issue.code][lang].title, issue.params)}
                   </span>
                   {extraAction?.(issue)}
@@ -213,7 +213,7 @@ export function ValidationSummary({
                     <button
                       type='button'
                       onClick={() => onFocusField(issue.field)}
-                      className='inline-flex h-9 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[14px] font-semibold text-danger hover:bg-danger/10'
+                      className='inline-flex h-9 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[14px] font-semibold text-danger hover:bg-[var(--hover)]'
                     >
                       {t('error.goToField')}
                       <Arrow className='h-3.5 w-3.5' />

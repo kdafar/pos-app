@@ -13,6 +13,7 @@ import {
   Utensils,
   Loader2,
   Check,
+  AlertTriangle,
 } from 'lucide-react';
 import { Order, State, City, Block, Promo, Customer } from '../types';
 import { CommandSelect } from './CommandSelect';
@@ -58,7 +59,7 @@ function Row({
   value: string;
   theme: 'light' | 'dark';
 }) {
-  const textMuted = 'text-default-700';
+  const textMuted = 'ink-2';
 
   return (
     <div className={`flex justify-between ${textMuted}`}>
@@ -631,19 +632,20 @@ export function CheckoutModal({
     }
   };
 
-  const bg = 'bg-content1';
-  const border = 'border-default-200';
-  const text = 'text-foreground';
-  const textMuted = 'text-default-700';
-  const inputBg =
-    'bg-default-100 border-default-200';
-  const label = 'text-default-700';
+  const bg = 'bg-surface';
+  const border = 'border-line';
+  const text = 'ink';
+  const textMuted = 'ink-2';
+  // Portal input: surface + 1px line-strong, brand border and glow on focus.
+  const inputCls =
+    'w-full min-h-11 px-3 py-2 rounded-[11px] border border-line-strong bg-surface ink placeholder:text-default-500 transition focus:outline-none focus:border-[var(--brand)] focus:shadow-[0_0_0_4px_var(--brand-ring)]';
+  const label = 'ink-2';
 
   // Promo quick apply
   const [showPromo, setShowPromo] = useState(false);
 
   return (
-    <div className='fixed inset-0 bg-black/55 flex items-center justify-center z-50 p-4'>
+    <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4'>
       <div
         // max-w-2xl (42rem) forced three address selects into a cramped row
         // and left the form scrolling far more than it needed to. 64rem gives
@@ -655,36 +657,31 @@ export function CheckoutModal({
         // payment methods — so the one action the cashier always needs was the
         // one thing they had to go looking for. Only the fields scroll now;
         // the totals and the buttons are pinned.
-        className={`${bg} border ${border} rounded-2xl shadow-xl w-full max-w-[76rem] max-h-[92vh] flex flex-col overflow-hidden`}
+        className={`ui-popup !rounded-[24px] w-full max-w-[76rem] max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden`}
       >
         <div
-          className={`shrink-0 ${bg} border-b ${border} px-5 py-4 flex items-center justify-between`}
+          className={`shrink-0 ${bg} border-b ${border} px-3 py-3 sm:px-5 sm:py-4 flex flex-wrap items-center justify-between gap-2`}
         >
-          <h2 className={`text-xl font-bold ${text}`}>{t('checkout.title')}</h2>
+          <h2 className={`text-lg font-semibold ${text}`}>{t('checkout.title')}</h2>
           <div className='flex items-center gap-2'>
             <button
               type='button'
               onClick={() => setShowPromo(true)}
-              className={`h-9 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 ${
-                'bg-default-100 border border-default-200 text-default-700 hover:bg-default-200'
-              }`}
+              className='ui-btn ui-btn-outline ui-btn-sm'
             >
-              <Percent size={14} /> {t('promo.short')}
+              <Percent size={14} strokeWidth={1.8} /> {t('promo.short')}
             </button>
             <button
               type='button'
               onClick={handleQuickMode}
-              className={`
-                h-9 px-3 rounded-lg text-xs font-semibold
-                flex items-center gap-1 border transition-colors
-                ${
-                  useQuickMode
-                    ? 'bg-amber-500/20 text-warning border-amber-400/60'
-                    : 'bg-transparent text-default-700 border-default-200 hover:bg-default-100'
-                }
-              `}
+              aria-pressed={useQuickMode}
+              className={`ui-btn ui-btn-outline ui-btn-sm ${
+                useQuickMode
+                  ? '!border-[var(--brand)] shadow-[0_0_0_3px_var(--brand-ring)]'
+                  : ''
+              }`}
             >
-              <Zap size={13} className={useQuickMode ? '' : 'opacity-70'} />
+              <Zap size={13} strokeWidth={1.8} className={useQuickMode ? 'text-[var(--brand-strong)]' : 'opacity-70'} />
               <span>
                 {useQuickMode
                   ? t('checkout.quickModeOn')
@@ -694,10 +691,10 @@ export function CheckoutModal({
 
             <button
               onClick={onClose}
-              className='grid h-9 w-9 place-items-center rounded-lg text-default-700 hover:bg-default-100 hover:text-foreground'
+              className='ui-icon-btn'
               aria-label={t('common.close')}
             >
-              <X size={22} />
+              <X size={20} strokeWidth={1.8} />
             </button>
           </div>
         </div>
@@ -734,7 +731,7 @@ export function CheckoutModal({
                 <button
                   type='button'
                   onClick={onPickTable}
-                  className='inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-danger px-3 text-[14px] font-semibold text-danger-foreground hover:opacity-90'
+                  className='inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-[11px] bg-danger px-3 text-[14px] font-semibold text-danger-foreground hover:opacity-90'
                 >
                   <Utensils className='h-4 w-4' />
                   {t('tables.assign')}
@@ -754,13 +751,13 @@ export function CheckoutModal({
             inheriting a layout meant for width it does not have.
           */}
           <div className='flex-1 min-h-0 flex flex-col lg:flex-row'>
-          <div className='flex-1 min-h-0 overflow-y-auto nice-scroll p-4 space-y-3'>
+          <div className='flex-1 min-h-0 overflow-y-auto nice-scroll p-3 sm:p-4 space-y-3'>
           {/* Customer lookup */}
           <div
             data-field='mobile'
-            className='p-3 rounded-lg border border-primary/40 bg-primary/10'
+            className='p-3 rounded-[16px] border border-line-strong bg-surface-2'
           >
-            <label className={`block text-xs font-medium ${label} mb-1.5`}>
+            <label className={`block text-xs font-semibold ${label} mb-1.5`}>
               <Phone size={14} className='inline me-1' />{' '}
               {t('checkout.mobileLookup')}
             </label>
@@ -772,7 +769,7 @@ export function CheckoutModal({
                   if (e.target.value.length >= 8)
                     searchCustomer(e.target.value);
                 }}
-                className={`flex-1 px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 ${fieldRing(
+                className={`flex-1 px-3 py-2 ${inputCls} ${fieldRing(
                   issues.has('mobile')
                 )}`}
                 placeholder={t('checkout.mobilePlaceholder')}
@@ -786,10 +783,10 @@ export function CheckoutModal({
             {customerLookup && (
               <div
                 className={`mt-2 flex items-center gap-2 text-xs ${
-                  'text-success'
+                  'text-[var(--st-green)]'
                 }`}
               >
-                <UserCheck size={14} />
+                <UserCheck size={14} strokeWidth={1.8} />
                 <span>
                   {t('checkout.found')} {customerLookup.full_name}
                 </span>
@@ -800,7 +797,7 @@ export function CheckoutModal({
 
           <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
             <div data-field='full_name'>
-              <label className={`block text-xs font-medium ${label} mb-1`}>
+              <label className={`block text-xs font-semibold ${label} mb-1`}>
                 <span className='inline-flex items-center'>
                   <User size={14} className='me-1' />{' '}
                   {t('checkout.customerName')} *
@@ -812,7 +809,7 @@ export function CheckoutModal({
                 onChange={(e) =>
                   setFormData({ ...formData, full_name: e.target.value })
                 }
-                className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 ${fieldRing(
+                className={`w-full px-3 py-2 ${inputCls} ${fieldRing(
                   issues.has('full_name')
                 )}`}
                 placeholder={t('checkout.fullNamePlaceholder')}
@@ -820,7 +817,7 @@ export function CheckoutModal({
               <FieldError issue={issues.codeFor('full_name')} />
             </div>
             <div>
-              <label className={`block text-xs font-medium ${label} mb-1`}>
+              <label className={`block text-xs font-semibold ${label} mb-1`}>
                 <span className='inline-flex items-center'>
                   <Mail size={14} className='me-1' /> {t('checkout.email')}
                 </span>
@@ -831,7 +828,7 @@ export function CheckoutModal({
                 onChange={(e) =>
                   setFormData({ ...formData, email: e.target.value })
                 }
-                className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
+                className={`w-full px-3 py-2 ${inputCls}`}
                 placeholder='customer@email.com'
               />
             </div>
@@ -905,7 +902,7 @@ export function CheckoutModal({
 
               <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
                 <div>
-                  <label className={`block text-xs font-medium ${label} mb-1`}>
+                  <label className={`block text-xs font-semibold ${label} mb-1`}>
                     {t('cust.street')}
                   </label>
                   <input
@@ -913,12 +910,12 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, street: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
+                    className={`w-full px-3 py-2 ${inputCls}`}
                     placeholder={t('checkout.streetPlaceholder')}
                   />
                 </div>
                 <div>
-                  <label className={`block text-xs font-medium ${label} mb-1`}>
+                  <label className={`block text-xs font-semibold ${label} mb-1`}>
                     {t('cust.building')}
                   </label>
                   <input
@@ -926,7 +923,7 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, building: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
+                    className={`w-full px-3 py-2 ${inputCls}`}
                     placeholder={t('checkout.buildingPlaceholder')}
                   />
                 </div>
@@ -934,7 +931,7 @@ export function CheckoutModal({
 
               <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
                 <div>
-                  <label className={`block text-xs font-medium ${label} mb-1`}>
+                  <label className={`block text-xs font-semibold ${label} mb-1`}>
                     {t('cust.floor')}
                   </label>
                   <input
@@ -942,12 +939,12 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, floor: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40`}
+                    className={`w-full px-3 py-2 ${inputCls}`}
                     placeholder={t('checkout.floorPlaceholder')}
                   />
                 </div>
                 <div data-field='address'>
-                  <label className={`block text-xs font-medium ${label} mb-1`}>
+                  <label className={`block text-xs font-semibold ${label} mb-1`}>
                     <span className='inline-flex items-center'>
                       <MapPin size={14} className='me-1' />{' '}
                       {t('checkout.fullAddress')}
@@ -958,7 +955,7 @@ export function CheckoutModal({
                     onChange={(e) =>
                       setFormData({ ...formData, address: e.target.value })
                     }
-                    className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none ${fieldRing(
+                    className={`w-full px-3 py-2 ${inputCls} resize-none ${fieldRing(
                       issues.has('address')
                     )}`}
                     rows={2}
@@ -975,35 +972,35 @@ export function CheckoutModal({
               the refusal at the end. */}
           {order.order_type === 3 && (
             <div data-field='table'>
-              <label className={`block text-xs font-medium ${label} mb-1`}>
+              <label className={`block text-xs font-semibold ${label} mb-1`}>
                 <span className='inline-flex items-center'>
                   <Utensils size={14} className='me-1' /> {t('nav.tables')} *
                 </span>
               </label>
               <div
-                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                className={`flex flex-wrap items-center justify-between gap-3 rounded-[13px] border px-3 py-2 ${
                   order.table_id
-                    ? 'border-success/50 bg-success/10'
-                    : `border-default-200 bg-default-100 ${fieldRing(
+                    ? 'border-line-strong bg-surface'
+                    : `border-line-strong bg-surface ${fieldRing(
                         issues.has('table')
                       )}`
                 }`}
               >
-                <span className='inline-flex items-center gap-2 text-sm font-semibold text-foreground'>
+                <span className='inline-flex items-center gap-2 text-sm font-semibold ink'>
                   {order.table_id ? (
                     <>
-                      <Check className='h-4 w-4 text-success' />
+                      <Check className='h-4 w-4 text-[var(--st-green)]' strokeWidth={1.8} />
                       {(order as any).table_name || t('tables.assign')}
                     </>
                   ) : (
-                    <span className='text-default-700'>{t('tables.notAssigned')}</span>
+                    <span className='ink-2'>{t('tables.notAssigned')}</span>
                   )}
                 </span>
                 {onPickTable && (
                   <button
                     type='button'
                     onClick={onPickTable}
-                    className='rounded-lg border border-default-200 px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-default-200'
+                    className='ui-btn ui-btn-outline ui-btn-sm'
                   >
                     {t('tables.assign')}
                   </button>
@@ -1014,7 +1011,7 @@ export function CheckoutModal({
           )}
 
           <div>
-            <label className={`block text-xs font-medium ${label} mb-1`}>
+            <label className={`block text-xs font-semibold ${label} mb-1`}>
               {t('checkout.notes')}
             </label>
             <textarea
@@ -1022,7 +1019,7 @@ export function CheckoutModal({
               onChange={(e) =>
                 setFormData({ ...formData, note: e.target.value })
               }
-              className={`w-full px-3 py-2 ${inputBg} rounded-lg ${text} placeholder:text-default-700 focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none`}
+              className={`w-full px-3 py-2 ${inputCls} resize-none`}
               rows={2}
               placeholder={t('checkout.notesPlaceholder')}
             />
@@ -1030,29 +1027,29 @@ export function CheckoutModal({
 
           {/* Payment Methods (radio) */}
           <div data-field='payment_method'>
-            <label className={`block text-xs font-medium ${label} mb-1`}>
+            <label className={`block text-xs font-semibold ${label} mb-1`}>
               <span className='inline-flex items-center'>
                 <CreditCard size={14} className='me-1' />{' '}
                 {t('cust.paymentMethod')} *
               </span>
             </label>
-            <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
+            <div className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))] gap-2'>
               {paymentMethods.map((m: any) => {
                 const checked =
                   String(m.id) === String(formData.payment_method_id);
                 return (
                   <label
                     key={m.id}
-                    className={`cursor-pointer rounded-lg border p-3 flex items-center gap-2 ${
+                    className={`cursor-pointer rounded-[13px] border min-h-11 p-3 flex items-center gap-2 bg-surface transition ${
                       checked
-                        ? 'border-primary bg-primary/10 font-semibold'
-                        : 'border-default-200 bg-default-100 hover:bg-default-200'
+                        ? 'border-[var(--brand)] shadow-[0_0_0_3px_var(--brand-ring)] font-semibold'
+                        : 'border-line-strong hover:bg-surface-2'
                     }`}
                   >
                     <input
                       type='radio'
                       name='payment_method'
-                      className='accent-blue-600'
+                      className='accent-[var(--brand)]'
                       checked={checked}
                       onChange={() =>
                         setFormData({
@@ -1064,7 +1061,7 @@ export function CheckoutModal({
                       required
                     />
                     <span
-                      className='text-foreground'
+                      className='ink'
                     >
                       {/* payment_methods stores name_en/name_ar, so bridge it
                           onto the shape localName() expects. */}
@@ -1082,13 +1079,13 @@ export function CheckoutModal({
           {/* Summary column — the order, its totals, and the two actions. */}
           <aside
             className={`shrink-0 lg:w-[24rem] lg:overflow-y-auto nice-scroll
-              border-t lg:border-t-0 lg:border-s ${border} p-4 space-y-3 ${bg}`}
+              border-t lg:border-t-0 lg:border-s ${border} p-3 sm:p-4 space-y-3 ${bg} max-h-[50dvh] overflow-y-auto lg:max-h-none`}
           >
           {/* Summary (uses live displayDeliveryFee) */}
           <div
             data-field='totals'
-            className={`p-3 rounded-lg border ${
-              'bg-default-100 border-default-200'
+            className={`p-3 rounded-[16px] border ${
+              'bg-surface-2 border-line'
             } space-y-1.5`}
           >
             <Row
@@ -1122,12 +1119,12 @@ export function CheckoutModal({
               />
             )}
             <div
-              className='flex justify-between pos-price font-bold text-foreground pt-2 border-t border-default-200'
+              className='flex justify-between pos-price font-bold ink pt-2 border-t border-line'
             >
               <span>{t('common.total')}</span>
               <span
                 className={`money ${
-                  'text-primary'
+                  'ink'
                 }`}
               >
                 {money(computeDisplayTotals().grand_total)}
@@ -1142,9 +1139,9 @@ export function CheckoutModal({
               in the same order on screen as it happens at the counter.
             */}
             {showCashCapture && (
-              <div className='pt-2 border-t border-default-200 space-y-1.5'>
+              <div className='pt-2 border-t border-line space-y-1.5'>
                 <label className='flex items-center justify-between gap-2'>
-                  <span className='text-default-700'>
+                  <span className='ink-2'>
                     {t('checkout.cashReceived')}
                   </span>
                   <input
@@ -1164,11 +1161,11 @@ export function CheckoutModal({
                       if (/^\d*\.?\d{0,3}$/.test(next)) setCashReceived(next);
                     }}
                     placeholder={money(computeDisplayTotals().grand_total)}
-                    className={`w-28 text-end rounded-md border px-2 py-1 money
-                      bg-content1 text-foreground ${
+                    className={`w-28 min-h-11 text-end rounded-[11px] border px-2 py-1 money
+                      bg-surface ink transition focus:outline-none focus:border-[var(--brand)] focus:shadow-[0_0_0_4px_var(--brand-ring)] ${
                         cashIsShort || cashIsNotTenderable
-                          ? 'border-warning'
-                          : 'border-default-300'
+                          ? 'border-[var(--st-amber)]'
+                          : 'border-line-strong'
                       }`}
                   />
                 </label>
@@ -1189,11 +1186,12 @@ export function CheckoutModal({
                         key={amount}
                         type='button'
                         onClick={() => setCashReceived(amount.toFixed(3))}
-                        className={`rounded-md border px-3 py-1.5 text-sm font-semibold money
+                        aria-pressed={selected}
+                        className={`rounded-[11px] border min-h-11 px-3 py-1.5 text-sm font-semibold money bg-surface ink transition
                           ${
                             selected
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'border-default-300 text-foreground hover:bg-default-100'
+                              ? 'border-[var(--brand)] shadow-[0_0_0_3px_var(--brand-ring)]'
+                              : 'border-line-strong hover:bg-surface-2'
                           }`}
                       >
                         {i === 0 ? t('checkout.cashExact') : money(amount)}
@@ -1203,12 +1201,14 @@ export function CheckoutModal({
                 </div>
 
                 {cashIsNotTenderable ? (
-                  <div className='text-xs text-warning text-end'>
-                    {t('checkout.cashNotCoin')}
+                  <div className='ui-notice text-xs'>
+                    <AlertTriangle size={14} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-amber)]' />
+                    <span>{t('checkout.cashNotCoin')}</span>
                   </div>
                 ) : cashIsShort ? (
-                  <div className='text-xs text-warning text-end'>
-                    {t('checkout.cashShort')}
+                  <div className='ui-notice text-xs'>
+                    <AlertTriangle size={14} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-amber)]' />
+                    <span>{t('checkout.cashShort')}</span>
                   </div>
                 ) : null}
 
@@ -1226,9 +1226,9 @@ export function CheckoutModal({
                 )}
 
                 {changePreview && (
-                  <div className='flex justify-between pos-price font-bold text-foreground'>
+                  <div className='flex justify-between pos-price font-bold ink'>
                     <span>{t('checkout.change')}</span>
-                    <span className='money text-success'>
+                    <span className='money text-[var(--st-green)]'>
                       {money(changePreview.change)}
                     </span>
                   </div>
@@ -1237,26 +1237,23 @@ export function CheckoutModal({
             )}
 
             {order.order_type === 1 && Number(selectedCity?.min_order ?? 0) > 0 && (
-              <div
-                className={`text-xs ${
-                  'text-warning'
-                }`}
-              >
-                {t('checkout.minOrder', { city: localName(selectedCity) })}{' '}
-                <span className='money'>{money(selectedCity?.min_order)}</span>{' '}
-                {t('common.currency')}
+              <div className='ui-notice text-xs'>
+                <AlertTriangle size={14} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-amber)]' />
+                <span>
+                  {t('checkout.minOrder', { city: localName(selectedCity) })}{' '}
+                  <span className='money'>{money(selectedCity?.min_order)}</span>{' '}
+                  {t('common.currency')}
+                </span>
               </div>
             )}
           </div>
 
-          <div className='flex gap-2 pt-1'>
+          <div className='sticky bottom-0 -mb-1 flex gap-2 bg-surface pb-1 pt-2'>
             <button
               type='button'
               onClick={onClose}
               disabled={submitting}
-              className={`flex-1 h-11 px-4 rounded-xl border font-medium
-                border-default-200 bg-default-100 text-foreground hover:bg-default-200
-                disabled:opacity-60 disabled:cursor-not-allowed`}
+              className='ui-btn ui-btn-outline ui-btn-lg flex-1'
             >
               {t('common.cancel')}
             </button>
@@ -1266,9 +1263,7 @@ export function CheckoutModal({
             <button
               type='submit'
               disabled={submitting}
-              className={`flex-1 h-11 px-4 rounded-xl font-medium inline-flex items-center justify-center gap-2
-                bg-success text-success-foreground transition-opacity
-                disabled:opacity-60 disabled:cursor-not-allowed`}
+              className='ui-btn ui-btn-primary ui-btn-lg flex-1'
             >
               {submitting && <Loader2 className='h-4 w-4 animate-spin' />}
               {t('cart.placeOrder')}

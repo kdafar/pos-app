@@ -13,7 +13,7 @@
 // status reads at a glance instead of washing out at arm's length.
 
 import { useMemo, type ReactNode } from 'react';
-import { Button, Card, CardBody, Chip } from '@heroui/react';
+import { Button } from '@heroui/react';
 import {
   RefreshCw,
   Download,
@@ -42,7 +42,7 @@ type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
  * they will miss.
  */
 const TONE: Record<Tone, { border: string; icon: string }> = {
-  neutral: { border: 'border-s-default-300', icon: 'text-default-700' },
+  neutral: { border: 'border-s-default-300', icon: 'ink-2' },
   info: { border: 'border-s-primary', icon: 'text-primary' },
   success: { border: 'border-s-success', icon: 'text-success' },
   warning: { border: 'border-s-warning', icon: 'text-warning' },
@@ -51,7 +51,7 @@ const TONE: Record<Tone, { border: string; icon: string }> = {
 
 /** Section heading, one size, so the page has a single visual rhythm. */
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className='text-base font-bold text-foreground'>{children}</h2>;
+  return <h2 className='text-base font-semibold ink'>{children}</h2>;
 }
 
 /**
@@ -60,7 +60,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
  */
 function FieldLabel({ children }: { children: ReactNode }) {
   return (
-    <div className='text-sm font-semibold text-default-700'>{children}</div>
+    <div className='text-sm font-semibold ink-2'>{children}</div>
   );
 }
 
@@ -143,7 +143,8 @@ export function UpdatePage() {
       primaryAction={
         <Button
           color={state.status === 'error' ? 'primary' : 'default'}
-          variant={state.status === 'error' ? 'solid' : 'flat'}
+          variant={state.status === 'error' ? 'solid' : 'bordered'}
+          className={`font-semibold ${state.status === 'error' ? '' : 'border border-[var(--line-strong)] bg-[var(--surface)]'}`}
           onPress={check}
           isLoading={checking}
           isDisabled={!canCheck}
@@ -155,11 +156,10 @@ export function UpdatePage() {
     >
       <div className='space-y-4 min-w-0'>
         {/* Status — the reason the page exists, so it leads. */}
-        <Card
-          shadow='none'
-          className={`border border-default-200 border-s-4 ${TONE[view.tone].border} bg-content1`}
+        <div
+          className={`ui-card border-s-4 ${TONE[view.tone].border}`}
         >
-          <CardBody className='gap-0' aria-live='polite'>
+          <div className='p-4 sm:p-5' aria-live='polite'>
             {/* Wraps on a narrow till: the icon and text stop being a row
                 before the title has to hyphenate. */}
             <div className='flex items-start gap-3 min-w-0'>
@@ -171,7 +171,7 @@ export function UpdatePage() {
               />
 
               <div className='min-w-0 flex-1'>
-                <div className='text-lg font-bold text-foreground'>
+                <div className='text-lg font-bold ink'>
                   {view.title}
                 </div>
                 {view.hint && (
@@ -208,7 +208,7 @@ export function UpdatePage() {
                 {/* Raw error text from the network stack — never translated. */}
                 {state.status === 'error' && (
                   <pre
-                    className='mt-3 max-h-32 overflow-auto rounded-lg border border-default-200 bg-default-100 p-2 text-xs whitespace-pre-wrap break-all'
+                    className='mt-3 max-h-32 overflow-auto rounded-lg border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap break-all'
                     dir='ltr'
                   >
                     {state.message}
@@ -218,7 +218,7 @@ export function UpdatePage() {
                 {view.notes && (
                   <div className='mt-3'>
                     <FieldLabel>{t('update.releaseNotes')}</FieldLabel>
-                    <pre className='mt-1 max-h-48 overflow-auto rounded-lg border border-default-200 bg-default-100 p-2 text-xs whitespace-pre-wrap'>
+                    <pre className='mt-1 max-h-48 overflow-auto rounded-lg border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap'>
                       {view.notes}
                     </pre>
                   </div>
@@ -229,7 +229,7 @@ export function UpdatePage() {
                 {readyVersion && (
                   <Button
                     color='primary'
-                    className='mt-4 w-full sm:w-auto'
+                    className='mt-4 w-full font-semibold sm:w-auto'
                     onPress={onInstall}
                     startContent={<Rocket size={16} />}
                   >
@@ -238,48 +238,39 @@ export function UpdatePage() {
                 )}
               </div>
             </div>
-          </CardBody>
-        </Card>
+          </div>
+        </div>
 
         {/* Facts. Two up from the smallest breakpoint — they are short. */}
         <div className='grid gap-4 sm:grid-cols-2 min-w-0'>
-          <Card
-            shadow='none'
-            className='border border-default-200 bg-content1 min-w-0'
-          >
-            <CardBody className='gap-1'>
+          <div className='ui-card min-w-0'>
+            <div className='flex flex-col gap-1 p-4 sm:p-5'>
               <FieldLabel>{t('update.installedVersion')}</FieldLabel>
               {/* Versions are identifiers — always Latin, always LTR. */}
               <div
-                className='font-mono text-xl font-bold text-foreground truncate'
+                className='font-mono text-xl font-bold ink truncate'
                 dir='ltr'
               >
                 v{currentVersion || '—'}
               </div>
-            </CardBody>
-          </Card>
+            </div>
+          </div>
 
-          <Card
-            shadow='none'
-            className='border border-default-200 bg-content1 min-w-0'
-          >
-            <CardBody className='gap-1'>
+          <div className='ui-card min-w-0'>
+            <div className='flex flex-col gap-1 p-4 sm:p-5'>
               <FieldLabel>{t('update.lastChecked')}</FieldLabel>
-              <div className='text-base font-semibold text-foreground'>
+              <div className='text-base font-semibold ink'>
                 {lastCheckedText}
               </div>
-            </CardBody>
-          </Card>
+            </div>
+          </div>
         </div>
 
         {/* The two explainers sit side by side only once there is genuinely
             room for two columns of prose. */}
         <div className='grid gap-4 xl:grid-cols-2 min-w-0'>
-          <Card
-            shadow='none'
-            className='border border-default-200 bg-content1 min-w-0'
-          >
-            <CardBody className='gap-4'>
+          <div className='ui-card min-w-0'>
+            <div className='flex flex-col gap-4 p-4 sm:p-5'>
               <SectionTitle>{t('update.howItWorks')}</SectionTitle>
 
               <div className='grid gap-3 sm:grid-cols-3 xl:grid-cols-1 min-w-0'>
@@ -288,8 +279,8 @@ export function UpdatePage() {
                   return (
                     <div
                       key={n}
-                      className={`rounded-lg border p-3 min-w-0 ${
-                        done ? 'border-primary' : 'border-default-200'
+                      className={`rounded-xl border p-3 min-w-0 ${
+                        done ? 'border-primary' : 'border-line'
                       }`}
                     >
                       <div className='flex items-center gap-2 min-w-0'>
@@ -302,7 +293,7 @@ export function UpdatePage() {
                         >
                           <Icon size={15} />
                         </div>
-                        <span className='font-semibold text-foreground truncate'>
+                        <span className='font-semibold ink truncate'>
                           {title}
                         </span>
                       </div>
@@ -313,25 +304,17 @@ export function UpdatePage() {
                   );
                 })}
               </div>
-            </CardBody>
-          </Card>
+            </div>
+          </div>
 
-          <Card
-            shadow='none'
-            className='border border-default-200 bg-content1 min-w-0'
-          >
-            <CardBody className='gap-4'>
+          <div className='ui-card min-w-0'>
+            <div className='flex flex-col gap-4 p-4 sm:p-5'>
               <div className='flex flex-wrap items-center justify-between gap-2'>
                 <SectionTitle>{t('update.beforeRestart')}</SectionTitle>
-                <Chip
-                  size='sm'
-                  color='primary'
-                  variant='solid'
-                  className='font-semibold'
-                  startContent={<ShieldCheck size={14} />}
-                >
+                <span className='ui-chip ui-chip-green'>
+                  <ShieldCheck size={14} strokeWidth={1.8} />
                   {t('update.safeBadge')}
-                </Chip>
+                </span>
               </div>
 
               <div className='space-y-3'>
@@ -341,7 +324,7 @@ export function UpdatePage() {
                     className='flex gap-3 text-sm text-default-700 min-w-0'
                   >
                     <Icon
-                      className='mt-0.5 shrink-0 text-primary'
+                      className='mt-0.5 shrink-0 ink-2' strokeWidth={1.8}
                       size={18}
                     />
                     <span className='min-w-0'>{text}</span>
@@ -349,11 +332,11 @@ export function UpdatePage() {
                 ))}
               </div>
 
-              <p className='text-sm leading-5 text-default-700 border-t border-default-200 pt-3'>
+              <p className='text-sm leading-5 text-default-700 border-t border-line pt-3'>
                 {t('update.autoNote')}
               </p>
-            </CardBody>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     </PageShell>

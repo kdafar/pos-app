@@ -5,20 +5,19 @@ import { useI18n } from '../../../i18n';
 import { floorsOf, initialFloor, NO_FLOOR, onFloor } from '../tableFloors';
 
 /**
- * Solid fills, one meaning per colour, from the semantic scale so both themes
- * are right from one definition. The old pale tints (`bg-emerald-100`,
- * `bg-rose-100`) were hard to tell apart across the counter.
+ * Solid status fills, one meaning per colour, white text. Same in both themes.
+ * The table on screen takes the brand fill and a brand ring.
  */
 const STATUS_FILL: Record<TableInfo['status'], string> = {
-  available: 'bg-success text-success-foreground border-success',
-  reserved: 'bg-warning text-warning-foreground border-warning',
-  occupied: 'bg-danger text-danger-foreground border-danger',
+  available: 'bg-[var(--st-green)] text-white border-transparent',
+  reserved: 'bg-[var(--st-amber)] text-white border-transparent',
+  occupied: 'bg-[var(--st-red)] text-white border-transparent',
 };
 const ACTIVE_FILL =
-  'bg-primary text-primary-foreground border-primary ring-2 ring-primary ring-offset-2 ring-offset-background';
+  'bg-[var(--brand)] text-[var(--brand-ink)] border-transparent ring-4 ring-[var(--brand-ring)]';
 
 export function TableQuickBar({
-  theme,
+  theme: _theme,
   tables,
   currentOrderId,
   currentTableId,
@@ -61,35 +60,33 @@ export function TableQuickBar({
 
   if (!tables.length) return null;
 
-  const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-
   return (
-    <div className={`px-4 py-2 border-b border-default-100 ${bg}`}>
-      <div className="flex items-center gap-2 overflow-x-auto py-1">
-        <span className="text-xs uppercase tracking-wide text-default-700 whitespace-nowrap">
+    <div className='px-4 py-2 bg-canvas'>
+      <div className="flex items-center gap-2 overflow-x-auto py-1 px-1">
+        <span className="text-xs font-semibold uppercase tracking-wide ink-2 whitespace-nowrap">
           {translate('nav.tables')}
         </span>
-        {floors.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            onClick={() => setPicked(f.key)}
-            aria-pressed={f.key === floor}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap border transition ${
-              f.key === floor
-                ? 'bg-foreground text-background border-foreground'
-                : 'bg-content1 text-foreground border-default-300'
-            }`}
-          >
-            {f.key === NO_FLOOR
-              ? translate('tables.noFloor')
-              : lang === 'ar'
-              ? f.nameAr
-              : f.nameEn}
-          </button>
-        ))}
         {floors.length > 0 && (
-          <span className="mx-1 h-5 w-px shrink-0 bg-default-300" aria-hidden />
+          <div className="ui-seg shrink-0">
+            {floors.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setPicked(f.key)}
+                aria-pressed={f.key === floor}
+                className="ui-seg-item"
+              >
+                {f.key === NO_FLOOR
+                  ? translate('tables.noFloor')
+                  : lang === 'ar'
+                  ? f.nameAr
+                  : f.nameEn}
+              </button>
+            ))}
+          </div>
+        )}
+        {floors.length > 0 && (
+          <span className="mx-1 h-5 w-px shrink-0 bg-[var(--line-strong)]" aria-hidden />
         )}
         {visible.map(t => {
           const isActive = !!currentTableId && t.id === currentTableId;
@@ -109,13 +106,13 @@ export function TableQuickBar({
               }}
               // Not faded when it cannot be tapped: a busy table still has to
               // read as busy from arm's length. The cursor says "not this one".
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border-2 transition disabled:cursor-not-allowed ${
+              className={`min-h-11 px-4 rounded-full text-sm font-semibold whitespace-nowrap border transition disabled:cursor-not-allowed active:scale-[.98] ${
                 isActive ? ACTIVE_FILL : STATUS_FILL[t.status]
               }`}
             >
               {lang === 'ar' && t.name_ar ? t.name_ar : t.name}
               {t.seats ? (
-                <span className="ms-1 text-[10px] money">({t.seats})</span>
+                <span className="ms-1 text-xs money">({t.seats})</span>
               ) : null}
             </button>
           );

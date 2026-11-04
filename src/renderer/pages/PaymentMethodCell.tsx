@@ -168,21 +168,25 @@ export function PaymentMethodCell({
         if (next != null) change(String(next));
       }}
       aria-label={t('admin.orders.changePayment')}
-      title={t('admin.orders.changePayment')}
       // Falls back to whatever the order carries, so a method the catalogue has
       // since dropped still shows its name instead of an empty control.
       placeholder={current || '—'}
-      className='w-full max-w-[10rem]'
+      className='w-full min-w-0 max-w-[10rem]'
+      classNames={{
+        trigger: 'ui-input min-h-10 px-3 shadow-none',
+        value: 'text-sm font-medium ink',
+        popoverContent: 'ui-popup',
+      }}
     >
       {methods.map((m) => (
         <SelectItem key={String(m.id)}>{label(m)}</SelectItem>
       ))}
     </Select>
-    <Modal isOpen={!!pendingMethod} onOpenChange={(open) => !open && !busy && setPendingMethod(null)}>
+    <Modal isOpen={!!pendingMethod} classNames={{ base: 'max-h-[calc(100dvh-2rem)] m-2 sm:m-0 rounded-3xl bg-surface shadow-[var(--shadow-3)]', body: 'overflow-y-auto' }} onOpenChange={(open) => !open && !busy && setPendingMethod(null)}>
       <ModalContent>
-        <ModalHeader>{t('admin.orders.sendPayLink')}</ModalHeader>
+        <ModalHeader className='text-lg font-semibold'>{t('admin.orders.sendPayLink')}</ModalHeader>
         <ModalBody>
-          <p className='text-sm text-default-700'>{t('admin.orders.sendPayLinkHelp')}</p>
+          <p className='text-sm ink-2'>{t('admin.orders.sendPayLinkHelp')}</p>
           <Input
             label={t('cust.mobile')}
             value={mobileValue}
@@ -190,16 +194,17 @@ export function PaymentMethodCell({
             inputMode='tel'
             isInvalid={!!error}
             errorMessage={error}
+            classNames={{ inputWrapper: 'ui-input' }}
           />
-          <div className='text-sm text-default-700'>
+          <div className='text-sm ink-2'>
             {orderNumber ? `#${orderNumber} · ` : ''}{amount.toFixed(3)} KWD
           </div>
         </ModalBody>
         <ModalFooter>
-          <Button variant='flat' onPress={() => setPendingMethod(null)} isDisabled={busy}>
+          <Button variant='bordered' size='lg' className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold' onPress={() => setPendingMethod(null)} isDisabled={busy}>
             {t('common.cancel')}
           </Button>
-          <Button color='primary' onPress={confirmOnline} isLoading={busy}>
+          <Button color='primary' size='lg' className='font-semibold' onPress={confirmOnline} isLoading={busy}>
             {t('admin.orders.sendPayLink')}
           </Button>
         </ModalFooter>

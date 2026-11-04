@@ -38,13 +38,13 @@ export class ErrorBoundary extends Component<Props, State> {
 function CrashScreen({ error, onReset }: { error: Error; onReset: () => void }) {
   const { t } = useI18n();
   return (
-    <div className='flex min-h-screen items-center justify-center bg-content1 p-6'>
-      <div className='w-full max-w-xl rounded-2xl border border-danger/40 bg-danger/5 p-6 text-center'>
-        <span className='mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-danger/15 text-danger'>
-          <AlertOctagon className='h-7 w-7' />
+    <div className='flex min-h-screen items-center justify-center bg-canvas p-6'>
+      <div className='ui-card w-full max-w-xl p-6 text-center'>
+        <span className='mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-danger text-white'>
+          <AlertOctagon className='h-7 w-7' strokeWidth={1.8} />
         </span>
-        <h1 className='text-xl font-bold text-foreground'>{t('error.crashTitle')}</h1>
-        <p className='mt-2 text-base font-medium leading-relaxed text-default-700'>
+        <h1 className='text-xl font-semibold ink'>{t('error.crashTitle')}</h1>
+        <p className='mt-2 text-base font-medium leading-relaxed ink-2'>
           {t('error.crashMsg')}
         </p>
 
@@ -56,21 +56,21 @@ function CrashScreen({ error, onReset }: { error: Error; onReset: () => void }) 
             onReset();
             window.setTimeout(() => window.location.reload(), 50);
           }}
-          className='mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-base font-semibold text-primary-foreground hover:opacity-90'
+          className='ui-btn ui-btn-primary ui-btn-lg mt-5 px-5'
         >
-          <RotateCw className='h-4 w-4' />
+          <RotateCw className='h-4 w-4' strokeWidth={1.8} />
           {t('error.reload')}
         </button>
 
         {/* English, LTR, small: this is for whoever is on the phone to support,
             not for the person serving the queue. */}
         <details className='mt-5 text-start'>
-          <summary className='cursor-pointer text-sm font-semibold text-default-700'>
+          <summary className='cursor-pointer text-sm font-semibold ink-2'>
             {t('error.details')}
           </summary>
           <pre
             dir='ltr'
-            className='mt-2 max-h-40 overflow-auto rounded-lg bg-default-100 p-3 text-start text-xs text-default-700'
+            className='mt-2 max-h-40 overflow-auto rounded-lg bg-surface-2 border border-line p-3 text-start text-xs ink-2'
           >
             {stripIpcWrapper(error.message || String(error))}
             {error.stack ? `\n\n${error.stack}` : ''}

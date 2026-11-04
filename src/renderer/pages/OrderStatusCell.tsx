@@ -29,16 +29,15 @@ const FLOW: { value: string; key: StringKey }[] = [
   { value: 'cancelled_client', key: 'admin.srv.5' },
 ];
 
-const TONE: Record<
-  string,
-  'default' | 'primary' | 'warning' | 'success' | 'danger'
-> = {
-  placed: 'primary',
-  prepared: 'warning',
-  ready: 'warning',
-  awaiting_pickup: 'warning',
-  closed: 'success',
-  cancelled_client: 'danger',
+// Status chip colours per docs/DESIGN-SYSTEM.md: placed brand, prepared gray,
+// ready / waiting for pickup blue, closed green, cancelled red. Solid fill.
+const CHIP: Record<string, string> = {
+  placed: 'bg-[var(--brand)] text-[var(--brand-ink)]',
+  prepared: 'bg-[var(--st-gray)] text-white',
+  ready: 'bg-[var(--st-blue)] text-white',
+  awaiting_pickup: 'bg-[var(--st-blue)] text-white',
+  closed: 'bg-[var(--st-green)] text-white',
+  cancelled_client: 'bg-[var(--st-red)] text-white',
 };
 
 export function OrderStatusCell({
@@ -133,7 +132,7 @@ export function OrderStatusCell({
   };
 
   if (!known) {
-    return <span className='text-default-700'>{status || '—'}</span>;
+    return <span className='ink-2'>{status || '—'}</span>;
   }
 
   return (
@@ -147,9 +146,15 @@ export function OrderStatusCell({
         if (next != null && String(next) !== current) change(String(next));
       }}
       aria-label={t('admin.orders.changeStatus')}
-      title={t('admin.orders.changeStatus')}
-      color={TONE[current] ?? 'default'}
       className='w-full max-w-[10rem]'
+      classNames={{
+        trigger: `min-h-8 h-8 rounded-full px-3 shadow-none data-[hover=true]:opacity-90 ${
+          CHIP[current] ?? 'bg-[var(--st-gray)] text-white'
+        }`,
+        value: 'text-inherit text-xs font-semibold',
+        selectorIcon: 'text-inherit',
+        popoverContent: 'ui-popup',
+      }}
     >
       {visible.map((f) => (
         <SelectItem key={f.value}>{t(f.key)}</SelectItem>

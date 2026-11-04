@@ -121,35 +121,15 @@ export default function CatalogPanel({
     return out;
   }, [safeSubs, selCat]);
 
-  /**
-   * One chip style for both rows, so "selected" reads the same wherever it
-   * appears. Every colour here is a HeroUI semantic token: the two hand-rolled
-   * light/dark branches this replaced disagreed about which one was authoritative,
-   * and the loser was always unreadable on one of the two themes.
-   */
-  const chipBase =
-    'shrink-0 px-3.5 py-2 pos-sm font-medium rounded-lg whitespace-nowrap border transition-colors';
-  const chipIdle =
-    'bg-default-100 text-default-700 border-default-200 hover:bg-default-200';
-  /**
-   * Solid fill. `-foreground` is the one token theme/brand.ts recomputes from
-   * the operator's brand luminance, so it is the only text colour guaranteed to
-   * survive an arbitrary brand hex sitting underneath it.
-   */
-  const chipOnStrong = 'bg-primary text-primary-foreground border-primary';
-  /**
-   * Tinted fill, so a chosen subcategory reads as subordinate to its category.
-   * The label stays `text-foreground` rather than `text-primary`: brand.ts
-   * shares one primary ramp across both themes, so brand-coloured text on a
-   * neutral surface is only legible for brands that happen to be mid-toned.
-   * The selection is carried by the solid border and the wash instead.
-   */
-  const chipOnSoft = 'bg-primary/20 text-foreground border-primary';
+  // One segmented-strip style for both rows; selected = surface + shadow
+  // (aria-pressed), so "selected" reads the same wherever it appears.
+  const segRow = 'ui-seg max-w-full overflow-x-auto chip-scroll';
+  const segItem = 'ui-seg-item shrink-0';
 
   return (
-    <div className='flex flex-col overflow-hidden'>
+    <div className='flex flex-col overflow-hidden min-w-0'>
       {/* Filters */}
-      <div className='sticky top-0 z-10 bg-content1 backdrop-blur p-4 border-b border-default-200'>
+      <div className='sticky top-0 z-10 bg-surface p-3 lg:p-4 border-b border-line'>
         {/* Search */}
         <div className='mb-3'>
           <Input
@@ -163,16 +143,17 @@ export default function CatalogPanel({
             // `lg`, not the default: this is the control a cashier hits most on
             // the busiest screen in the app, and it is aimed at with a finger.
             size='lg'
+            classNames={{ inputWrapper: 'ui-input' }}
             isClearable
             onClear={() => setSearchQuery('')}
-            startContent={<Search size={18} className='text-default-700' />}
+            startContent={<Search size={18} strokeWidth={1.8} className='ink-2' />}
           />
         </div>
 
         {/* Categories */}
         <div className='mb-3'>
           {isSearching && (
-            <div className='mb-1.5 pos-xs font-medium text-default-700'>
+            <div className='mb-1.5 pos-xs font-medium ink-2'>
               {t('pos.searchAllCategories')}
             </div>
           )}
@@ -184,16 +165,15 @@ export default function CatalogPanel({
             says the same thing without making anything harder to read; nothing
             being lit already shows that no category is in scope.
           */}
-          <div className='flex items-center gap-1.5 overflow-x-auto chip-scroll pb-1'>
+          <div className={segRow}>
             <button
               onClick={() => {
                 console.debug('[CatalogPanel] click All Categories');
                 setSearchQuery('');
                 setSelectedCategoryId(null);
               }}
-              className={`${chipBase} ${
-                !selCat && !isSearching ? chipOnStrong : chipIdle
-              }`}
+              aria-pressed={!selCat && !isSearching}
+              className={segItem}
             >
               {t('pos.categories')}
             </button>
@@ -212,11 +192,8 @@ export default function CatalogPanel({
                   setSelectedCategoryId(String(cat.id));
                   setSelectedSubcategoryId(null);
                 }}
-                className={`${chipBase} ${
-                  selCat === String(cat.id) && !isSearching
-                    ? chipOnStrong
-                    : chipIdle
-                }`}
+                aria-pressed={selCat === String(cat.id) && !isSearching}
+                className={segItem}
               >
                 {localName(cat)}
               </button>
@@ -226,16 +203,15 @@ export default function CatalogPanel({
 
         {/* Subcategories */}
         {filteredSubcategories.length > 0 && (
-          <div className='flex items-center gap-1.5 overflow-x-auto chip-scroll pb-1'>
+          <div className={segRow}>
             <button
               onClick={() => {
                 console.debug('[CatalogPanel] click All subcategories');
                 setSearchQuery('');
                 setSelectedSubcategoryId(null);
               }}
-              className={`${chipBase} ${
-                !selectedSubcategoryId && !isSearching ? chipOnSoft : chipIdle
-              }`}
+              aria-pressed={!selectedSubcategoryId && !isSearching}
+              className={segItem}
             >
               {t('common.all')}
             </button>
@@ -251,11 +227,8 @@ export default function CatalogPanel({
                   setSearchQuery('');
                   setSelectedSubcategoryId(String(sub.id));
                 }}
-                className={`${chipBase} ${
-                  selectedSubcategoryId === String(sub.id) && !isSearching
-                    ? chipOnSoft
-                    : chipIdle
-                }`}
+                aria-pressed={selectedSubcategoryId === String(sub.id) && !isSearching}
+                className={segItem}
               >
                 {localName(sub)}
               </button>
@@ -275,7 +248,7 @@ export default function CatalogPanel({
           auto-fill + minmax gives four cards there and eight on a 4K panel
           without a single breakpoint.
         */}
-        <div className='grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3 p-3'>
+        <div className='grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3 p-3 lg:p-4'>
           {items.map((item) => (
             <ItemCard
               key={item.id}
@@ -288,12 +261,8 @@ export default function CatalogPanel({
         </div>
 
         {typeof totalItems === 'number' && totalItems > items.length && (
-          // The warning tone is carried by the icon and the border, not by the
-          // sentence: `text-warning` on a warning tint is amber-on-amber, and
-          // this line exists to tell a cashier that the item they cannot find
-          // may simply not be on screen.
-          <div className='mx-3 mb-3 flex items-center gap-2 rounded-lg border border-warning/50 bg-warning/15 px-3 py-2'>
-            <AlertTriangle size={16} className='shrink-0 text-warning' />
+          <div className='ui-notice mx-3 mb-3'>
+            <AlertTriangle size={16} strokeWidth={1.8} className='shrink-0 text-warning' />
             <span className='pos-xs font-medium text-foreground'>
               {t('pos.showingOf', { shown: items.length, total: totalItems })}
             </span>
@@ -301,8 +270,8 @@ export default function CatalogPanel({
         )}
 
         {items.length === 0 && (
-          <div className='flex flex-col items-center justify-center h-56 text-default-700'>
-            <Package size={40} className='mb-3' />
+          <div className='flex flex-col items-center justify-center h-56 ink-2'>
+            <Package size={40} strokeWidth={1.8} className='mb-3' />
             <p className='pos-base font-medium'>{t('pos.noItems')}</p>
           </div>
         )}

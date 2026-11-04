@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Chip, Spinner } from '@heroui/react';
-import { ChefHat, Clock3, RefreshCw, UtensilsCrossed } from 'lucide-react';
+import { Button, Spinner } from '@heroui/react';
+import { Clock3, RefreshCw, UtensilsCrossed } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { useI18n, useOrderTypeLabel, type StringKey } from '../i18n';
 import { shortOrderLabel } from '../utils/orderLabel';
 
 type Ticket = { order: any; lines: any[] };
 const LANES = [
-  { key: 'placed', title: 'kitchen.new' as StringKey, tone: 'primary' as const, header: 'bg-primary text-primary-foreground' },
-  { key: 'prepared', title: 'kitchen.preparing' as StringKey, tone: 'warning' as const, header: 'bg-warning text-warning-foreground' },
-  { key: 'ready', title: 'kitchen.ready' as StringKey, tone: 'success' as const, header: 'bg-success text-success-foreground' },
+  { key: 'placed', title: 'kitchen.new' as StringKey },
+  { key: 'prepared', title: 'kitchen.preparing' as StringKey },
+  { key: 'ready', title: 'kitchen.ready' as StringKey },
 ];
 
 const timeValue = (value: unknown) => {
@@ -46,14 +46,14 @@ export default function KitchenDisplayPage() {
     finally { setBusy(null); }
   };
 
-  return <PageShell title={t('kitchen.title')} subtitle={t('kitchen.subtitle')} primaryAction={<Button variant='flat' startContent={<RefreshCw size={16}/>} onPress={load}>{t('kitchen.refresh')}</Button>}>
-    {loading ? <div className='flex justify-center py-24'><Spinner size='lg'/></div> : <div className='grid items-start gap-4 xl:grid-cols-3'>
-      {LANES.map((lane) => <section key={lane.key} className='min-h-48 overflow-hidden rounded-xl border border-default-300 bg-content1 shadow-sm'>
-        <header className={`flex items-center justify-between px-4 py-3 ${lane.header}`}><div className='flex items-center gap-2'><ChefHat size={20}/><h2 className='text-base font-black'>{t(lane.title)}</h2></div><span className='min-w-8 rounded-full bg-black/25 px-2 py-1 text-center text-sm font-black text-white'>{grouped[lane.key].length}</span></header>
-        <div className='space-y-3 p-3'>{grouped[lane.key].map((ticket: Ticket) => {
+  return <PageShell title={t('kitchen.title')} subtitle={t('kitchen.subtitle')} primaryAction={<Button variant='bordered' size='lg' className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold' startContent={<RefreshCw size={16} strokeWidth={1.8}/>} onPress={load}>{t('kitchen.refresh')}</Button>}>
+    {loading ? <div className='flex justify-center py-24'><Spinner size='lg'/></div> : <div className='grid grid-cols-1 items-start gap-4 lg:grid-cols-3'>
+      {LANES.map((lane) => <section key={lane.key} className='min-w-0'>
+        <header className='mb-3 flex items-center gap-2'><h2 className='text-xs font-semibold uppercase tracking-wide ink-2'>{t(lane.title)}</h2><span className='ui-count'>{grouped[lane.key].length}</span></header>
+        <div className='space-y-3'>{grouped[lane.key].map((ticket: Ticket) => {
           const order = ticket.order;
           const elapsed = Math.max(0, Math.floor((now - timeValue(order.opened_at || order.created_at)) / 60000));
-          const border = elapsed >= 20 ? 'border-danger' : lane.key === 'placed' ? 'border-primary' : lane.key === 'prepared' ? 'border-warning' : 'border-success';
+          const timeChip = elapsed >= 20 ? 'ui-chip-red' : elapsed >= 10 ? 'ui-chip-amber' : 'ui-chip-outline';
           // The same label the order panel and the receipt show (#0008 once the
           // server has numbered it, the short till number before). This read
           // order_number / local_number, which no order row has, so every till
@@ -62,13 +62,13 @@ export default function KitchenDisplayPage() {
           // The checkout "Order Notes" are stored as `note`; `order_notes` is
           // only the alias the receipt query gives it.
           const orderNote = String(order.note ?? order.order_notes ?? '').trim();
-          return <article key={order.id} className={`overflow-hidden rounded-xl border-2 bg-content1 shadow-sm ${border}`}>
-            <div className='flex items-start justify-between gap-3 border-b border-default-300 px-4 py-3'><div className='min-w-0'><p className='truncate text-xl font-black'><span className='money'>{displayNumber}</span></p><p className='text-sm font-semibold text-default-700'>{orderTypeLabel(order.order_type)}{order.table_name ? ` · ${order.table_name}` : ''}</p></div><Chip className='shrink-0 font-bold' size='sm' color={elapsed >= 20 ? 'danger' : elapsed >= 10 ? 'warning' : lane.tone} variant='solid' startContent={<Clock3 size={12}/>}>{t('kitchen.minutes', { n: elapsed })}</Chip></div>
-            <div className='space-y-3 px-4 py-3'>{ticket.lines.length ? ticket.lines.map((line: any, index: number) => <div key={line.id || index} className='flex items-start gap-3'><b className='min-w-10 rounded-md bg-primary px-2 py-1 text-center text-sm font-black text-primary-foreground'>{Number(line.qty || line.quantity || 1)}×</b><div><p className='text-base font-bold text-foreground'>{name({ name: line.item_name || line.name || line.product_name, name_ar: line.name_ar || line.item_name_ar }) || t('kitchen.item')}</p>{(line.variation_name || line.notes) && <p className='text-sm font-medium text-default-700'>{line.variation_name || line.notes}</p>}</div></div>) : <p className='text-sm font-medium text-default-700'>{t('kitchen.itemsMissing')}</p>}</div>
-            {orderNote && <div className='mx-4 mb-3 rounded-lg bg-warning p-2 text-xs font-bold text-warning-foreground'>{orderNote}</div>}
-            <div className='border-t border-default-300 p-3'><Button fullWidth size='lg' className='font-bold' color={lane.key === 'placed' ? 'primary' : lane.key === 'prepared' ? 'warning' : 'success'} variant='solid' isLoading={busy === String(order.id)} startContent={busy === String(order.id) ? undefined : <UtensilsCrossed size={16}/>} onPress={() => advance(ticket)}>{t(lane.key === 'placed' ? 'kitchen.start' : lane.key === 'prepared' ? 'kitchen.markReady' : 'kitchen.complete')}</Button></div>
+          return <article key={order.id} className={`ui-card min-w-0 space-y-3 p-4 ${lane.key === 'placed' ? 'border-[var(--brand)] shadow-[0_0_0_3px_var(--brand-ring)]' : ''}`}>
+            <div className='flex flex-wrap items-center gap-2'><span className='money min-w-0 truncate text-lg font-bold'>{displayNumber}</span><span className='ui-chip ui-chip-outline'>{orderTypeLabel(order.order_type)}{order.table_name ? ` · ${order.table_name}` : ''}</span><span className={`ui-chip ms-auto ${timeChip}`}><Clock3 size={12} strokeWidth={1.8}/>{t('kitchen.minutes', { n: elapsed })}</span></div>
+            <div className='space-y-2'>{ticket.lines.length ? ticket.lines.map((line: any, index: number) => <div key={line.id || index} className='flex items-start gap-3'><b className='money min-w-10 shrink-0 rounded-lg border border-line-strong bg-surface-2 px-2 py-1 text-center text-sm font-bold'>{Number(line.qty || line.quantity || 1)}×</b><div className='min-w-0'><p className='break-words text-base font-semibold ink'>{name({ name: line.item_name || line.name || line.product_name, name_ar: line.name_ar || line.item_name_ar }) || t('kitchen.item')}</p>{(line.variation_name || line.notes) && <p className='break-words text-sm ink-2'>{line.variation_name || line.notes}</p>}</div></div>) : <p className='text-sm ink-2'>{t('kitchen.itemsMissing')}</p>}</div>
+            {orderNote && <div className='ui-notice'><span className='ui-chip ui-chip-amber shrink-0'>{t('cart.note')}</span><span className='min-w-0 break-words text-sm font-medium'>{orderNote}</span></div>}
+            <Button fullWidth size='lg' className='min-h-11 font-semibold' color='primary' variant='solid' isLoading={busy === String(order.id)} startContent={busy === String(order.id) ? undefined : <UtensilsCrossed size={16} strokeWidth={1.8}/>} onPress={() => advance(ticket)}>{t(lane.key === 'placed' ? 'kitchen.start' : lane.key === 'prepared' ? 'kitchen.markReady' : 'kitchen.complete')}</Button>
           </article>;
-        })}{!grouped[lane.key].length && <div className='rounded-xl border border-dashed border-default-400 py-10 text-center text-sm font-semibold text-default-700'>{t('kitchen.empty')}</div>}</div>
+        })}{!grouped[lane.key].length && <div className='rounded-[20px] border border-dashed border-line-strong py-10 text-center text-sm ink-2'>{t('kitchen.empty')}</div>}</div>
       </section>)}
     </div>}
   </PageShell>;

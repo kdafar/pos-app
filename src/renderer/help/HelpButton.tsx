@@ -23,13 +23,13 @@ export function HelpButton({ className = '' }: { className?: string }) {
     <Hint content={label} placement='bottom'>
       <Button
         isIconOnly
-        variant='flat'
+        variant='bordered'
         radius='full'
-        className={`shrink-0 ${className}`}
+        className={`h-11 w-11 min-w-11 shrink-0 border border-[var(--line-strong)] bg-[var(--surface)] ink-2 ${className}`}
         aria-label={label}
         onPress={() => navigate(`${page}?from=${encodeURIComponent(pathname)}`)}
       >
-        <CircleHelp size={20} />
+        <CircleHelp size={20} strokeWidth={1.8} />
       </Button>
     </Hint>
   );

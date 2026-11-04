@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* Order Portal design: tokens, type, shared components (portal.css).
+   Must stay above every other rule: an @import after one is ignored. */
+@import "./portal.css";
 @plugin "./hero.ts";
 
 
@@ -346,13 +349,8 @@ body {
    rules only cover what it cannot infer.
    --------------------------------------------------------------- */
 
-/* Kuwaiti receipts and screens use Latin numerals, so digits keep the
-   Latin face while Arabic text picks up a proper Arabic stack. */
-:root[dir='rtl'] body,
-:root[lang='ar'] body {
-  font-family: 'Segoe UI', 'Noto Naskh Arabic', 'Traditional Arabic',
-    'Geeza Pro', Tahoma, system-ui, sans-serif;
-}
+/* Arabic text uses IBM Plex Sans Arabic (bundled, see portal.css).
+   Digits stay Latin, as on Kuwaiti receipts. */
 
 /* Never mirror numbers, money or barcodes. */
 [dir='rtl'] .tabular-nums,

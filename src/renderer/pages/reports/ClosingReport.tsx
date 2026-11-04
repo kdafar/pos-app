@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, Chip, Input, Tab, Tabs } from '@heroui/react';
+import { Button, DatePicker, Tab, Tabs } from '@heroui/react';
+import { parseDate } from '@internationalized/date';
 import {
   AlertTriangle,
   Clock,
@@ -134,6 +135,15 @@ const esc = (value: unknown) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+
+/** 'YYYY-MM-DD' state string -> DatePicker value (null when empty or invalid). */
+const toCalendar = (v: string) => {
+  try {
+    return v ? parseDate(v) : null;
+  } catch {
+    return null;
+  }
+};
 
 function toLocalInput(ms: number) {
   const d = new Date(ms);
@@ -301,14 +311,9 @@ export default function ClosingReport() {
           const skipped = row.original.counted === 'uncounted';
           return (
             <div className='flex flex-col items-start gap-1'>
-              <Chip
-                size='sm'
-                variant='solid'
-                color={isCancelled(row.original) ? 'danger' : 'default'}
-                className='font-semibold'
-              >
+              <span className={`ui-chip ${isCancelled(row.original) ? 'ui-chip-red' : 'ui-chip-gray'}`}>
                 {label}
-              </Chip>
+              </span>
               {/* Says why this row is highlighted, right where the reader is
                   already looking. A highlight with no reason just moves the
                   question from "which ones" to "why those". */}
@@ -333,14 +338,9 @@ export default function ClosingReport() {
         cell: (info) => {
           const inside = info.getValue() === 'inside';
           return (
-            <Chip
-              size='sm'
-              variant='solid'
-              color={inside ? 'success' : 'warning'}
-              className='font-semibold'
-            >
+            <span className={`ui-chip ${inside ? 'ui-chip-green' : 'ui-chip-amber'}`}>
               {inside ? t('admin.rep.inside') : t('admin.rep.outside')}
-            </Chip>
+            </span>
           );
         },
       },
@@ -722,15 +722,15 @@ export default function ClosingReport() {
   }) => (
     <div
       className={`flex items-center justify-between gap-4 px-4 py-2.5 ${
-        strong ? 'bg-default-100 font-bold text-base' : 'font-medium'
+        strong ? 'bg-surface-2 font-bold text-base' : 'font-medium'
       }`}
     >
-      <span className={strong ? 'text-foreground' : 'text-default-700'}>
+      <span className={strong ? 'ink' : 'ink-2'}>
         {label}
       </span>
       <span
         className={`money whitespace-nowrap ${
-          tone === 'danger' ? 'text-danger' : 'text-foreground'
+          tone === 'danger' ? 'text-danger' : 'ink'
         } ${strong ? 'text-lg' : ''}`}
       >
         {negative ? '- ' : ''}
@@ -746,38 +746,36 @@ export default function ClosingReport() {
       onRefresh={handleRefresh}
       refreshing={loading}
       primaryAction={
-        <div className='flex gap-2 no-print'>
-          <Button color='success' variant='flat' startContent={<FileSpreadsheet size={16} />} onPress={exportExcel}>Excel</Button>
+        <div className='flex flex-wrap justify-end gap-2 no-print'>
+          <Button variant='bordered' className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]' startContent={<FileSpreadsheet size={16} strokeWidth={1.8} />} onPress={exportExcel}>Excel</Button>
           {/* Both print buttons latch while the job is in flight. Rendering and
               spooling take seconds, in which a button that looks idle gets
               pressed again — on the roll that is a second report's worth of
               paper, and on the A4 path a second preview window. */}
-          <Button variant='flat' isLoading={busy === 'a4'} isDisabled={busy !== null} startContent={<Printer size={16} />} onPress={async () => {
+          <Button variant='bordered' className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]' isLoading={busy === 'a4'} isDisabled={busy !== null} startContent={<Printer size={16} strokeWidth={1.8} />} onPress={async () => {
             if (printLock.current) return;
             printLock.current = true;
             setBusy('a4');
             try { await openPrintPreview(); }
-            catch (error) { console.error('Unable to open print preview:', error); window.alert('Unable to open the print preview. Please try again.'); }
+            catch (error) { console.error('Unable to open print preview:', error); toast({ tone: 'danger', title: 'Unable to open the print preview. Please try again.' }); }
             finally { printLock.current = false; setBusy(null); }
           }}>{t('admin.rep.print')}</Button>
           {/* Its own button rather than an option inside the preview: the roll
               report is a different document, and at close the cashier wants one
               press, not a preview window they then have to configure. */}
-          <Button variant='flat' isLoading={busy === 'thermal'} isDisabled={busy !== null} startContent={<ReceiptText size={16} />} onPress={async () => {
+          <Button variant='bordered' className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]' isLoading={busy === 'thermal'} isDisabled={busy !== null} startContent={<ReceiptText size={16} strokeWidth={1.8} />} onPress={async () => {
             if (printLock.current) return;
             printLock.current = true;
             setBusy('thermal');
             try { await printThermalReport(); }
-            catch (error) { console.error('Unable to print the thermal report:', error); window.alert(`${t('admin.rep.thermalFailed')}
-
-${errLine(error, lang)}`); }
+            catch (error) { console.error('Unable to print the thermal report:', error); toast({ tone: 'danger', title: t('admin.rep.thermalFailed'), message: errLine(error, lang) }); }
             finally { printLock.current = false; setBusy(null); }
           }}>{t('admin.rep.printThermal')}</Button>
           {/* End day closes the business day for the whole branch (the latest
               End day of any till counts). After it, new sales go to the next
               day — so it sits after the print buttons, as the last step. */}
           {END_DAY_ENABLED && (
-            <Button color='danger' variant='flat' isLoading={ending} isDisabled={busy !== null || ending} startContent={<MoonStar size={16} />} onPress={endDay}>
+            <Button color='danger' variant='light' className='font-semibold' isLoading={ending} isDisabled={busy !== null || ending} startContent={<MoonStar size={16} strokeWidth={1.8} />} onPress={endDay}>
               {t('bday.endDay')}
             </Button>
           )}
@@ -786,29 +784,29 @@ ${errLine(error, lang)}`); }
       filters={
         canEditRange ? (
           <div className='flex flex-wrap items-end gap-2 no-print'>
-            <div className='flex flex-wrap gap-1'>
-              <Button size='sm' variant='bordered' onPress={() => applyPreset('today')}>Today</Button>
-              <Button size='sm' variant='bordered' onPress={() => applyPreset('yesterday')}>Yesterday</Button>
-              <Button size='sm' variant='bordered' onPress={() => applyPreset('last7')}>Last 7 days</Button>
-              <Button size='sm' variant='bordered' onPress={() => applyPreset('month')}>This month</Button>
+            <div className='ui-seg max-w-full flex-wrap'>
+              <button type='button' className='ui-seg-item' onClick={() => applyPreset('today')}>Today</button>
+              <button type='button' className='ui-seg-item' onClick={() => applyPreset('yesterday')}>Yesterday</button>
+              <button type='button' className='ui-seg-item' onClick={() => applyPreset('last7')}>Last 7 days</button>
+              <button type='button' className='ui-seg-item' onClick={() => applyPreset('month')}>This month</button>
             </div>
-            <Input
-              type='date'
+            <DatePicker
               label={t('admin.rep.startDate')}
               labelPlacement='outside'
-              value={fromStr}
-              onValueChange={setFromStr}
-              className='w-56'
+              value={toCalendar(fromStr)}
+              onChange={(v) => setFromStr(v ? v.toString() : '')}
+              className='w-full sm:w-56'
+              classNames={{ inputWrapper: 'ui-input' }}
             />
-            <Input
-              type='date'
+            <DatePicker
               label={t('admin.rep.endDate')}
               labelPlacement='outside'
-              value={toStr}
-              onValueChange={setToStr}
-              className='w-56'
+              value={toCalendar(toStr)}
+              onChange={(v) => setToStr(v ? v.toString() : '')}
+              className='w-full sm:w-56'
+              classNames={{ inputWrapper: 'ui-input' }}
             />
-            <Button color='primary' onPress={handleRefresh} isLoading={loading}>
+            <Button color='primary' className='font-semibold' onPress={handleRefresh} isLoading={loading}>
               {t('admin.refresh')}
             </Button>
           </div>
@@ -817,22 +815,16 @@ ${errLine(error, lang)}`); }
           // to know what the figures cover before writing them down, and a
           // blank filter bar reads as "everything".
           <div className='flex flex-wrap items-center gap-2 no-print'>
-            <Chip
-              size='sm'
-              variant='solid'
-              color='primary'
-              startContent={<Clock size={14} className='ms-1' />}
-              className='font-semibold'
-            >
+            <span className='ui-chip ui-chip-brand'>
+              <Clock size={14} strokeWidth={1.8} />
               {t('admin.rep.currentShift')}
-            </Chip>
-            <span className='text-sm font-medium text-default-700' dir='ltr'>
+            </span>
+            <span className='text-sm ink-2' dir='ltr'>
               {fmtDateTime(data.fromMs)} — {fmtDateTime(data.toMs)}
             </span>
             <Button
-              size='sm'
-              color='primary'
-              variant='flat'
+              variant='bordered'
+              className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
               onPress={() => loadReport()}
               isLoading={loading}
             >
@@ -845,7 +837,7 @@ ${errLine(error, lang)}`); }
       <DataState loading={loading} error={error} onRetry={() => loadReport()}>
         <div className='space-y-5'>
           {/* Headline figures */}
-          <div className='grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4'>
+          <div className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-3'>
             <StatCard
               label={t('admin.rep.cardInside')}
               value={f?.inside_hours_count || 0}
@@ -876,9 +868,9 @@ ${errLine(error, lang)}`); }
               counted in no card, so 29 + 1 + 1 sat under a table of 37 with
               nothing to explain the gap. */}
           {!!f?.uncounted_order_count && (
-            <div className='flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5'>
-              <AlertTriangle className='mt-0.5 h-5 w-5 shrink-0 text-warning' />
-              <div className='text-[15px] font-medium text-default-700'>
+            <div className='ui-notice gap-2.5 px-4 py-2.5'>
+              <AlertTriangle strokeWidth={1.8} className='mt-0.5 h-5 w-5 shrink-0 text-warning' />
+              <div className='text-[15px] ink'>
                 {t('admin.rep.uncounted', {
                   n: f.uncounted_order_count,
                   total: f.listed_order_count ?? 0,
@@ -892,7 +884,8 @@ ${errLine(error, lang)}`); }
             aria-label={t('admin.rep.title')}
             selectedKey={activeTab}
             onSelectionChange={(k) => setActiveTab(String(k))}
-            className='no-print'
+            className='no-print max-w-full'
+            classNames={{ tabList: 'max-w-full overflow-x-auto' }}
           >
             <Tab key='orders' title={t('admin.rep.tabDaily')}>
               <DataState
@@ -904,13 +897,13 @@ ${errLine(error, lang)}`); }
                   columns={orderCols}
                   initialSorting={[{ id: 'ts_ms', desc: true }]}
                   getRowId={(r, i) => String(r.id ?? i)}
-                  // A marker plus a faint wash, not a solid fill: these rows
+                  // A marker, not a fill: these rows
                   // still have to be read, and a tint heavy enough to spot at a
                   // glance is heavy enough to bury its own text in one theme or
                   // the other.
                   rowClassName={(r) =>
                     r.counted === 'uncounted'
-                      ? 'bg-warning/10 border-s-4 border-s-warning'
+                      ? 'border-s-4 border-s-warning'
                       : ''
                   }
                 />
@@ -936,7 +929,7 @@ ${errLine(error, lang)}`); }
 
           {/* Settlement — always visible, and the reason the page exists */}
           {f && (
-            <div className='rounded-lg border border-default-200 bg-content1 overflow-hidden divide-y divide-default-200 max-w-xl ms-auto'>
+            <div className='ui-card overflow-hidden divide-y divide-[var(--line)] max-w-xl ms-auto'>
               <Total label={t('admin.rep.grossSales')} value={f.gross_sales_total} />
               <Total
                 label={t('admin.rep.discounts')}
@@ -971,7 +964,7 @@ ${errLine(error, lang)}`); }
               payment, when "every closed order is unmarked" would be noise. */}
           {data?.paidInfo && (
             <div className='max-w-xl ms-auto space-y-1'>
-              <div className='rounded-lg border border-default-200 bg-content1 overflow-hidden divide-y divide-default-200'>
+              <div className='ui-card overflow-hidden divide-y divide-[var(--line)]'>
                 {(
                   [
                     ['admin.rep.paidOpen', data.paidInfo.paid_open],
@@ -982,17 +975,17 @@ ${errLine(error, lang)}`); }
                     key={key}
                     className='flex items-center justify-between gap-4 px-4 py-2.5 font-medium'
                   >
-                    <span className='text-default-700'>{t(key)}</span>
+                    <span className='ink-2'>{t(key)}</span>
                     <span className='flex items-center gap-4 whitespace-nowrap'>
-                      <span className='text-default-700'>
+                      <span className='ink-2'>
                         {t('admin.rep.ordersCount', { n: line.count })}
                       </span>
-                      <span className='money text-foreground'>{fmt(line.total)}</span>
+                      <span className='money ink'>{fmt(line.total)}</span>
                     </span>
                   </div>
                 ))}
               </div>
-              <p className='text-xs font-medium text-default-700 text-end'>
+              <p className='text-xs ink-2 text-end'>
                 {t('admin.rep.paidInfoNote')}
               </p>
             </div>

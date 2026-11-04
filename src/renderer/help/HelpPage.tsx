@@ -177,8 +177,8 @@ export default function HelpPage() {
     <div className='mx-auto w-full max-w-[72rem] p-3 sm:p-4 lg:p-6 min-w-0'>
       <header className='mb-4 flex flex-wrap items-center justify-between gap-3'>
         <button type='button' onClick={goHome} className='flex min-w-0 items-center gap-2.5 text-start'>
-          <BookOpen size={24} className='shrink-0 text-primary' />
-          <h1 className='truncate text-xl sm:text-2xl font-bold tracking-tight text-foreground'>{ui('title')}</h1>
+          <BookOpen size={24} strokeWidth={1.8} className='shrink-0 ink-2' />
+          <h1 className='truncate text-xl font-semibold tracking-tight ink'>{ui('title')}</h1>
         </button>
         <div className='flex shrink-0 items-center gap-2'>
           {/* Two buttons, not HeroUI Tabs: the Tabs cursor is placed by
@@ -186,7 +186,7 @@ export default function HelpPage() {
           <div
             role='radiogroup'
             aria-label={`${ui('summary')} / ${ui('detailed')}`}
-            className='flex rounded-xl bg-default-100 p-1'
+            className='ui-seg'
           >
             {(['summary', 'detailed'] as Mode[]).map((m) => (
               <button
@@ -195,16 +195,14 @@ export default function HelpPage() {
                 role='radio'
                 aria-checked={mode === m}
                 onClick={() => setMode(m)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${
-                  mode === m ? 'bg-primary text-primary-foreground shadow-sm' : 'text-default-700 hover:text-foreground'
-                }`}
+                className='ui-seg-item'
               >
                 {ui(m)}
               </button>
             ))}
           </div>
           {from && (
-            <Button variant='flat' startContent={<Undo2 size={16} />} onPress={() => navigate(from)}>
+            <Button variant='bordered' className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold min-h-11' startContent={<Undo2 size={16} strokeWidth={1.8} />} onPress={() => navigate(from)}>
               {ui('goBack')}
             </Button>
           )}
@@ -216,10 +214,12 @@ export default function HelpPage() {
         onValueChange={setQuery}
         placeholder={ui('search')}
         aria-label={ui('search')}
-        startContent={<Search size={18} className='text-default-700' />}
+        startContent={<Search size={18} strokeWidth={1.8} className='ink-2' />}
         isClearable
         onClear={() => setQuery('')}
         size='lg'
+        variant='bordered'
+        classNames={{ inputWrapper: 'ui-input' }}
         className='mb-5'
       />
 
@@ -236,8 +236,8 @@ export default function HelpPage() {
       )}
 
       {!searching && view.kind !== 'home' && (
-        <footer className='mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-default-200 pt-4'>
-          <Button variant='flat' startContent={<BackIcon size={16} />} onPress={goHome}>
+        <footer className='mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4'>
+          <Button variant='bordered' className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold min-h-11' startContent={<BackIcon size={16} strokeWidth={1.8} />} onPress={goHome}>
             {ui('back')}
           </Button>
           {view.kind === 'step' && (
@@ -272,32 +272,32 @@ function Home({
 
   return (
     <div className='space-y-6'>
-      <p className='text-base font-medium text-default-700'>{words.ui.subtitle}</p>
+      <p className='text-base ink-2'>{words.ui.subtitle}</p>
 
       {/* Your first day — the viewer's own job first */}
       {jobs.length > 0 && (
         <section>
           <SectionTitle title={words.ui.firstDay} hint={words.ui.firstDayHint} />
-          <div className='grid gap-3 sm:grid-cols-3'>
+          <div className='grid gap-3 grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]'>
             {jobs.map((job) => (
               <button
                 key={job}
                 type='button'
                 onClick={() => onPath(job)}
-                className={`rounded-xl border-2 p-4 text-start transition-colors hover:bg-default-100 ${
-                  job === mine ? 'border-primary bg-primary/5' : 'border-default-200 bg-content1'
+                className={`ui-card ui-card-raise min-w-0 p-4 text-start ${
+                  job === mine ? '!border-[var(--brand)] shadow-[0_0_0_4px_var(--brand-ring)]' : ''
                 }`}
               >
                 <div className='flex items-center justify-between gap-2'>
-                  <span className='text-lg font-bold text-foreground'>{words.jobs[job].title}</span>
+                  <span className='text-lg font-bold ink'>{words.jobs[job].title}</span>
                   {job === mine && (
                     <Chip size='sm' color='primary' variant='solid' className='font-semibold'>
                       {words.ui.yourJob}
                     </Chip>
                   )}
                 </div>
-                <p className='mt-1 text-sm font-medium text-default-700'>{words.jobs[job].blurb}</p>
-                <p className='mt-2 text-xs font-semibold text-primary'>
+                <p className='mt-1 text-sm ink-2'>{words.jobs[job].blurb}</p>
+                <p className='mt-2 text-xs font-semibold ink-2'>
                   {fill(words.ui.stepsCount, { n: firstDayPath(job, access).length })}
                 </p>
               </button>
@@ -308,20 +308,20 @@ function Home({
 
       {/* Something went wrong — near the top, one tap per problem */}
       {trouble && (
-        <section className='rounded-xl border-2 border-danger/40 bg-danger/5 p-4'>
+        <section className='ui-card p-4'>
           <div className='mb-3 flex items-center gap-2'>
-            <CircleAlert size={20} className='text-danger' />
+            <CircleAlert size={20} strokeWidth={1.8} className='shrink-0 text-danger' />
             <div>
-              <h3 className='text-lg font-bold text-foreground'>{words.ui.wrong}</h3>
-              <p className='text-sm font-medium text-default-700'>{words.ui.wrongHint}</p>
+              <h3 className='text-lg font-semibold ink'>{words.ui.wrong}</h3>
+              <p className='text-sm ink-2'>{words.ui.wrongHint}</p>
             </div>
           </div>
           <div className='flex flex-wrap gap-2'>
             {visibleSteps(trouble, access).map((s) => (
               <Button
                 key={s.id}
-                variant='flat'
-                className='h-auto min-h-10 whitespace-normal py-2 text-start font-semibold'
+                variant='bordered'
+                className='h-auto min-h-11 whitespace-normal border border-[var(--line-strong)] bg-[var(--surface)] py-2 text-start font-semibold'
                 onPress={() => onStep(`${trouble.id}.${s.id}` as HelpRef)}
               >
                 {words.topics[trouble.id].steps[s.id].title}
@@ -333,7 +333,7 @@ function Home({
 
       <section>
         <SectionTitle title={words.ui.allTopics} />
-        <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+        <div className='grid gap-3 grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]'>
           {topics
             .filter((t) => t.kind !== 'trouble')
             .map((t) => {
@@ -344,14 +344,14 @@ function Home({
                   key={t.id}
                   type='button'
                   onClick={() => onTopic(t.id)}
-                  className='flex items-start gap-3 rounded-xl border border-default-200 bg-content1 p-4 text-start transition-colors hover:bg-default-100'
+                  className='ui-card ui-card-raise flex min-w-0 items-start gap-3 p-4 text-start'
                 >
-                  <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary'>
-                    <Icon size={20} />
+                  <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-surface-2 ink'>
+                    <Icon size={20} strokeWidth={1.8} />
                   </span>
                   <span className='min-w-0'>
-                    <span className='block text-base font-bold text-foreground'>{tw.title}</span>
-                    <span className='block text-sm font-medium text-default-700'>{tw.blurb}</span>
+                    <span className='block text-base font-semibold ink'>{tw.title}</span>
+                    <span className='block text-sm ink-2'>{tw.blurb}</span>
                   </span>
                 </button>
               );
@@ -365,8 +365,8 @@ function Home({
 function SectionTitle({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className='mb-3'>
-      <h3 className='text-lg font-bold text-foreground'>{title}</h3>
-      {hint && <p className='text-sm font-medium text-default-700'>{hint}</p>}
+      <h3 className='text-xs font-semibold uppercase tracking-wide ink-2'>{title}</h3>
+      {hint && <p className='mt-1 text-sm ink-2'>{hint}</p>}
     </div>
   );
 }
@@ -387,11 +387,11 @@ function SearchResults({
   const words = WORDS[lang];
   const hits = search(query, access);
   if (hits.length === 0) {
-    return <p className='py-10 text-center text-base font-semibold text-default-700'>{words.ui.noResults}</p>;
+    return <p className='py-10 text-center text-base font-semibold ink-2'>{words.ui.noResults}</p>;
   }
   return (
     <div className='space-y-2'>
-      <p className='text-sm font-semibold text-default-700'>{fill(words.ui.results, { n: hits.length })}</p>
+      <p className='text-sm font-semibold ink-2'>{fill(words.ui.results, { n: hits.length })}</p>
       {hits.map(({ ref }) => {
         const { topicId } = splitRef(ref);
         const w = stepWords(lang, ref);
@@ -401,11 +401,11 @@ function SearchResults({
             key={ref}
             type='button'
             onClick={() => onOpen(ref)}
-            className='block w-full rounded-xl border border-default-200 bg-content1 p-3 text-start hover:bg-default-100'
+            className='ui-card ui-card-raise block w-full p-3 text-start'
           >
-            <span className='block text-xs font-semibold text-primary'>{words.topics[topicId].title}</span>
-            <span className='block text-base font-bold text-foreground'>{w.title}</span>
-            <span className='block text-sm font-medium text-default-700'><Rich text={w.summary} /></span>
+            <span className='block text-xs font-semibold uppercase tracking-wide ink-3'>{words.topics[topicId].title}</span>
+            <span className='block text-base font-semibold ink'>{w.title}</span>
+            <span className='block text-sm ink-2'><Rich text={w.summary} /></span>
           </button>
         );
       })}
@@ -437,26 +437,26 @@ function TopicPage({
   return (
     <div className='space-y-4'>
       <div className='flex items-center gap-3'>
-        <span className='flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary'>
-          <Icon size={22} />
+        <span className='flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-line bg-surface-2 ink'>
+          <Icon size={22} strokeWidth={1.8} />
         </span>
         <div>
-          <h2 className='text-2xl font-bold text-foreground'>{tw.title}</h2>
-          <p className='text-sm font-medium text-default-700'>{tw.blurb}</p>
+          <h2 className='text-xl font-semibold ink'>{tw.title}</h2>
+          <p className='text-sm ink-2'>{tw.blurb}</p>
         </div>
       </div>
       <ol className='space-y-3'>
         {steps.map((s, i) => {
           const ref = `${id}.${s.id}` as HelpRef;
           return (
-            <li key={s.id} className='rounded-xl border border-default-200 bg-content1 p-4'>
+            <li key={s.id} className='ui-card p-4'>
               <button type='button' onClick={() => onStep(ref)} className='flex w-full items-start gap-3 text-start'>
                 <StepNumber n={i + 1} />
                 <span className='min-w-0'>
-                  <span className='block text-lg font-bold text-foreground underline-offset-4 hover:underline'>
+                  <span className='block text-lg font-semibold ink underline-offset-4 hover:underline'>
                     {tw.steps[s.id].title}
                   </span>
-                  <span className='block text-sm font-medium text-default-700'>
+                  <span className='block text-sm ink-2'>
                     <Rich text={tw.steps[s.id].summary} />
                   </span>
                 </span>
@@ -492,9 +492,9 @@ function PathPage({
   return (
     <div className='space-y-4'>
       <div>
-        <p className='text-sm font-semibold text-primary'>{words.ui.firstDay}</p>
-        <h2 className='text-2xl font-bold text-foreground'>{words.jobs[job].title}</h2>
-        <p className='text-sm font-medium text-default-700'>{words.jobs[job].blurb}</p>
+        <p className='text-xs font-semibold uppercase tracking-wide ink-2'>{words.ui.firstDay}</p>
+        <h2 className='text-xl font-semibold ink'>{words.jobs[job].title}</h2>
+        <p className='text-sm ink-2'>{words.jobs[job].blurb}</p>
       </div>
       <ol className='space-y-2'>
         {path.map((ref, i) => {
@@ -505,12 +505,12 @@ function PathPage({
               <button
                 type='button'
                 onClick={() => onStep(ref)}
-                className='flex w-full items-start gap-3 rounded-xl border border-default-200 bg-content1 p-3 text-start hover:bg-default-100'
+                className='ui-card ui-card-raise flex w-full items-start gap-3 p-3 text-start'
               >
                 <StepNumber n={i + 1} />
                 <span className='min-w-0'>
-                  <span className='block text-base font-bold text-foreground'>{w.title}</span>
-                  <span className='block text-sm font-medium text-default-700'>{words.firstDay[job][ref]}</span>
+                  <span className='block text-base font-semibold ink'>{w.title}</span>
+                  <span className='block text-sm ink-2'>{words.firstDay[job][ref]}</span>
                 </span>
               </button>
             </li>
@@ -553,18 +553,19 @@ function StepPage({
   return (
     <article className='space-y-4'>
       <div className='flex flex-wrap items-center gap-2 text-sm font-semibold'>
-        <span className='text-primary'>
+        <span className='ink'>
           {via.kind === 'path' ? `${words.ui.firstDay} · ${words.jobs[via.job].title}` : words.topics[topicId].title}
         </span>
-        {n > 0 && <span className='text-default-700'>· {fill(words.ui.stepOf, { n, total: list.length })}</span>}
+        {n > 0 && <span className='ink-2'>· {fill(words.ui.stepOf, { n, total: list.length })}</span>}
       </div>
-      <h2 className='text-2xl font-bold text-foreground'>{w.title}</h2>
-      <p className='text-lg font-medium text-foreground'>
+      <h2 className='text-xl font-semibold ink'>{w.title}</h2>
+      <p className='text-lg ink'>
         <Rich text={w.summary} />
       </p>
       {why && (
-        <p className='rounded-lg bg-primary/10 px-3 py-2 text-sm font-semibold text-primary'>
-          {words.ui.why}: {why}
+        <p className='ui-notice text-sm font-semibold'>
+          <Info size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--brand-strong)]' />
+          <span className='min-w-0'>{words.ui.why}: {why}</span>
         </p>
       )}
       {mode === 'detailed' && <StepBody refId={refId} lang={lang} kind={topic.kind} picture={def?.picture} />}
@@ -599,10 +600,10 @@ function StepNav({
   const NextIcon = isRTL ? ArrowLeft : ArrowRight;
   return (
     <div className='flex gap-2'>
-      <Button variant='flat' isDisabled={!prev} startContent={<PrevIcon size={16} />} onPress={() => prev && onGo(prev)}>
+      <Button variant='bordered' className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold min-h-11' isDisabled={!prev} startContent={<PrevIcon size={16} strokeWidth={1.8} />} onPress={() => prev && onGo(prev)}>
         {words.ui.prev}
       </Button>
-      <Button color='primary' isDisabled={!next} endContent={<NextIcon size={16} />} onPress={() => next && onGo(next)}>
+      <Button color='primary' className='min-h-11 font-semibold' isDisabled={!next} endContent={<NextIcon size={16} strokeWidth={1.8} />} onPress={() => next && onGo(next)}>
         {words.ui.next}
       </Button>
     </div>
@@ -627,10 +628,10 @@ function StepBody({
   return (
     <div className='space-y-4'>
       <div>
-        <h4 className='mb-2 text-sm font-bold uppercase tracking-wide text-default-700'>{words.ui.steps}</h4>
+        <h4 className='mb-2 text-xs font-semibold uppercase tracking-wide ink-2'>{words.ui.steps}</h4>
         <ol className='space-y-2'>
           {w.steps.map((s, i) => (
-            <li key={i} className='flex items-start gap-3 text-base font-medium text-foreground'>
+            <li key={i} className='flex items-start gap-3 text-base ink'>
               <StepNumber n={i + 1} small />
               <span className='pt-0.5'>
                 <Rich text={s} />
@@ -649,9 +650,9 @@ function StepBody({
         <Box tone='warning' title={words.ui.careful} lines={w.careful} />
       )}
       {kind === 'trouble' && (
-        <div className='flex items-start gap-3 rounded-xl border-2 border-default-300 bg-content1 p-3'>
-          <LifeBuoy size={20} className='mt-0.5 shrink-0 text-primary' />
-          <p className='text-base font-semibold text-foreground'>{words.ui.stillNotWorking}</p>
+        <div className='ui-notice items-center gap-3 p-3'>
+          <LifeBuoy size={20} strokeWidth={1.8} className='shrink-0 ink-2' />
+          <p className='text-base font-semibold ink'>{words.ui.stillNotWorking}</p>
         </div>
       )}
     </div>
@@ -660,27 +661,23 @@ function StepBody({
 
 function Box({ tone, title, lines }: { tone: 'info' | 'warning'; title: string; lines: string[] }) {
   const Icon = tone === 'info' ? Info : TriangleAlert;
-  const cls =
-    tone === 'info'
-      ? 'border-primary/40 bg-primary/5'
-      : 'border-warning bg-warning/10';
-  const iconCls = tone === 'info' ? 'text-primary' : 'text-warning-600';
+  const iconCls = tone === 'info' ? 'text-[var(--brand-strong)]' : 'text-warning';
   return (
-    <div className={`rounded-xl border-2 p-3 ${cls}`}>
-      <div className='mb-1.5 flex items-center gap-2'>
-        <Icon size={18} className={iconCls} />
-        <h4 className='text-base font-bold text-foreground'>{title}</h4>
+    <div className='ui-notice p-3'>
+      <Icon size={18} strokeWidth={1.8} className={`mt-0.5 shrink-0 ${iconCls}`} />
+      <div className='min-w-0'>
+        <h4 className='mb-1.5 text-base font-semibold ink'>{title}</h4>
+        <ul className='space-y-1.5'>
+          {lines.map((l, i) => (
+            <li key={i} className='flex gap-2 text-base ink'>
+              <span aria-hidden className='mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current' />
+              <span className='min-w-0'>
+                <Rich text={l} />
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
-      <ul className='space-y-1.5'>
-        {lines.map((l, i) => (
-          <li key={i} className='flex gap-2 text-base font-medium text-foreground'>
-            <span aria-hidden className='mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current' />
-            <span>
-              <Rich text={l} />
-            </span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -688,7 +685,7 @@ function Box({ tone, title, lines }: { tone: 'info' | 'warning'; title: string; 
 function StepNumber({ n, small = false }: { n: number; small?: boolean }) {
   return (
     <span
-      className={`flex shrink-0 items-center justify-center rounded-full bg-primary font-bold text-primary-foreground ${
+      className={`flex shrink-0 items-center justify-center rounded-full bg-[var(--ink)] font-bold text-[var(--surface)] ${
         small ? 'h-6 w-6 text-xs' : 'h-8 w-8 text-sm'
       }`}
     >
@@ -709,7 +706,7 @@ function Picture({ picture, notes, lang }: { picture: HelpPicture; notes: string
     <figure className='space-y-2'>
       {/* Shrink-wraps the picture so a narrow one (a side-menu crop) is not
           blown up and blurred; markers are % of this box, so they still land. */}
-      <div className='relative inline-block max-w-full overflow-hidden rounded-xl border border-default-200 align-top' dir='ltr'>
+      <div className='relative inline-block max-w-full overflow-hidden rounded-xl border border-line align-top' dir='ltr'>
         <img src={url} alt={words.ui.picture} className='block h-auto max-w-full' loading='lazy' />
         {markers.map((m, i) => (
           <span
@@ -724,7 +721,7 @@ function Picture({ picture, notes, lang }: { picture: HelpPicture; notes: string
       {notes.length > 0 && (
         <ol className='space-y-1'>
           {notes.map((note, i) => (
-            <li key={i} className='flex items-start gap-2 text-sm font-medium text-foreground'>
+            <li key={i} className='flex items-start gap-2 text-sm ink'>
               <span className='flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-danger text-[11px] font-black text-white'>
                 {i + 1}
               </span>

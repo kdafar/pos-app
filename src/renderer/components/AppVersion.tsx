@@ -8,7 +8,7 @@ export const APP_VERSION: string = packageJson.version;
 export function AppVersion({ className = '' }: { className?: string }) {
   const { t } = useI18n();
   return (
-    <span className={`text-xs font-medium tabular-nums text-default-700 ${className}`}>
+    <span className={`text-xs font-medium tabular-nums ink-3 ${className}`}>
       {t('auth.version', { version: APP_VERSION })}
     </span>
   );

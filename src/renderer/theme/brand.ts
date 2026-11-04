@@ -14,13 +14,15 @@
 
 /** What ships when the backend has told us nothing. */
 export const FALLBACK_BRAND = {
-  primary: '#2563eb', // the blue the app already used
+  primary: '#17483e', // the Order Portal's default (was #2563eb)
   secondary: '#f97316', // orange
 } as const;
 
 /** Settings keys, in priority order, mirroring how the logo is resolved. */
 export const BRAND_COLOR_KEYS = {
   primary: [
+    // The portal's field (server side being added); read when present.
+    'branding.theme_color',
     'branding.primary_color',
     'branding.color_primary',
     'general.primary_color',

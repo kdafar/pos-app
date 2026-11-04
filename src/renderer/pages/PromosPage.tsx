@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Chip } from '@heroui/react';
 import { useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import { errorLine as errLine } from '../utils/posError';
@@ -97,17 +96,15 @@ function StatusBadge({ promo }: { promo: Promo }) {
   const windowState = timeWindowState(promo);
 
   const { label, color } = !enabled
-    ? { label: t('admin.disabled'), color: 'default' as const }
+    ? { label: t('admin.disabled'), color: 'gray' as const }
     : windowState === 'active-now'
-    ? { label: t('admin.promos.statusActive'), color: 'success' as const }
+    ? { label: t('admin.promos.statusActive'), color: 'green' as const }
     : windowState === 'upcoming'
-    ? { label: t('admin.promos.upcoming'), color: 'warning' as const }
-    : { label: t('admin.promos.expired'), color: 'danger' as const };
+    ? { label: t('admin.promos.upcoming'), color: 'amber' as const }
+    : { label: t('admin.promos.expired'), color: 'red' as const };
 
   return (
-    <Chip size='sm' variant='solid' color={color} className='font-semibold'>
-      {label}
-    </Chip>
+    <span className={`ui-chip ui-chip-${color}`}>{label}</span>
   );
 }
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, Chip } from '@heroui/react';
+import { Button } from '@heroui/react';
+import { Hint } from '../../components/Hint';
 import {
   ShoppingCart,
   Check,
@@ -39,17 +40,13 @@ declare global {
 }
 
 /**
- * The cart.
+ * The cart: a white column on the portal's surface tokens, correct in both
+ * themes. `theme` is still destructured only because child modals
+ * (CheckoutModal above all) still require it.
  *
- * Colour here is entirely HeroUI semantic tokens, so one definition is correct
- * in both themes. `theme` is still destructured only because three child modals
- * (CheckoutModal above all) have not been migrated yet and still require it —
- * nothing in this file's own markup consults it.
- *
- * The panel is a till surface read at arm's length mid-transaction, so nothing
- * that carries meaning is faded: the empty-cart hint, the totals and the badges
- * are all solid tones at full opacity, and every control keeps a finger-sized
- * target.
+ * Read at arm's length mid-transaction, so nothing that carries meaning is
+ * faded, and every control keeps a finger-sized target. On a short screen the
+ * header and footer stay put and the line list scrolls.
  */
 export default function OrderSide({
   theme,
@@ -91,11 +88,8 @@ export default function OrderSide({
   const [showPromoDialog, setShowPromoDialog] = useState(false);
   const [quickUpdating, setQuickUpdating] = useState(false);
 
-  const bg = 'bg-content1';
-  const border = 'border-default-200';
   const text = 'text-foreground';
-  const textMuted = 'text-default-700';
-  const cardBg = 'bg-default-100';
+  const textMuted = 'ink-2';
   const toast = useToast();
   const confirm = useConfirmDialog();
   const { t, lang, money } = useI18n();
@@ -361,23 +355,21 @@ export default function OrderSide({
   };
 
   return (
-    <div
-      className={`${bg} border-s ${border} flex flex-col h-full overflow-hidden`}
-    >
-      {/* Header */}
-      <div className={`p-4 border-b ${border} shrink-0`}>
+    <div className='bg-surface border-s border-line flex flex-col h-full min-h-0 min-w-0 overflow-hidden'>
+      {/* Header (scrolls itself if a short screen cannot fit it) */}
+      <div className='p-3 lg:p-4 border-b border-line shrink-0 max-h-[45%] overflow-y-auto nice-scroll'>
         {currentOrder ? (
           <div className='space-y-3'>
             {/* Top row: order info + type + lock badges */}
             <div className='flex items-start justify-between gap-3'>
               {/* Left: order number + table button */}
-              <div className='space-y-1.5'>
+              <div className='space-y-1.5 min-w-0'>
                 <div>
                   <div className={`pos-xs font-medium ${textMuted}`}>
                     {t('cart.orderNumber')}
                   </div>
                   <div
-                    className={`flex flex-wrap items-center gap-2 text-xl font-bold ${text}`}
+                    className={`flex flex-wrap items-center gap-2 text-lg font-bold ${text}`}
                   >
                     {/* .money forces LTR digit order so the number never
                         mirrors in Arabic. */}
@@ -407,37 +399,37 @@ export default function OrderSide({
 
                 {/* Table controls (dine-in) */}
                 {currentOrder.order_type === 3 && (
-                  <div className='flex items-center gap-2'>
+                  <div className='flex flex-wrap items-center gap-2'>
                     {currentOrder.table_id ? (
                       <Button
-                        size='sm'
-                        variant='flat'
-                        color='success'
-                        className='font-semibold'
+                        size='md'
+                        variant='bordered'
+                        className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
                         onPress={() => setShowTablePicker(true)}
-                        startContent={<Table2 size={15} />}
+                        startContent={<Table2 size={16} strokeWidth={1.8} />}
                       >
                         {currentOrder.table_name || t('cust.table')} •{' '}
                         <span className='money'>{currentOrder.covers || 1}</span>
                       </Button>
                     ) : (
                       <Button
-                        size='sm'
-                        variant='flat'
-                        className='font-semibold'
+                        size='md'
+                        variant='bordered'
+                        className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
                         onPress={() => setShowTablePicker(true)}
-                        startContent={<UtensilsCrossed size={15} />}
+                        startContent={<UtensilsCrossed size={16} strokeWidth={1.8} />}
                       >
                         {t('tables.assign')}
                       </Button>
                     )}
 
                     {currentOrder.table_id && orderLines.length === 0 && (
+                      <Hint content={t('admin.tables.clear')} placement='top'>
                       <Button
                         isIconOnly
-                        size='sm'
-                        variant='flat'
-                        title={t('admin.tables.clear')}
+                        size='md'
+                        variant='bordered'
+                        className='border border-[var(--line-strong)] bg-[var(--surface)]'
                         aria-label={t('admin.tables.clear')}
                         onPress={async () => {
                           try {
@@ -452,8 +444,9 @@ export default function OrderSide({
                           }
                         }}
                       >
-                        <X size={16} />
+                        <X size={16} strokeWidth={1.8} />
                       </Button>
+                      </Hint>
                     )}
                   </div>
                 )}
@@ -468,47 +461,30 @@ export default function OrderSide({
                   )}
               </div>
 
-              {/* Right: type pill + lock / pending badges */}
-              <div className='flex flex-col items-end gap-1.5'>
-                <Chip
-                  size='md'
-                  variant='solid'
-                  color='primary'
-                  className='font-semibold'
-                >
+              {/* Right: type chip + lock / pending badges */}
+              <div className='flex flex-col items-end gap-1.5 shrink-0'>
+                <span className='ui-chip ui-chip-outline'>
                   {labelForType(currentOrder.order_type)}
-                </Chip>
+                </span>
 
                 {hasMainLockedLines && (
                   <div className='flex flex-wrap justify-end gap-1.5'>
                     {/* Main order locked badge */}
-                    <Chip
-                      size='sm'
-                      variant='solid'
-                      color='warning'
-                      className='font-semibold'
-                      startContent={<Lock size={14} />}
-                    >
+                    <span className='ui-chip ui-chip-amber'>
+                      <Lock size={12} strokeWidth={1.8} />
                       {t('cart.lockedBadge')}
-                    </Chip>
+                    </span>
 
                     {/* New items pending badge */}
                     {hasPendingNewItems && (
-                      <Chip
-                        size='sm'
-                        variant='solid'
-                        color='success'
-                        className='font-semibold'
-                        startContent={
-                          <span className='w-1.5 h-1.5 rounded-full bg-current inline-block' />
-                        }
-                      >
+                      <span className='ui-chip ui-chip-brand'>
+                        <span className='w-1.5 h-1.5 rounded-full bg-current inline-block' />
                         {pendingNewItemsCount > 1
                           ? t('cart.pendingMany', {
                               n: pendingNewItemsCount,
                             })
                           : t('cart.pendingOne')}
-                      </Chip>
+                      </span>
                     )}
                   </div>
                 )}
@@ -517,49 +493,50 @@ export default function OrderSide({
 
             {/* Promo section */}
             {currentOrder.promocode ? (
-              <div className='flex items-center justify-between gap-2 p-2 rounded-lg border border-success bg-success/10'>
+              <div className='ui-notice items-center justify-between'>
                 <div className='flex items-center gap-2 min-w-0'>
-                  <Percent size={16} className='text-success shrink-0' />
-                  <span className='pos-sm font-semibold text-success truncate'>
+                  <Percent size={16} strokeWidth={1.8} className='shrink-0' />
+                  <span className='pos-sm font-semibold truncate'>
                     {currentOrder.promocode}
                   </span>
                 </div>
-                <Button
-                  isIconOnly
-                  size='sm'
-                  variant='light'
-                  color='danger'
-                  className='shrink-0 text-danger'
-                  title={t('common.remove')}
-                  aria-label={t('common.remove')}
-                  onPress={onRemovePromo}
-                >
-                  <X size={16} />
-                </Button>
+                <Hint content={t('common.remove')} placement='top'>
+                  <Button
+                    isIconOnly
+                    size='md'
+                    variant='light'
+                    color='danger'
+                    className='shrink-0 text-danger'
+                    aria-label={t('common.remove')}
+                    onPress={onRemovePromo}
+                  >
+                    <X size={16} strokeWidth={1.8} />
+                  </Button>
+                </Hint>
               </div>
             ) : (
               <Button
                 fullWidth
-                variant='flat'
-                className='font-semibold'
+                size='md'
+                variant='bordered'
+                className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
                 onPress={() => setShowPromoDialog(true)}
-                startContent={<Percent size={16} />}
+                startContent={<Percent size={16} strokeWidth={1.8} />}
               >
                 {t('promo.title')}
               </Button>
             )}
 
-            {/* Clear cart – full width, aligned with online POS look */}
+            {/* Clear cart: outline with danger text, not a solid red block */}
             {orderLines.length > 0 && (
-              // Solid danger, not a red-600 hard-code: the fill is genuinely
-              // solid so HeroUI's own foreground token keeps the label legible
-              // in either theme.
               <Button
                 fullWidth
+                size='md'
+                variant='bordered'
                 color='danger'
-                className='mt-2 font-semibold'
+                className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)] text-danger'
                 onPress={handleClearCart}
-                startContent={<X size={16} />}
+                startContent={<X size={16} strokeWidth={1.8} />}
               >
                 {t('cart.clearCart')}
               </Button>
@@ -573,7 +550,7 @@ export default function OrderSide({
             <Button
               color='primary'
               size='lg'
-              className='font-semibold'
+              className='font-semibold rounded-[13px]'
               onPress={onCreateOrder}
             >
               {t('cart.createOrder')}
@@ -585,15 +562,12 @@ export default function OrderSide({
       {/* Body */}
       {currentOrder && (
         <>
-          <div className='grow overflow-y-auto nice-scroll p-4'>
+          <div className='grow min-h-0 overflow-y-auto nice-scroll p-3 lg:p-4'>
             {orderLines.length === 0 ? (
-              // Solid, not faded: an empty cart is a state the cashier has to
-              // read across the counter, and `opacity-70` on top of a muted
-              // tone made it a whisper.
               <div
                 className={`flex flex-col items-center justify-center min-h-[200px] ${textMuted}`}
               >
-                <ShoppingCart size={40} className='mb-3' />
+                <ShoppingCart size={40} strokeWidth={1.8} className='mb-3' />
                 <p className='text-center font-medium'>
                   {t('cart.empty')}
                   <br />
@@ -617,7 +591,7 @@ export default function OrderSide({
 
           {/* Footer */}
           <div
-            className={`p-4 border-t ${border} ${cardBg} pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] shrink-0`}
+            className='px-3 lg:px-4 border-t border-line bg-surface pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] shrink-0'
           >
             <div className='space-y-1.5 mb-3'>
               <Row
@@ -645,50 +619,38 @@ export default function OrderSide({
                 />
               )}
               <div
-                className={`flex justify-between pos-price font-bold ${text} pt-2 border-t border-default-200`}
+                className={`flex justify-between pos-price font-bold ${text} pt-2 border-t border-line`}
               >
                 <span>{t('common.total')}</span>
-                <span className='money text-primary'>
+                <span className='money'>
                   {money(currentOrder.grand_total)}
                 </span>
               </div>
             </div>
 
             {/* BUTTONS – match online POS style */}
-            <div className='flex gap-3'>
+            <div className='flex flex-wrap gap-3'>
               {/* Place Order — the one action this panel exists for, so it is
                   the only solid fill down here. */}
               <Button
                 size='lg'
                 color='primary'
-                className='flex-1 font-semibold'
+                className='flex-1 basis-32 font-semibold rounded-[13px]'
                 onPress={() =>
                   canQuickUpdate ? handleQuickUpdate() : setShowCheckout(true)
                 }
                 isDisabled={orderLines.length === 0 || quickUpdating}
                 isLoading={quickUpdating}
-                startContent={!quickUpdating && <Check size={18} />}
+                startContent={!quickUpdating && <Check size={18} strokeWidth={1.8} />}
               >
                 {currentOrder.order_type === 3
                   ? t('cart.updatePay')
                   : t('cart.placeOrder')}
               </Button>
 
-              {/* Close / Release — deliberately secondary, but `flat` rather
-                  than ghost: it is still a full-size target, not decoration. */}
-              <Button
-                size='lg'
-                variant='flat'
-                className='flex-1 font-semibold'
-                onPress={
-                  currentOrder.order_type === 3 &&
-                  currentOrder.table_id &&
-                  orderLines.length > 0
-                    ? handleReleaseTable
-                    : handleClose
-                }
-                startContent={<X size={16} />}
-                title={
+              {/* Close / Release: large outline */}
+              <Hint
+                content={
                   currentOrder.order_type === 3 &&
                   currentOrder.table_id &&
                   orderLines.length > 0
@@ -697,6 +659,20 @@ export default function OrderSide({
                     ? t('cart.tipClose')
                     : t('cart.tipDeleteEmpty')
                 }
+                placement='top'
+              >
+              <Button
+                size='lg'
+                variant='bordered'
+                className='flex-1 basis-32 font-semibold rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)]'
+                onPress={
+                  currentOrder.order_type === 3 &&
+                  currentOrder.table_id &&
+                  orderLines.length > 0
+                    ? handleReleaseTable
+                    : handleClose
+                }
+                startContent={<X size={16} strokeWidth={1.8} />}
               >
                 {currentOrder.order_type === 3 &&
                 currentOrder.table_id &&
@@ -704,6 +680,7 @@ export default function OrderSide({
                   ? t('cart.closeRelease')
                   : t('cart.closeOrder')}
               </Button>
+              </Hint>
             </div>
           </div>
         </>
@@ -807,13 +784,10 @@ function Row({
 }: {
   label: string;
   value: string;
-  /**
-   * Unused — the row is a semantic token in both themes. Kept declared and
-   * optional so nothing breaks if a caller still passes it.
-   */
+  /** Unused. Kept optional so a caller may still pass it. */
   theme?: 'light' | 'dark';
 }) {
-  const textMuted = 'text-default-700';
+  const textMuted = 'ink-2';
   return (
     <div className={`flex justify-between pos-sm font-medium ${textMuted}`}>
       <span>{label}</span>

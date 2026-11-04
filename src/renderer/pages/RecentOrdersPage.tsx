@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Printer, QrCode, Eye } from 'lucide-react';
-import { Chip } from '@heroui/react';
+import { Button, DatePicker, Input, Select, SelectItem } from '@heroui/react';
+import { parseDate } from '@internationalized/date';
+import { Hint } from '../components/Hint';
 import { OrderStatusCell } from './OrderStatusCell';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
 import { PaymentMethodCell } from './PaymentMethodCell';
@@ -61,37 +63,34 @@ function useServerStatusLabel() {
 }
 
 /**
- * Status tone per server status code.
- *
- * These were hardcoded dark-theme classes — text-primary and friends on a
- * /15 tint. Pale-300 ink is built to sit on a dark surface; on the light theme
- * it renders near-white on near-white, which is how "Open" and "Picked up"
- * became unreadable the moment light became the default.
- *
- * HeroUI colours instead: one name per meaning, and the library picks the
- * right ink and tint for whichever theme is active.
+ * Status chip colour per docs/DESIGN-SYSTEM.md: done / closed green, ready /
+ * out for delivery blue, cancelled / rejected / failed / refunded red,
+ * new / accepted brand, everything else (pending, preparing) gray; waiting for pickup (7) blue.
+ * Solid chips with white text, identical in both themes.
  */
-type Tone = 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'danger';
-
-const SERVER_STATUS_TONE: Record<number, Tone> = {
-  0: 'default', // pending
-  1: 'primary', // accepted
-  2: 'warning', // preparing
-  3: 'warning', // out for delivery / ready
-  4: 'success', // delivered / picked up
-  5: 'danger', // cancelled
-  6: 'danger', // rejected
-  7: 'warning', // on hold
-  8: 'danger', // failed
-  9: 'danger', // refunded
+const SERVER_STATUS_CHIP: Record<number, string> = {
+  0: 'ui-chip-gray', // pending
+  1: 'ui-chip-brand', // accepted
+  2: 'ui-chip-gray', // preparing
+  3: 'ui-chip-blue', // out for delivery / ready
+  4: 'ui-chip-green', // delivered / picked up
+  5: 'ui-chip-red', // cancelled
+  6: 'ui-chip-red', // rejected
+  7: 'ui-chip-blue', // waiting for pickup (admin.srv.7)
+  8: 'ui-chip-red', // failed
+  9: 'ui-chip-red', // refunded
 };
 
-const LOCAL_STATUS_TONE: Record<string, Tone> = {
-  open: 'primary',
-  prepared: 'warning',
-  completed: 'success',
-  closed: 'default',
-  cancelled: 'danger',
+const LOCAL_STATUS_CHIP: Record<string, string> = {
+  open: 'ui-chip-brand',
+  placed: 'ui-chip-brand',
+  prepared: 'ui-chip-gray',
+  ready: 'ui-chip-blue',
+  awaiting_pickup: 'ui-chip-blue',
+  completed: 'ui-chip-green',
+  closed: 'ui-chip-green',
+  cancelled: 'ui-chip-red',
+  cancelled_client: 'ui-chip-red',
 };
 
 const StatusBadge = ({ order }: { order: Order }) => {
@@ -102,9 +101,9 @@ const StatusBadge = ({ order }: { order: Order }) => {
   const hasCode = Number.isFinite(code) && order.status_code != null;
   const k = String(order.status ?? '').toLowerCase();
 
-  const tone: Tone = hasCode
-    ? SERVER_STATUS_TONE[code] ?? 'default'
-    : LOCAL_STATUS_TONE[k] ?? 'default';
+  const chip = hasCode
+    ? SERVER_STATUS_CHIP[code] ?? 'ui-chip-gray'
+    : LOCAL_STATUS_CHIP[k] ?? 'ui-chip-gray';
 
   const label = hasCode
     ? serverLabel(code, order.order_type)
@@ -112,11 +111,7 @@ const StatusBadge = ({ order }: { order: Order }) => {
     ? statusLabel(order.status)
     : null;
 
-  return (
-    <Chip size='sm' color={tone} variant='solid' className='font-semibold'>
-      {label || '—'}
-    </Chip>
-  );
+  return <span className={`ui-chip ${chip}`}>{label || '—'}</span>;
 };
 
 const bestUpdatedMs = (row: Order) => {
@@ -181,18 +176,21 @@ export default function TodayOrdersReport() {
     [t, toast]
   );
 
-  // ---- tiny UI helpers so all fields/buttons look identical (dark & light) ----
-  const fieldCls =
-    'h-10 px-3 rounded-lg bg-default-100 border border-default-200 ' +
-    'text-sm outline-none focus:ring-2 focus:ring-sky-500/40 placeholder:opacity-60';
-  const btnCls =
-    'h-10 px-3 rounded-lg border border-default-200 text-sm hover:bg-default-200 transition ' +
-    'disabled:opacity-50 disabled:cursor-not-allowed';
-
-  // small button style for row actions
-  const rowBtnCls =
-    'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-default-200 ' +
-    'text-xs hover:bg-default-200 disabled:opacity-50 disabled:cursor-not-allowed';
+  // small icon button for row actions (44px on touch via .ui-icon-btn)
+  const rowBtnCls = 'ui-icon-btn ui-icon-btn-outline !h-9 !w-9';
+  const selectClasses = {
+    trigger: 'ui-input min-h-10 px-3 shadow-none',
+    value: 'text-sm ink',
+    popoverContent: 'ui-popup',
+  };
+  const dateClasses = { inputWrapper: 'ui-input' };
+  const toCalendar = (v: string) => {
+    try {
+      return v ? parseDate(v) : null;
+    } catch {
+      return null;
+    }
+  };
 
   /* ---------------- Auth: what may this operator do? ---------------- */
   // Gates ask for the permission the main process asserts. They used to ask
@@ -382,7 +380,7 @@ export default function TodayOrdersReport() {
         cell: ({ row }) => (
           <div className='leading-tight'>
             <div className='font-medium'>{row.original.full_name || '—'}</div>
-            <div className='text-xs font-medium text-default-700'>
+            <div className='text-xs ink-2'>
               {row.original.mobile || ''}
             </div>
           </div>
@@ -432,31 +430,37 @@ export default function TodayOrdersReport() {
         size: 110,
         cell: ({ row }) =>
           canViewDetail ? (
-            <div className='flex items-center gap-1.5 overflow-hidden'>
+            <div className='flex items-center gap-1.5'>
               {row.original.id && (
-                <button
-                  className={rowBtnCls}
-                  onClick={() => setDetailId(String(row.original.id))}
-                  title={t('admin.orders.viewDetail')}
-                >
-                  <Eye size={14} />
-                </button>
+                <Hint content={t('admin.orders.viewDetail')} placement='top'>
+                  <button
+                    className={rowBtnCls}
+                    onClick={() => setDetailId(String(row.original.id))}
+                    aria-label={t('admin.orders.viewDetail')}
+                  >
+                    <Eye size={16} strokeWidth={1.8} />
+                  </button>
+                </Hint>
               )}
-              <button
-                className={rowBtnCls}
-                onClick={() => handlePrint(row.original.id)}
-                title={t('admin.orders.printReceipt')}
-              >
-                <Printer size={14} />
-              </button>
-              {(row.original as any).payment_link_url && row.original.id && (
+              <Hint content={t('admin.orders.printReceipt')} placement='top'>
                 <button
                   className={rowBtnCls}
-                  onClick={() => showPaymentQr(String(row.original.id))}
-                  title={t('admin.orders.showQr')}
+                  onClick={() => handlePrint(row.original.id)}
+                  aria-label={t('admin.orders.printReceipt')}
                 >
-                  <QrCode size={14} />
+                  <Printer size={16} strokeWidth={1.8} />
                 </button>
+              </Hint>
+              {(row.original as any).payment_link_url && row.original.id && (
+                <Hint content={t('admin.orders.showQr')} placement='top'>
+                  <button
+                    className={rowBtnCls}
+                    onClick={() => showPaymentQr(String(row.original.id))}
+                    aria-label={t('admin.orders.showQr')}
+                  >
+                    <QrCode size={16} strokeWidth={1.8} />
+                  </button>
+                </Hint>
               )}
             </div>
           ) : null,
@@ -500,7 +504,7 @@ export default function TodayOrdersReport() {
               }}
             />
           ) : (
-            <span className='text-default-700'>
+            <span className='ink-2'>
               {(row.original as any).payment_method_slug || '—'}
             </span>
           ),
@@ -547,76 +551,86 @@ export default function TodayOrdersReport() {
       {/* Header + Toolbar, with the guide's "?" in the top-end corner like
           every other screen. */}
       <div className='mb-4 flex items-start gap-3'>
-      <div className='flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-end md:justify-between'>
+      <div className='flex min-w-0 flex-1 flex-col gap-3'>
         <div>
-          <h1 className='text-2xl font-bold'>{t('admin.orders.title')}</h1>
-          <div className='text-sm font-medium text-default-700'>
+          <h1 className='text-xl font-semibold'>{t('admin.orders.title')}</h1>
+          <div className='text-sm ink-2'>
             {t('admin.orders.subtitle')}
           </div>
         </div>
 
-        {/* Toolbar */}
-        <div className='w-full grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_130px_150px_150px_100px_100px] gap-2'>
-          <input
+        {/* Toolbar: wraps on narrow screens, controls have minimum widths. */}
+        <div className='flex flex-wrap items-center gap-2'>
+          <Input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onValueChange={setQ}
             placeholder={t('admin.orders.searchPlaceholder')}
-            className={fieldCls + ' w-full'}
+            aria-label={t('admin.orders.searchPlaceholder')}
+            classNames={{ base: 'min-w-[12rem] flex-1 sm:max-w-sm', inputWrapper: 'ui-input' }}
           />
 
-          <select
-            className={fieldCls + ' w-full'}
-            value={type}
-            onChange={(e) => setType(e.target.value as any)}
-            title={t('admin.orders.orderTypeFilter')}
+          <Select
+            aria-label={t('admin.orders.orderTypeFilter')}
+            selectedKeys={[type]}
+            disallowEmptySelection
+            onSelectionChange={(keys) => {
+              const next = Array.from(keys)[0];
+              if (next != null) setType(String(next) as any);
+            }}
+            className='w-36 min-w-[8.5rem]'
+            classNames={selectClasses}
           >
-            <option value='all'>{t('admin.orders.allTypes')}</option>
-            <option value='1'>{typeLabel(1)}</option>
-            <option value='2'>{typeLabel(2)}</option>
-            <option value='3'>{typeLabel(3)}</option>
-          </select>
+            <SelectItem key='all'>{t('admin.orders.allTypes')}</SelectItem>
+            <SelectItem key='1'>{typeLabel(1)}</SelectItem>
+            <SelectItem key='2'>{typeLabel(2)}</SelectItem>
+            <SelectItem key='3'>{typeLabel(3)}</SelectItem>
+          </Select>
 
-          <input
-            type='date'
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className={fieldCls + ' w-full'}
+          <DatePicker
             aria-label={t('admin.orders.fromDate')}
-            title={t('admin.orders.fromDate')}
+            value={toCalendar(fromDate)}
+            onChange={(v) => setFromDate(v ? v.toString() : '')}
+            className='w-44 min-w-[10.5rem]'
+            classNames={dateClasses}
           />
 
-          <input
-            type='date'
-            value={toDate}
-            min={fromDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className={fieldCls + ' w-full'}
+          <DatePicker
             aria-label={t('admin.orders.toDate')}
-            title={t('admin.orders.toDate')}
+            value={toCalendar(toDate)}
+            minValue={toCalendar(fromDate) ?? undefined}
+            onChange={(v) => setToDate(v ? v.toString() : '')}
+            className='w-44 min-w-[10.5rem]'
+            classNames={dateClasses}
           />
 
-          <button
-            className={btnCls + ' w-full'}
-            onClick={() => refresh()}
-            disabled={loading}
-            title={t('admin.refresh')}
+          <Button
+            color='primary'
+            size='lg'
+            className='font-semibold'
+            onPress={() => refresh()}
+            isDisabled={loading}
+            aria-label={t('admin.refresh')}
           >
             {loading ? t('admin.refreshing') : t('admin.orders.filter')}
-          </button>
+          </Button>
 
-          <div className='flex items-center gap-2 w-full'>
-            <label className='text-sm font-medium text-default-700'>{t('admin.rows')}</label>
-            <select
-              className={fieldCls + ' w-full'}
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
+          <div className='flex items-center gap-2'>
+            <span className='text-sm font-semibold ink-2'>{t('admin.rows')}</span>
+            <Select
+              aria-label={t('admin.rows')}
+              selectedKeys={[String(pageSize)]}
+              disallowEmptySelection
+              onSelectionChange={(keys) => {
+                const next = Array.from(keys)[0];
+                if (next != null) setPageSize(Number(next));
+              }}
+              className='w-24 min-w-[5.5rem]'
+              classNames={selectClasses}
             >
-              {[10, 25, 50, 100].map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
+              {[10, 25, 50, 100].map((n) => (
+                <SelectItem key={String(n)}>{String(n)}</SelectItem>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
       </div>

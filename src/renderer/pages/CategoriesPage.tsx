@@ -4,6 +4,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Button, Chip } from '@heroui/react';
 import { Check, Minus, X } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { Hint } from '../components/Hint';
 import { DataTable } from '../components/DataTable';
 import { errorLine as errLine } from '../utils/posError';
 import {
@@ -42,15 +43,10 @@ function VisibleChip({ value }: { value: any }) {
   const { t } = useI18n();
   const on = toBool(value);
   return (
-    <Chip
-      size='sm'
-      variant='solid'
-      color={on ? 'success' : 'default'}
-      className='font-semibold'
-      startContent={on ? <Check size={13} /> : <Minus size={13} />}
-    >
+    <span className={`ui-chip ${on ? 'ui-chip-green' : 'ui-chip-gray'}`}>
+      {on ? <Check size={14} strokeWidth={1.8} /> : <Minus size={14} strokeWidth={1.8} />}
       {on ? t('admin.cats.isVisible') : t('admin.cats.isHidden')}
-    </Chip>
+    </span>
   );
 }
 
@@ -155,7 +151,7 @@ export function CategoriesPage() {
         size: 60,
         meta: { nowrap: true, align: 'end' },
         cell: (info) => (
-          <span className='money text-default-700'>
+          <span className='money ink-2'>
             {String(info.getValue() ?? '')}
           </span>
         ),
@@ -258,7 +254,7 @@ export function CategoriesPage() {
         {/* Subcategories */}
         <section className='space-y-3'>
           <div className='flex flex-wrap items-center justify-between gap-2'>
-            <h2 className='text-lg font-bold text-foreground flex items-center gap-2 min-w-0'>
+            <h2 className='text-base font-semibold ink flex items-center gap-2 min-w-0'>
               <span className='truncate'>{t('admin.subs.title')}</span>
               {selectedCat ? (
                 // The filter is stated as a removable chip rather than a line of
@@ -269,21 +265,22 @@ export function CategoriesPage() {
                   variant='solid'
                   className='font-semibold'
                   endContent={
-                    <button
-                      type='button'
-                      onClick={() => setSelectedCatId(null)}
-                      aria-label={t('admin.cats.showAllSubs')}
-                      title={t('admin.cats.showAllSubs')}
-                      className='ms-0.5'
-                    >
-                      <X size={14} />
-                    </button>
+                    <Hint content={t('admin.cats.showAllSubs')} placement='bottom'>
+                      <button
+                        type='button'
+                        onClick={() => setSelectedCatId(null)}
+                        aria-label={t('admin.cats.showAllSubs')}
+                        className='ms-0.5'
+                      >
+                        <X size={14} strokeWidth={1.8} />
+                      </button>
+                    </Hint>
                   }
                 >
                   {localName(selectedCat)}
                 </Chip>
               ) : (
-                <Chip variant='solid' className='font-semibold'>
+                <Chip variant='solid' className='font-semibold bg-[var(--st-gray)] text-white'>
                   {t('admin.subs.all')}
                 </Chip>
               )}
@@ -313,8 +310,8 @@ export function CategoriesPage() {
             action={
               selectedCat ? (
                 <Button
-                  color='primary'
-                  variant='flat'
+                  variant='bordered'
+                  className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
                   onPress={() => setSelectedCatId(null)}
                 >
                   {t('admin.cats.showAllSubs')}

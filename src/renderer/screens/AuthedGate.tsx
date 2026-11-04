@@ -1,7 +1,7 @@
 // src/renderer/screens/AuthedGate.tsx
 import { useEffect, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { Card, CardBody, Spinner } from '@heroui/react';
+import { Spinner } from '@heroui/react';
 import { useI18n, type StringKey } from '../i18n';
 
 import { useErrorLine } from '../utils/posError';
@@ -62,43 +62,43 @@ export function AuthedGate() {
 
   if (!ready) {
     return (
-      <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
-        <Card className='w-full max-w-md shadow-lg border border-slate-200 bg-white'>
-          <CardBody className='py-6 px-6 flex flex-col items-center gap-3 text-center'>
+      <div className='min-h-screen flex items-center justify-center bg-canvas px-4'>
+        <div className='ui-card w-full max-w-md'>
+          <div className='py-6 px-6 flex flex-col items-center gap-3 text-center'>
             <Spinner size='lg' color='primary' />
-            <div className='text-base font-semibold text-slate-900'>
+            <div className='text-base font-semibold ink'>
               {t('gate.preparing')}
             </div>
 
-            <div className='text-xs text-slate-500'>
+            <div className='text-xs ink-2'>
               {error ? t('gate.statusError') : t('gate.checking')}
             </div>
 
             {status?.branch_name && !error && (
-              <div className='text-[11px] text-slate-500'>
+              <div className='text-xs ink-3'>
                 {t('gate.currentBranch')}{' '}
-                <span className='font-medium text-slate-900'>
+                <span className='font-medium ink'>
                   {status.branch_name}
                 </span>
               </div>
             )}
 
             {!error && (
-              <div className='mt-2 text-[11px] text-slate-500 italic max-w-sm'>
+              <div className='mt-2 text-xs ink-3 italic max-w-sm'>
                 {t(tipKey)}
               </div>
             )}
 
             {error && (
               <button
-                className='mt-3 inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50'
+                className='ui-btn ui-btn-outline mt-3'
                 onClick={refresh}
               >
                 {t('common.retry')}
               </button>
             )}
-          </CardBody>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }

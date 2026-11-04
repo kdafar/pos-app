@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../src/store';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Chip } from '@heroui/react';
 import { useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
 import {
@@ -103,24 +102,10 @@ export function ItemsPage() {
           return (
             <div className='flex items-center gap-1'>
               {v && (
-                <Chip
-                  size='sm'
-                  variant='solid'
-                  color='warning'
-                  className='font-semibold'
-                >
-                  {t('pos.sizes')}
-                </Chip>
+                <span className='ui-chip ui-chip-amber'>{t('pos.sizes')}</span>
               )}
               {a && (
-                <Chip
-                  size='sm'
-                  variant='solid'
-                  color='secondary'
-                  className='font-semibold'
-                >
-                  {t('pos.addons')}
-                </Chip>
+                <span className='ui-chip ui-chip-blue'>{t('pos.addons')}</span>
               )}
             </div>
           );
@@ -159,14 +144,9 @@ export function ItemsPage() {
         cell: (info) => {
           const out = !!info.getValue();
           return (
-            <Chip
-              size='sm'
-              variant='solid'
-              color={out ? 'danger' : 'success'}
-              className='font-semibold'
-            >
+            <span className={`ui-chip ${out ? 'ui-chip-red' : 'ui-chip-green'}`}>
               {out ? t('admin.items.outOfStock') : t('admin.items.inStock')}
-            </Chip>
+            </span>
           );
         },
         sortingFn: (a, b, id) =>

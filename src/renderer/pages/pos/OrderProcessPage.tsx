@@ -473,82 +473,57 @@ export default function OrderProcessPage() {
     setBlocks(b || []);
   };
 
-  const bg = theme === 'dark' ? 'bg-slate-950' : 'bg-gray-50';
-  const headerBg = 'bg-content1';
-  const border = 'border-default-200';
-
   return (
-    <div className={`pos-screen h-screen flex flex-col ${bg}`}>
-      {/* Header */}
-      <header
-        className={`border-b ${border} ${headerBg} min-h-14 shrink-0 z-20`}
-      >
-        <div className='px-4 h-full'>
-          <div className='flex min-h-14 items-center gap-3'>
-            {/*
-              "Signed in as <name> <role>" used to live here as well as in the
-              sidebar, so on any screen wide enough to show both, the operator's
-              name appeared twice within about 300px of itself. The sidebar owns
-              it — it is on every screen, and it keeps the avatar when collapsed.
-              Reclaiming this block also gives the active-orders strip roughly
-              180px, which is the difference between seeing three open orders
-              and seeing one on a scaled 13" display.
-            */}
-            <div className='flex-1 flex items-center gap-2 overflow-x-auto chip-scroll min-w-0 py-2'>
-              {activeOrders.map((order) => (
-                <button
-                  key={order.id}
-                  onClick={() => selectOrder(order.id)}
-                  className={`
-                    shrink-0 h-9 px-3 rounded-lg border text-xs transition-colors select-none
-                    flex items-center justify-center min-w-[108px]
-                    ${
-                      currentOrder?.id === order.id
-                        ? 'bg-primary border-primary text-primary-foreground font-semibold'
-                        : 'bg-content1 border-default-200 text-default-700 hover:bg-default-100 hover:text-foreground'
-                    }
-                  `}
-                >
-                  <div className='flex items-center justify-between gap-2 w-full'>
-                    <span>
-                      {labelForType(order.order_type)}
-                    </span>
-                    <span className='opacity-80 text-[10px] flex items-center gap-1'>
-                      {shortOrderLabel(order as any)}
-                      <PaymentBadge
-                        status={(order as any).payment_link_status}
-                        theme={theme}
-                      />
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <div className='shrink-0 flex items-center gap-2 ps-3 border-s border-default-200'>
-
+    <div className='pos-screen h-screen flex flex-col bg-canvas'>
+      {/* Header: a calm bar on the canvas. Wraps on narrow screens. */}
+      <header className='shrink-0 z-20 px-3 lg:px-4 py-2'>
+        <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
+          {/*
+            "Signed in as <name> <role>" lives in the sidebar only; it is on
+            every screen and keeps the avatar when collapsed. The open orders
+            strip scrolls sideways instead of wrapping.
+          */}
+          <div className='ui-seg min-w-0 max-w-full flex-1 basis-48 overflow-x-auto chip-scroll'>
+            {activeOrders.map((order) => (
               <button
-                onClick={() => createNewOrder(2)}
-                className='h-9 px-4 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90'
+                key={order.id}
+                onClick={() => selectOrder(order.id)}
+                aria-pressed={currentOrder?.id === order.id}
+                className='ui-seg-item shrink-0 select-none min-w-[108px]'
               >
-                <Plus size={16} strokeWidth={3} />
-                <span>{t('pos.new')}</span>
+                <div className='flex items-center justify-between gap-2 w-full'>
+                  <span>{labelForType(order.order_type)}</span>
+                  <span className='ink-2 text-[10px] flex items-center gap-1'>
+                    {shortOrderLabel(order as any)}
+                    <PaymentBadge
+                      status={(order as any).payment_link_status}
+                      theme={theme}
+                    />
+                  </span>
+                </div>
               </button>
+            ))}
+          </div>
 
-              {currentOrder && (
-                <div className='w-px h-7 bg-default-200' />
-              )}
+          <div className='flex flex-wrap items-center gap-2 min-w-0 max-w-full'>
+            <button
+              onClick={() => createNewOrder(2)}
+              className='ui-btn ui-btn-primary'
+            >
+              <Plus size={16} strokeWidth={1.8} />
+              <span>{t('pos.new')}</span>
+            </button>
 
-              {currentOrder && (
+            {currentOrder && (
+              <div className='max-w-full overflow-x-auto chip-scroll'>
                 <OrderTypePicker
                   value={currentOrder.order_type}
                   onChange={changeOrderType}
                   allowDelivery={deliveryEnabled}
                 />
-              )}
-              <div className='w-px h-7 bg-default-200' />
-              <HelpButton />
-            </div>
+              </div>
+            )}
+            <HelpButton />
           </div>
         </div>
       </header>
@@ -574,7 +549,8 @@ export default function OrderProcessPage() {
         catalog rather than crushing it.
       */}
       <div
-        className='grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26vw,30rem)]
+        className='grid grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-1
+          lg:grid-cols-[minmax(0,1fr)_clamp(20rem,26vw,30rem)]
           flex-1 min-h-0 overflow-hidden'
       >
         <CatalogPanel

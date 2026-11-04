@@ -40,7 +40,7 @@ export function CommandSelect({
 
   return (
     <div>
-      <label className="block text-sm font-semibold text-default-700 mb-1">
+      <label className="block text-sm font-semibold ink-2 mb-1">
         {label}{required ? ' *' : ''}
       </label>
       <Popover.Root open={open} onOpenChange={setOpen}>
@@ -50,32 +50,32 @@ export function CommandSelect({
             disabled={disabled}
             // A disabled picker says so with its surface and its cursor, never
             // by fading the text — this is read at arm's length on a till.
-            className="w-full h-11 px-3 rounded-lg border border-default-200 bg-default-100 text-foreground flex items-center justify-between text-sm font-medium disabled:bg-default-200 disabled:cursor-not-allowed"
+            className="w-full min-h-11 px-3 rounded-[11px] border border-line-strong bg-surface ink flex items-center justify-between text-sm font-medium transition-colors focus-visible:border-[var(--brand)] focus-visible:shadow-[0_0_0_4px_var(--brand-ring)] disabled:bg-surface-2 disabled:cursor-not-allowed"
           >
             <span className="truncate">
               {selected ? selected.label : `Select ${label.toLowerCase()}`}
             </span>
-            <ChevronsUpDown size={16} className="shrink-0 ms-2 text-default-700" />
+            <ChevronsUpDown size={16} strokeWidth={1.8} className="shrink-0 ms-2 ink-2" />
           </button>
         </Popover.Trigger>
 
         <Popover.Content
           side="bottom"
           align="start"
-          className="w-[min(24rem,90vw)] p-2 mt-1 rounded-lg border border-default-200 bg-content1 shadow-xl z-50"
+          className="ui-popup w-[min(24rem,calc(100vw-1.5rem))] p-2 mt-1 z-50"
         >
-          <Command label={`${label} search`} className="max-h-72 overflow-auto nice-scroll rounded-md bg-transparent">
-            <div className="flex items-center gap-2 px-2 py-2 rounded-md border border-default-200 bg-default-100 mb-2">
-              <Search size={16} className="shrink-0 text-default-700" />
+          <Command label={`${label} search`} className="max-h-72 overflow-auto nice-scroll rounded-[11px] bg-transparent">
+            <div className="flex items-center gap-2 px-2 py-2 min-h-11 rounded-[11px] border border-line-strong bg-surface mb-2">
+              <Search size={16} strokeWidth={1.8} className="shrink-0 ink-2" />
               <Command.Input
                 autoFocus
                 placeholder={placeholder}
-                className="w-full bg-transparent outline-none text-foreground placeholder:text-default-700"
+                className="w-full bg-transparent outline-none ink placeholder:text-default-500"
               />
             </div>
 
             <Command.List>
-              <Command.Empty className="px-3 py-2 text-sm font-medium text-default-700">No results</Command.Empty>
+              <Command.Empty className="px-3 py-2 text-sm font-medium ink-2">No results</Command.Empty>
               {options.map(o => (
                 <Command.Item
                   key={o.id}
@@ -83,12 +83,12 @@ export function CommandSelect({
                   onSelect={() => { onChange(o.id); setOpen(false); }}
                   // `data-[selected]` is cmdk's keyboard cursor, so the arrow
                   // keys get the same highlight the mouse does.
-                  className="flex items-center justify-between gap-2 px-3 py-3 rounded-md cursor-pointer text-sm text-foreground hover:bg-default-200 data-[selected=true]:bg-default-200"
+                  className="flex items-center justify-between gap-2 px-3 py-3 min-h-11 rounded-[11px] cursor-pointer text-sm ink hover:bg-[var(--hover)] data-[selected=true]:bg-[var(--hover)]"
                 >
-                  <span className={`truncate ${o.id === value ? 'font-semibold text-primary' : 'font-medium'}`}>
+                  <span className={`truncate ${o.id === value ? 'font-semibold text-[var(--brand-strong)]' : 'font-medium'}`}>
                     {o.label}
                   </span>
-                  {o.id === value && <CheckIcon size={16} className="shrink-0 text-primary" />}
+                  {o.id === value && <CheckIcon size={16} strokeWidth={1.8} className="shrink-0 text-[var(--brand)]" />}
                 </Command.Item>
               ))}
             </Command.List>

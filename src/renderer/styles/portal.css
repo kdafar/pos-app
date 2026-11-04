@@ -1,0 +1,367 @@
+/* ===============================================================
+   Order Portal design (docs/DESIGN-INVENTORY.md)
+   ---------------------------------------------------------------
+   The tokens are the portal's, copied exactly. Two are derived
+   instead of written: --brand and --brand-ink come from the HeroUI
+   primary that theme/brand.ts sets from the restaurant's colour at
+   runtime, so HeroUI controls and hand-written markup can never show
+   two different brands, and the text on the brand is the one
+   brand.ts measured for contrast.
+
+   Imported unlayered from tailwind.css: it must outrank HeroUI's own
+   theme layer. Shared component classes sit in @layer components so
+   a utility class on an element can still adjust them.
+   =============================================================== */
+:root {
+  --brand: hsl(var(--heroui-primary));
+  --brand-ink: hsl(var(--heroui-primary-foreground));
+  --brand-strong: color-mix(in srgb, var(--brand) 82%, black);
+  --brand-hover: color-mix(in srgb, var(--brand) 88%, black);
+  --brand-ring: color-mix(in srgb, var(--brand) 45%, transparent);
+
+  --canvas: #f5f5f4;
+  --surface: #ffffff;
+  --surface-2: #fafaf9;
+  --line: rgb(15 15 20 / 0.08);
+  --line-strong: rgb(15 15 20 / 0.14);
+  --ink: #0c0d10;
+  --ink-2: #4a4d55;
+  --ink-3: #7b7f88;
+  --hover: rgb(15 15 20 / 0.045);
+
+  --shadow-1: 0 1px 2px rgb(15 15 20 / 0.04), 0 1px 1px rgb(15 15 20 / 0.02);
+  --shadow-2: 0 1px 2px rgb(15 15 20 / 0.05), 0 8px 24px -10px rgb(15 15 20 / 0.12);
+  --shadow-3: 0 2px 4px rgb(15 15 20 / 0.05), 0 24px 56px -16px rgb(15 15 20 / 0.22);
+
+  /* Fixed status colours: same in light and dark, always white text. */
+  --st-amber: #b45309;
+  --st-green: #047857;
+  --st-blue: #1d4ed8;
+  --st-red: #b91c1c;
+  --st-red-hover: #991b1b;
+  --st-gray: #52525b;
+
+  /* HeroUI's focus ring follows the restaurant's colour too. */
+  --heroui-focus: var(--heroui-primary);
+}
+.dark {
+  --brand-strong: color-mix(in srgb, var(--brand) 70%, white);
+  --canvas: #0b0c0e;
+  --surface: #141518;
+  --surface-2: #1a1b1f;
+  --line: rgb(255 255 255 / 0.08);
+  --line-strong: rgb(255 255 255 / 0.14);
+  --ink: #f4f4f5;
+  --ink-2: #b4b6bc;
+  --ink-3: #8a8d95;
+  --hover: rgb(255 255 255 / 0.06);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-2: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 24px -10px rgb(0 0 0 / 0.5);
+  --shadow-3: 0 2px 4px rgb(0 0 0 / 0.4), 0 24px 56px -16px rgb(0 0 0 / 0.65);
+  --heroui-focus: var(--heroui-primary);
+}
+
+/* ---------- type ---------- */
+html {
+  font-family: 'Inter', 'IBM Plex Sans Arabic', system-ui, sans-serif;
+}
+/* The portal: 14px on a mouse, 15px on touch. A till is touch. */
+@media (pointer: coarse) {
+  html {
+    font-size: 15px;
+  }
+}
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-feature-settings: 'tnum';
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+:root[lang='ar'] body {
+  font-family: 'IBM Plex Sans Arabic', 'Inter', system-ui, sans-serif;
+  letter-spacing: 0;
+}
+::selection {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+/* Keyboard focus only; HeroUI controls draw their own ring from --heroui-focus. */
+:where(a, button, [role='button'], [tabindex]):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+/* ---------- scrollbars: thin, never the OS default ----------
+   In the base layer on purpose: the app's own .rail-scroll and .chip-scroll
+   hide the bar on the side menu and on tab/chip rows, and an unlayered rule
+   here would outrank them and bring arrow buttons back. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+}
+
+/* ---------- motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ---------- shared components (the portal's names) ---------- */
+@layer components {
+  .ui-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: var(--shadow-1);
+  }
+  .ui-card-raise {
+    transition: box-shadow 150ms, border-color 150ms;
+  }
+  .ui-card-raise:hover {
+    box-shadow: var(--shadow-2);
+  }
+  .ui-popup {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow-3);
+  }
+
+  /* Buttons */
+  .ui-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.5rem;
+    padding: 0 0.9rem;
+    border-radius: 11px;
+    font-weight: 600;
+    font-size: calc(0.875rem * var(--ui-text));
+    white-space: nowrap;
+    transition: background-color 150ms, color 150ms, box-shadow 150ms, transform 150ms;
+  }
+  .ui-btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .ui-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .ui-btn-primary {
+    background: var(--brand);
+    color: var(--brand-ink);
+  }
+  .ui-btn-primary:hover:not(:disabled) {
+    background: var(--brand-hover);
+  }
+  .ui-btn-outline {
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    color: var(--ink);
+  }
+  .ui-btn-outline:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  .ui-btn-ghost {
+    color: var(--ink-2);
+  }
+  .ui-btn-ghost:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--ink);
+  }
+  .ui-btn-danger {
+    background: var(--st-red);
+    color: #fff;
+  }
+  .ui-btn-danger:hover:not(:disabled) {
+    background: var(--st-red-hover);
+  }
+  .ui-btn-lg {
+    height: 3rem;
+    font-size: calc(1rem * var(--ui-text));
+    border-radius: 13px;
+  }
+  .ui-btn-sm {
+    height: 2rem;
+    padding: 0 0.7rem;
+    font-size: calc(0.8125rem * var(--ui-text));
+    border-radius: 9px;
+  }
+  .ui-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    border-radius: 11px;
+    color: var(--ink-2);
+    transition: background-color 150ms, color 150ms, transform 150ms;
+  }
+  .ui-icon-btn:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--ink);
+  }
+  .ui-icon-btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .ui-icon-btn-outline {
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+  }
+
+  /* Segmented control (tabs, Dine-in / Pickup / Delivery, floors) */
+  .ui-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    border-radius: 14px;
+    background: var(--hover);
+  }
+  .ui-seg-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    height: 2rem;
+    padding: 0 0.75rem;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: calc(0.8125rem * var(--ui-text));
+    color: var(--ink-2);
+    white-space: nowrap;
+    transition: background-color 150ms, color 150ms, box-shadow 150ms;
+  }
+  .ui-seg-item:hover {
+    color: var(--ink);
+  }
+  .ui-seg-item[aria-pressed='true'],
+  .ui-seg-item[aria-selected='true'],
+  .ui-seg-item[aria-checked='true'] {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow-1);
+  }
+
+  /* Status chip: solid fill, white text. */
+  .ui-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.5rem;
+    padding: 0 0.55rem;
+    border-radius: 999px;
+    font-size: calc(0.75rem * var(--ui-text));
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    color: #fff;
+  }
+  .ui-chip-brand {
+    background: var(--brand);
+    color: var(--brand-ink);
+  }
+  .ui-chip-amber { background: var(--st-amber); }
+  .ui-chip-green { background: var(--st-green); }
+  .ui-chip-blue { background: var(--st-blue); }
+  .ui-chip-red { background: var(--st-red); }
+  .ui-chip-gray { background: var(--st-gray); }
+  .ui-chip-outline {
+    background: transparent;
+    color: var(--ink-2);
+    border: 1px solid var(--line-strong);
+  }
+
+  /* Count badge */
+  .ui-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    font-size: calc(0.7rem * var(--ui-text));
+    font-weight: 700;
+    background: var(--ink);
+    color: var(--surface);
+  }
+
+  /* Input. For HeroUI: classNames={{ inputWrapper: 'ui-input' }} */
+  .ui-input {
+    min-height: 2.5rem;
+    border-radius: 11px;
+    background: var(--surface) !important;
+    border: 1px solid var(--line-strong);
+    box-shadow: none;
+    transition: border-color 150ms, box-shadow 150ms;
+  }
+  .ui-input[data-focus='true'],
+  .ui-input:focus-within {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 4px var(--brand-ring);
+  }
+
+  /* Notice: a surface with a thin border, never a tinted box. */
+  .ui-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 11px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    color: var(--ink);
+  }
+
+  /* Nav item (side menu) */
+  .ui-nav {
+    border-radius: 12px;
+    color: var(--ink-2);
+    font-weight: 500;
+    transition: background-color 150ms, color 150ms;
+  }
+  .ui-nav:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+  .ui-nav[aria-current='page'] {
+    background: var(--brand);
+    color: var(--brand-ink);
+    font-weight: 600;
+  }
+
+  .ink { color: var(--ink); }
+  .ink-2 { color: var(--ink-2); }
+  .ink-3 { color: var(--ink-3); }
+  .bg-canvas { background: var(--canvas); }
+  .bg-surface { background: var(--surface); }
+  .bg-surface-2 { background: var(--surface-2); }
+  .border-line { border-color: var(--line); }
+  .border-line-strong { border-color: var(--line-strong); }
+}
+
+/* Fingers first: on the till (touch) every tap target is at least 44px. */
+@media (pointer: coarse) {
+  .ui-btn,
+  .ui-seg-item {
+    min-height: 44px;
+  }
+  .ui-btn-sm {
+    min-height: 40px;
+  }
+  .ui-icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

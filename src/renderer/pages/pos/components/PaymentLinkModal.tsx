@@ -12,6 +12,7 @@ import {
 } from '@heroui/react';
 import { AlertCircle, Check, Copy, MessageCircle, RefreshCw } from 'lucide-react';
 import { useI18n } from '../../../i18n';
+import { Hint } from '../../../components/Hint';
 
 import { errorLine as errLine } from '../../../utils/posError';
 /**
@@ -140,18 +141,22 @@ export function PaymentLinkModal({
       }}
       size='md'
       placement='center'
-      backdrop='blur'
+      backdrop='opaque'
       scrollBehavior='inside'
-      className='rounded-2xl'
+      classNames={{
+        wrapper: 'p-2 sm:p-4',
+        base: 'ui-popup !rounded-[24px] m-0 w-full max-h-[calc(100dvh-2rem)]',
+        backdrop: 'bg-black/50',
+      }}
     >
       <ModalContent>
         <ModalHeader className='flex flex-col gap-1'>
-          <span className='text-xs font-semibold uppercase tracking-wide text-default-700'>
+          <span className='text-xs font-semibold uppercase tracking-wide ink-2'>
             {t('pay.title')}
           </span>
-          <span className='flex items-baseline gap-2 text-foreground'>
+          <span className='flex flex-wrap items-baseline gap-2 ink'>
             <span className='money text-xl font-bold'>{money(amount)}</span>
-            <span className='text-sm font-semibold text-default-700'>
+            <span className='text-sm font-semibold ink-2'>
               {t('common.currency')}
             </span>
             {status === 'paid' && (
@@ -176,14 +181,14 @@ export function PaymentLinkModal({
             )}
           </span>
           {orderLabel && (
-            <span className='text-xs font-medium text-default-700'>
+            <span className='text-xs font-medium ink-2'>
               {orderLabel}
             </span>
           )}
         </ModalHeader>
 
-        <ModalBody className='space-y-4'>
-          <p className='text-center text-sm font-medium text-default-700'>
+        <ModalBody className='space-y-4 overflow-y-auto'>
+          <p className='text-center text-sm font-medium ink-2'>
             {t('pay.scanHint')}
           </p>
 
@@ -193,21 +198,21 @@ export function PaymentLinkModal({
               <img
                 src={qr}
                 alt={t('pay.qrAlt')}
-                className='h-56 w-56 rounded-lg bg-content1 p-2'
+                className='h-56 w-56 max-w-full rounded-[16px] border border-line bg-white p-2'
               />
             ) : qrError ? (
-              <div className='flex h-56 w-56 flex-col items-center justify-center gap-2 rounded-lg border border-default-200 bg-default-100 px-3 text-center'>
-                <AlertCircle size={26} className='text-danger' />
-                <div className='text-sm font-bold text-danger'>
+              <div className='flex h-56 w-56 max-w-full flex-col items-center justify-center gap-2 rounded-[16px] border border-line-strong bg-surface px-3 text-center'>
+                <AlertCircle size={26} strokeWidth={1.8} className='text-[var(--st-red)]' />
+                <div className='text-sm font-semibold text-[var(--st-red)]'>
                   {t('admin.loadFailed')}
                 </div>
-                <div className='text-xs font-medium text-default-700 break-words'>
+                <div className='text-xs font-medium ink-2 break-words'>
                   {qrError}
                 </div>
                 <Button
-                  size='sm'
+                  size='md'
                   color='danger'
-                  variant='flat'
+                  className='rounded-[11px] font-semibold'
                   onPress={loadQr}
                   isLoading={qrLoading}
                 >
@@ -215,9 +220,9 @@ export function PaymentLinkModal({
                 </Button>
               </div>
             ) : (
-              <div className='flex h-56 w-56 flex-col items-center justify-center gap-2 rounded-lg border border-default-200 bg-default-100'>
+              <div className='flex h-56 w-56 max-w-full flex-col items-center justify-center gap-2 rounded-[16px] border border-line-strong bg-surface'>
                 <Spinner size='lg' />
-                <span className='text-sm font-medium text-default-700'>
+                <span className='text-sm font-medium ink-2'>
                   {t('common.loading')}
                 </span>
               </div>
@@ -225,33 +230,38 @@ export function PaymentLinkModal({
           </div>
 
           <div
-            className='break-all rounded-lg bg-default-100 px-3 py-2 text-xs font-medium text-default-700'
+            className='break-all rounded-[11px] border border-line bg-surface-2 px-3 py-2 text-xs font-medium ink-2'
             dir='ltr'
           >
             {url}
           </div>
 
-          <div className='grid grid-cols-2 gap-2'>
+          <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
             <Button
-              variant='flat'
+              variant='bordered'
               onPress={copy}
-              startContent={copied ? <Check size={16} /> : <Copy size={16} />}
+              startContent={copied ? <Check size={16} strokeWidth={1.8} /> : <Copy size={16} strokeWidth={1.8} />}
               color={copied ? 'success' : 'default'}
-              className='h-11 font-semibold'
+              className='h-11 rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
             >
               {copied ? t('pay.copied') : t('pay.copy')}
             </Button>
 
-            <Button
-              color='success'
-              onPress={sendWhatsApp}
-              isDisabled={!digits}
-              title={digits ? undefined : t('pay.needMobile')}
-              startContent={<MessageCircle size={16} />}
-              className='h-11 font-semibold'
-            >
-              {t('pay.whatsapp')}
-            </Button>
+            <Hint content={digits ? '' : t('pay.needMobile')} placement='top'>
+              <span className='block'>
+                <Button
+                  color='success'
+                  fullWidth
+                  onPress={sendWhatsApp}
+                  isDisabled={!digits}
+                  aria-label={digits ? undefined : t('pay.needMobile')}
+                  startContent={<MessageCircle size={16} strokeWidth={1.8} />}
+                  className='h-11 rounded-[13px] font-semibold'
+                >
+                  {t('pay.whatsapp')}
+                </Button>
+              </span>
+            </Hint>
           </div>
 
           {onCheckStatus && (
@@ -266,11 +276,11 @@ export function PaymentLinkModal({
                     ? 'danger'
                     : 'primary'
               }
-              variant={status === 'paid' ? 'solid' : 'flat'}
+              variant='solid'
               startContent={
-                <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
+                <RefreshCw size={15} strokeWidth={1.8} className={checking ? 'animate-spin' : ''} />
               }
-              className='h-11 font-semibold'
+              className='h-11 rounded-[13px] font-semibold'
             >
               {status === 'paid'
                 ? t('pay.paid')
@@ -281,8 +291,8 @@ export function PaymentLinkModal({
           )}
         </ModalBody>
 
-        <ModalFooter>
-          <Button color='primary' onPress={onClose}>
+        <ModalFooter className='flex flex-wrap justify-end gap-2 border-t border-line'>
+          <Button color='primary' size='lg' className='rounded-[13px] font-semibold' onPress={onClose}>
             {t('common.close')}
           </Button>
         </ModalFooter>

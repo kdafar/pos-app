@@ -1,15 +1,7 @@
 // src/renderer/screens/PairScreen.tsx
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Card,
-  CardHeader,
-  CardBody,
-  CardFooter,
-  Input,
-  Button,
-  Divider,
-  Spinner,
-} from '@heroui/react';
+import { Input, Button, Spinner } from '@heroui/react';
+import { CircleCheck, TriangleAlert } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { BrandHeader } from '../components/BrandHeader';
 import { LanguageToggle } from '../components/LanguageToggle';
@@ -239,11 +231,11 @@ export default function PairScreen() {
    */
   const pasteButton = (onPaste: () => void) => (
     <Button
-      size='sm'
-      variant='flat'
+      size='md'
+      variant='bordered'
       onPress={onPaste}
       isDisabled={busy}
-      className='min-w-0 px-3 -me-1'
+      className='min-w-0 border border-[var(--line-strong)] bg-[var(--surface)] px-3 -me-1 font-semibold'
     >
       {t('pair.paste')}
     </Button>
@@ -273,18 +265,18 @@ export default function PairScreen() {
   // looks like the app still starting up rather than a new screen appearing.
   if (reclaiming) {
     return (
-      <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
-        <Card className='w-full max-w-md shadow-lg border border-slate-200 bg-white'>
-          <CardBody className='py-6 px-6 flex flex-col items-center gap-3 text-center'>
+      <div className='min-h-dvh flex items-center justify-center bg-canvas p-3 sm:p-4'>
+        <div className='ui-card w-full max-w-md'>
+          <div className='py-6 px-6 flex flex-col items-center gap-3 text-center'>
             <Spinner size='lg' color='primary' />
-            <div className='text-base font-semibold text-slate-900'>
+            <div className='text-base font-semibold ink'>
               {t('pair.reclaiming')}
             </div>
-            <div className='text-[11px] text-slate-500 max-w-sm'>
+            <div className='text-xs ink-3 max-w-sm'>
               {t('pair.reclaimHint')}
             </div>
-          </CardBody>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -305,9 +297,9 @@ export default function PairScreen() {
       : '';
 
     return (
-      <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
-        <Card className='w-full max-w-lg shadow-2xl border border-slate-200 bg-white'>
-          <CardHeader className='flex items-center justify-between'>
+      <div className='min-h-dvh flex items-center justify-center bg-canvas p-3 sm:p-4 lg:p-6'>
+        <div className='ui-card w-full max-w-lg min-w-0'>
+          <div className='flex flex-wrap items-center justify-between gap-3 border-b border-line p-4'>
             <BrandHeader
               title='Majestic POS'
               subtitle={t('pair.paired')}
@@ -317,17 +309,22 @@ export default function PairScreen() {
               <LanguageToggle compact />
               <HelpButton />
             </div>
-          </CardHeader>
+          </div>
 
-          <Divider />
-
-          <CardBody className='py-6 space-y-4'>
+          <div className='space-y-4 p-4 sm:py-6'>
             {branch ? (
               <>
-                <div className='rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-center text-lg text-emerald-900'>
-                  <Rich text={t('pair.branchConfirm', { branch })} />
+                <div className='ui-notice items-center justify-center px-4 py-4 text-center text-lg'>
+                  <CircleCheck
+                    size={22}
+                    strokeWidth={1.8}
+                    className='shrink-0 text-success'
+                  />
+                  <span className='min-w-0 break-words'>
+                    <Rich text={t('pair.branchConfirm', { branch })} />
+                  </span>
                 </div>
-                <div className='text-[12px] text-slate-600'>
+                <div className='text-xs ink-2'>
                   {t('pair.branchConfirmHint')}
                 </div>
               </>
@@ -336,36 +333,51 @@ export default function PairScreen() {
               // failed leaves the id on its own. Still worth showing: it came
               // from the server too, and a number someone can check beats
               // saying nothing about where the money is going.
-              <div className='rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900'>
-                {pairedAs.branchId ? (
-                  <Rich
-                    text={t('pair.branchIdOnly', { id: pairedAs.branchId })}
-                  />
-                ) : (
-                  t('pair.branchUnknown')
-                )}
+              <div className='ui-notice text-sm'>
+                <TriangleAlert
+                  size={18}
+                  strokeWidth={1.8}
+                  className='mt-0.5 shrink-0 text-warning'
+                />
+                <span className='min-w-0'>
+                  {pairedAs.branchId ? (
+                    <Rich
+                      text={t('pair.branchIdOnly', { id: pairedAs.branchId })}
+                    />
+                  ) : (
+                    t('pair.branchUnknown')
+                  )}
+                </span>
               </div>
             )}
 
             {err && (
-              <div className='text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2'>
-                <div>{err}</div>
-                {errTech && (
-                  <div className='mt-1 font-mono text-[11px] text-red-500 break-all'>
-                    {errTech}
-                  </div>
-                )}
+              <div className='ui-notice text-sm' role='alert'>
+                <TriangleAlert
+                  size={18}
+                  strokeWidth={1.8}
+                  className='mt-0.5 shrink-0 text-danger'
+                />
+                <div className='min-w-0'>
+                  <div>{err}</div>
+                  {errTech && (
+                    <div className='mt-1 break-all font-mono text-xs ink-3'>
+                      {errTech}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-          </CardBody>
+          </div>
 
-          <CardFooter className='flex flex-wrap items-center justify-between gap-3 border-t border-slate-200'>
+          <div className='flex flex-wrap items-center justify-between gap-3 border-t border-line p-4'>
             <Button
-              variant='flat'
+              variant='light'
               color='danger'
               onPress={handleUnpair}
               isDisabled={busy}
-              size='sm'
+              size='md'
+              className='font-semibold'
             >
               {t('auth.unpair')}
             </Button>
@@ -373,20 +385,21 @@ export default function PairScreen() {
               color='primary'
               onPress={() => nav('/login', { replace: true })}
               isDisabled={busy}
-              size='sm'
+              size='lg'
+              className='font-semibold'
             >
               {t('pair.continue')}
             </Button>
-          </CardFooter>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
-      <Card className='w-full max-w-4xl shadow-2xl border border-slate-200 bg-white'>
-        <CardHeader className='flex flex-col gap-1 md:flex-row md:items-center md:justify-between'>
+    <div className='min-h-dvh flex items-center justify-center bg-canvas p-3 sm:p-4 lg:p-6'>
+      <div className='ui-card w-full max-w-4xl min-w-0'>
+        <div className='flex flex-col gap-3 border-b border-line p-4 sm:flex-row sm:items-center sm:justify-between lg:px-6'>
           <BrandHeader
             title='Majestic POS'
             subtitle={t('pair.subtitle')}
@@ -395,32 +408,42 @@ export default function PairScreen() {
 
           {/* No "go to login" here: this form only shows on an unpaired till,
               and a paired one is sent to login before it ever renders. */}
-          <div className='flex items-center gap-3'>
-            <div className='flex items-center gap-2'>
-              <LanguageToggle compact />
-              <HelpButton />
-            </div>
+          <div className='flex items-center gap-2'>
+            <LanguageToggle compact />
+            <HelpButton />
           </div>
-        </CardHeader>
+        </div>
 
-        <Divider />
-
-        <CardBody className='py-5'>
+        <div className='p-4 lg:p-6'>
           {unpairedReason === 'server_locked' && (
-            <div className='mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2'>
-              <Rich text={t('pair.serverLocked')} />
+            <div className='ui-notice mb-4 text-sm' role='alert'>
+              <TriangleAlert
+                size={18}
+                strokeWidth={1.8}
+                className='mt-0.5 shrink-0 text-danger'
+              />
+              <span className='min-w-0'>
+                <Rich text={t('pair.serverLocked')} />
+              </span>
             </div>
           )}
 
           {unpairedReason === 'offline_too_long' && (
-            <div className='mb-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2'>
-              <Rich text={t('pair.offlineTooLong')} />
+            <div className='ui-notice mb-4 text-sm' role='alert'>
+              <TriangleAlert
+                size={18}
+                strokeWidth={1.8}
+                className='mt-0.5 shrink-0 text-warning'
+              />
+              <span className='min-w-0'>
+                <Rich text={t('pair.offlineTooLong')} />
+              </span>
             </div>
           )}
 
           <div className='grid gap-6 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]'>
             {/* LEFT: FORM */}
-            <div className='space-y-4'>
+            <div className='min-w-0 space-y-4'>
               <Input
                 label={t('pair.baseUrl')}
                 placeholder='https://restaurant.example.com'
@@ -434,7 +457,8 @@ export default function PairScreen() {
                 spellCheck='false'
                 endContent={pasteButton(() => pasteInto(setBaseUrl))}
                 classNames={{
-                  label: 'text-xs text-slate-600',
+                  inputWrapper: 'ui-input',
+                  label: 'text-sm font-semibold',
                   input: 'text-sm text-start',
                 }}
               />
@@ -467,61 +491,69 @@ export default function PairScreen() {
                 spellCheck='false'
                 endContent={pasteButton(() => pasteInto(setCode))}
                 classNames={{
-                  label: 'text-xs text-slate-600',
+                  inputWrapper: 'ui-input',
+                  label: 'text-sm font-semibold',
                   // Big, monospaced and widely spaced: this one gets typed by
                   // hand off a phone screen more often than it gets pasted.
                   input:
                     'text-lg font-mono tracking-[0.25em] uppercase text-start',
-                  description: 'text-[11px] text-slate-500',
+                  description: 'text-xs ink-3',
                 }}
               />
 
               {prefilled && !err && (
-                <div className='text-[11px] text-emerald-600'>
+                <div className='text-xs font-semibold text-success'>
                   {t('pair.prefilled')}
                 </div>
               )}
 
               {err && (
-                <div className='text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2'>
-                  <div>{err}</div>
-                  {/*
-                    The status, the endpoint and the server's own sentence.
-                    Collected in the main process, where they still exist —
-                    none of it survives the IPC boundary on its own, and a till
-                    has no DevTools open for anyone to find it in.
-                  */}
-                  {errTech && (
-                    <div className='mt-1 font-mono text-[11px] text-red-500 break-all'>
-                      {errTech}
-                    </div>
-                  )}
+                <div className='ui-notice text-sm' role='alert'>
+                  <TriangleAlert
+                    size={18}
+                    strokeWidth={1.8}
+                    className='mt-0.5 shrink-0 text-danger'
+                  />
+                  <div className='min-w-0'>
+                    <div>{err}</div>
+                    {/*
+                      The status, the endpoint and the server's own sentence.
+                      Collected in the main process, where they still exist —
+                      none of it survives the IPC boundary on its own, and a till
+                      has no DevTools open for anyone to find it in.
+                    */}
+                    {errTech && (
+                      <div className='mt-1 break-all font-mono text-xs ink-3'>
+                        {errTech}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
 
             {/* RIGHT: HELP / STEPS */}
-            <div className='rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-700 space-y-2'>
-              <div className='font-semibold text-xs text-slate-900 mb-1'>
+            <div className='min-w-0 space-y-2 rounded-2xl bg-surface-2 border border-line px-4 py-3 text-xs ink-2'>
+              <div className='mb-1 text-xs font-semibold uppercase tracking-wide ink-2'>
                 {t('pair.howTo')}
               </div>
-              <ol className='list-decimal list-inside space-y-1'>
-                <li>
-                  <Rich text={t('pair.step1')} />
-                </li>
-                <li>
-                  <Rich text={t('pair.step2')} />
-                </li>
-                <li>
-                  <Rich text={t('pair.step3')} />
-                </li>
-                <li>
-                  <Rich text={t('pair.step4')} />
-                </li>
+              <ol className='space-y-2'>
+                {(['pair.step1', 'pair.step2', 'pair.step3', 'pair.step4'] as const).map(
+                  (k, i) => (
+                    <li key={k} className='flex items-start gap-2.5'>
+                      <span className='ui-count ui-chip-brand mt-0.5 shrink-0'>
+                        {i + 1}
+                      </span>
+                      <span className='min-w-0 text-sm'>
+                        <Rich text={t(k)} />
+                      </span>
+                    </li>
+                  )
+                )}
               </ol>
 
-              <div className='mt-2 border-t border-slate-200 pt-2 space-y-1'>
-                <div className='font-semibold text-xs text-slate-900'>
+              <div className='mt-2 space-y-1 border-t border-line pt-2'>
+                <div className='text-xs font-semibold uppercase tracking-wide ink-2'>
                   {t('pair.tips')}
                 </div>
                 <ul className='list-disc list-inside space-y-1'>
@@ -535,15 +567,16 @@ export default function PairScreen() {
               </div>
             </div>
           </div>
-        </CardBody>
+        </div>
 
-        <CardFooter className='flex flex-wrap items-center justify-between gap-3 border-t border-slate-200'>
+        <div className='flex flex-wrap items-center justify-between gap-3 border-t border-line p-4 lg:px-6'>
           <Button
-            variant='flat'
+            variant='light'
             color='danger'
             onPress={handleUnpair}
             isDisabled={busy}
-            size='sm'
+            size='md'
+            className='font-semibold'
           >
             {t('auth.unpair')}
           </Button>
@@ -553,12 +586,13 @@ export default function PairScreen() {
             isDisabled={disabled}
             isLoading={busy}
             onPress={handlePair}
-            size='sm'
+            size='lg'
+            className='font-semibold'
           >
             {t('auth.pairDevice')}
           </Button>
-        </CardFooter>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

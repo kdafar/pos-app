@@ -92,21 +92,25 @@ export function PromoDialog({
       }}
       size='md'
       placement='center'
-      backdrop='blur'
+      backdrop='opaque'
       scrollBehavior='inside'
-      className='rounded-2xl'
+      classNames={{
+        wrapper: 'p-2 sm:p-4',
+        base: 'ui-popup !rounded-[24px] m-0 w-full max-h-[calc(100dvh-2rem)]',
+        backdrop: 'bg-black/50',
+      }}
     >
       <ModalContent>
         {() => (
           <>
             <ModalHeader className='flex items-center gap-2'>
-              <Percent size={20} className='text-primary' />
-              <span className='text-lg font-bold text-foreground'>
+              <Percent size={20} strokeWidth={1.8} className='ink-2' />
+              <span className='text-lg font-semibold ink'>
                 {t('promo.title')}
               </span>
             </ModalHeader>
 
-            <ModalBody className='gap-4'>
+            <ModalBody className='gap-4 overflow-y-auto'>
               <Input
                 autoFocus
                 size='lg'
@@ -122,13 +126,13 @@ export function PromoDialog({
                 isInvalid={!!err}
                 errorMessage={err || undefined}
                 // Promo codes are Latin alphanumerics — never mirror them.
-                classNames={{ input: 'money text-base font-semibold' }}
+                classNames={{ inputWrapper: 'ui-input', input: 'money text-base font-semibold' }}
                 aria-label={t('promo.title')}
               />
 
               {activePromos.length > 0 && (
                 <div>
-                  <div className='mb-2 text-sm font-semibold text-default-700'>
+                  <div className='mb-2 text-xs font-semibold uppercase tracking-wide ink-2'>
                     {t('promo.available')}
                   </div>
                   <div className='max-h-56 space-y-2 overflow-y-auto nice-scroll'>
@@ -138,10 +142,10 @@ export function PromoDialog({
                         type='button'
                         onClick={() => apply(promo.code)}
                         disabled={busy}
-                        className='w-full rounded-lg border border-default-200 bg-default-100 p-3 text-start transition hover:bg-default-200'
+                        className='min-h-11 w-full rounded-[13px] border border-line-strong bg-surface p-3 text-start transition hover:border-[var(--brand)] hover:bg-surface-2'
                       >
                         <div className='flex items-center justify-between gap-2'>
-                          <span className='money text-base font-semibold text-foreground'>
+                          <span className='money text-base font-semibold ink'>
                             {promo.code}
                           </span>
                           <Chip
@@ -158,7 +162,7 @@ export function PromoDialog({
                           </Chip>
                         </div>
                         {promo.min_total > 0 && (
-                          <div className='mt-1 text-sm font-medium text-default-700'>
+                          <div className='mt-1 text-sm font-medium ink-2'>
                             {t('promo.min')}:{' '}
                             <span className='money'>
                               {money(promo.min_total)}
@@ -172,13 +176,19 @@ export function PromoDialog({
               )}
             </ModalBody>
 
-            <ModalFooter>
-              <Button variant='flat' size='lg' onPress={onClose}>
+            <ModalFooter className='flex flex-wrap justify-end gap-2 border-t border-line'>
+              <Button
+                variant='bordered'
+                size='lg'
+                className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                onPress={onClose}
+              >
                 {t('common.cancel')}
               </Button>
               <Button
                 color='primary'
                 size='lg'
+                className='rounded-[13px] font-semibold'
                 onPress={() => apply(code)}
                 isLoading={busy}
                 isDisabled={!code.trim()}

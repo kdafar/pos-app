@@ -1,7 +1,7 @@
 // src/renderer/screens/LogoutRoute.tsx
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardBody, Spinner } from '@heroui/react';
+import { Spinner } from '@heroui/react';
 import { useStore } from '../src/store'; // <--- 1. Import your store (adjust path if needed)
 import { useI18n } from '../i18n';
 
@@ -37,18 +37,18 @@ export function LogoutRoute() {
   }, [nav]);
 
   return (
-    <div className='light min-h-screen flex items-center justify-center bg-slate-100 px-4'>
-      <Card className='w-full max-w-sm shadow-lg border border-slate-200 bg-white'>
-        <CardBody className='py-6 px-6 flex flex-col items-center gap-3 text-center'>
+    <div className='min-h-screen flex items-center justify-center bg-canvas px-4'>
+      <div className='ui-card w-full max-w-sm'>
+        <div className='py-6 px-6 flex flex-col items-center gap-3 text-center'>
           <Spinner size='lg' color='primary' />
-          <div className='text-base font-semibold text-slate-900'>
+          <div className='text-base font-semibold ink'>
             {t('auth.signingOut')}
           </div>
-          <div className='text-xs text-slate-500 max-w-xs'>
+          <div className='text-xs ink-2 max-w-xs'>
             {t('auth.signingOutBody')}
           </div>
-        </CardBody>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

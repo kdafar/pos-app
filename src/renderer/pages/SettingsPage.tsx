@@ -1,7 +1,7 @@
 // src/renderer/pages/SettingsPage.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, Card, CardBody, Chip, Input, Switch } from '@heroui/react';
+import { Button, Input, Switch } from '@heroui/react';
 import { AlertTriangle, Check, Copy, Download, Inbox, Languages, Lock, Printer, Type } from 'lucide-react';
 import {
   TEXT_SCALES,
@@ -11,6 +11,7 @@ import {
 } from '../theme/textScale';
 import { LANGS, useI18n } from '../i18n';
 import { DataTable } from '../components/DataTable';
+import { Hint } from '../components/Hint';
 import { errorLine as errLine } from '../utils/posError';
 import {
   DataState,
@@ -465,14 +466,9 @@ export function SettingsPage() {
         cell: (info) => {
           const s = info.getValue() as Row['source'];
           return (
-            <Chip
-              size='sm'
-              variant='solid'
-              color={s === 'meta' ? 'primary' : 'warning'}
-              className='font-semibold'
-            >
+            <span className={`ui-chip ${s === 'meta' ? 'ui-chip-gray' : 'ui-chip-amber'}`}>
               {s === 'meta' ? t('settings.sourceMeta') : t('settings.sourceServer')}
-            </Chip>
+            </span>
           );
         },
       },
@@ -497,16 +493,17 @@ export function SettingsPage() {
           return (
             <div className='flex items-start gap-2'>
               {secret && (
-                <Lock size={15} className='mt-1 shrink-0 text-warning' />
+                <Lock size={15} strokeWidth={1.8} className='mt-1 shrink-0 text-warning' />
               )}
               {/* Stored values are URLs, ids and tokens — keep them LTR. */}
-              <span
-                className='block max-w-[34rem] break-all font-mono text-foreground'
-                dir='ltr'
-                title={secret ? t('admin.settings.secretHidden') : v}
-              >
-                {secret ? masked(v) : v || '—'}
-              </span>
+              <Hint content={secret ? t('admin.settings.secretHidden') : v} placement='top'>
+                <span
+                  className='block max-w-[34rem] break-all font-mono ink'
+                  dir='ltr'
+                >
+                  {secret ? masked(v) : v || '—'}
+                </span>
+              </Hint>
             </div>
           );
         },
@@ -522,23 +519,28 @@ export function SettingsPage() {
           const id = `${row.original.source}:${row.original.key}`;
           const done = copied === id;
           return (
-            <Button
-              variant='flat'
-              color={done ? 'success' : 'default'}
-              onPress={() => copyValue(row.original)}
-              isDisabled={secret || !row.original.value}
-              startContent={
-                done ? <Check size={16} /> : <Copy size={16} />
-              }
-              title={
+            <Hint
+              content={
                 secret
                   ? t('admin.settings.secretHidden')
                   : t('admin.settings.copyValue')
               }
-              aria-label={t('admin.settings.copyValue')}
+              placement='top'
             >
-              {done ? t('admin.settings.copied') : t('settings.copy')}
-            </Button>
+              <Button
+                variant='bordered'
+                color={done ? 'success' : 'default'}
+                className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                onPress={() => copyValue(row.original)}
+                isDisabled={secret || !row.original.value}
+                startContent={
+                  done ? <Check size={16} strokeWidth={1.8} /> : <Copy size={16} strokeWidth={1.8} />
+                }
+                aria-label={t('admin.settings.copyValue')}
+              >
+                {done ? t('admin.settings.copied') : t('settings.copy')}
+              </Button>
+            </Hint>
           );
         },
       },
@@ -556,9 +558,7 @@ export function SettingsPage() {
       onRefresh={refresh}
       refreshing={loading}
       primaryAction={
-        <Chip color='warning' variant='solid' className='font-semibold'>
-          {t('admin.readOnly')}
-        </Chip>
+        <span className='ui-chip ui-chip-amber'>{t('admin.readOnly')}</span>
       }
       filters={
         <>
@@ -582,13 +582,13 @@ export function SettingsPage() {
     >
       {/* Language lives here rather than behind a menu: shifts hand the till
           over mid-service and the switch has to be findable in one look. */}
-      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
-        <CardBody className='gap-3'>
+      <div className='ui-card mb-4 min-w-0'>
+        <div className='flex flex-col gap-3 p-4 sm:p-5'>
           <div>
-            <h2 className='text-base font-bold text-foreground'>
+            <h2 className='text-base font-semibold ink'>
               {t('nav.language')}
             </h2>
-            <p className='mt-0.5 text-sm font-medium text-default-700'>
+            <p className='mt-0.5 text-sm ink-2'>
               {t('settings.languageHint')}
             </p>
           </div>
@@ -599,31 +599,31 @@ export function SettingsPage() {
                 <Button
                   key={l.code}
                   color={current ? 'primary' : 'default'}
-                  variant={current ? 'solid' : 'flat'}
+                  variant={current ? 'solid' : 'bordered'}
                   onPress={() => setLang(l.code)}
                   startContent={
                     current ? <Check size={18} /> : <Languages size={18} />
                   }
-                  className='font-semibold'
+                  className={`font-semibold ${current ? '' : 'border border-[var(--line-strong)] bg-[var(--surface)]'}`}
                 >
                   <span lang={l.code}>{l.label}</span>
                 </Button>
               );
             })}
           </div>
-        </CardBody>
-      </Card>
+        </div>
+      </div>
 
       {/* Text size sits next to language for the same reason: it is a per-till
           comfort setting, and a small tablet or a far-away screen needs it
           changed by whoever is on shift, not by the office. */}
-      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
-        <CardBody className='gap-3'>
+      <div className='ui-card mb-4 min-w-0'>
+        <div className='flex flex-col gap-3 p-4 sm:p-5'>
           <div>
-            <h2 className='text-base font-bold text-foreground'>
+            <h2 className='text-base font-semibold ink'>
               {t('settings.textSize')}
             </h2>
-            <p className='mt-0.5 text-sm font-medium text-default-700'>
+            <p className='mt-0.5 text-sm ink-2'>
               {t('settings.textSizeHint')}
             </p>
           </div>
@@ -634,48 +634,48 @@ export function SettingsPage() {
                 <Button
                   key={s.id}
                   color={current ? 'primary' : 'default'}
-                  variant={current ? 'solid' : 'flat'}
+                  variant={current ? 'solid' : 'bordered'}
                   onPress={() => {
                     setTextScale(s.id);
                     void saveTextScale(s.id);
                   }}
                   startContent={current ? <Check size={18} /> : <Type size={18} />}
-                  className='font-semibold'
+                  className={`font-semibold ${current ? '' : 'border border-[var(--line-strong)] bg-[var(--surface)]'}`}
                 >
                   {t(`settings.textSize.${s.id}`)}
                 </Button>
               );
             })}
           </div>
-        </CardBody>
-      </Card>
+        </div>
+      </div>
 
       {/* Receipt printer. This is the one setting on the page that is written
           rather than displayed: everything below comes from the server or from
           device provisioning, but which printer a till uses is only knowable
           on the till. */}
-      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
-        <CardBody className='gap-3'>
+      <div className='ui-card mb-4 min-w-0'>
+        <div className='flex flex-col gap-3 p-4 sm:p-5'>
           <div>
-            <h2 className='flex items-center gap-2 text-base font-bold text-foreground'>
+            <h2 className='flex items-center gap-2 text-base font-semibold ink'>
               <Printer size={18} />
               {t('settings.printer')}
             </h2>
-            <p className='mt-0.5 text-sm font-medium text-default-700'>
+            <p className='mt-0.5 text-sm ink-2'>
               {t('settings.printerHint')}
             </p>
           </div>
 
           {printerCfg && printerCfg.printers.length === 0 ? (
-            <div className='flex items-center gap-2 text-sm font-semibold text-warning'>
-              <AlertTriangle size={18} className='shrink-0' />
+            <div className='ui-notice items-center text-sm'>
+              <AlertTriangle size={18} strokeWidth={1.8} className='shrink-0 text-warning' />
               {t('settings.printerNone')}
             </div>
           ) : (
             <>
               {printerCfg?.missing && (
-                <div className='flex items-start gap-2 rounded-lg border border-warning bg-content1 p-3 text-sm font-semibold text-warning'>
-                  <AlertTriangle size={18} className='mt-0.5 shrink-0' />
+                <div className='ui-notice text-sm'>
+                  <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
                   <span>{t('settings.printerMissing')}</span>
                 </div>
               )}
@@ -685,7 +685,7 @@ export function SettingsPage() {
                   label={t('settings.printerSelect')}
                   value={printerCfg?.printerName ?? ''}
                   onChange={(v) => void savePrinter({ printerName: v })}
-                  className='min-w-[18rem]'
+                  className='sm:min-w-[18rem]'
                   options={[
                     // Keeping the default as an explicit option matters: a shop
                     // whose only printer is the till printer should not be made
@@ -709,7 +709,7 @@ export function SettingsPage() {
                   value={widthDraft}
                   onValueChange={setWidthDraft}
                   onBlur={commitPaper}
-                  endContent={<span className='text-sm text-default-700'>mm</span>}
+                  endContent={<span className='text-sm ink-2'>mm</span>}
                   className='w-40'
                   min={10}
                   max={210}
@@ -721,7 +721,7 @@ export function SettingsPage() {
                   value={heightDraft}
                   onValueChange={setHeightDraft}
                   onBlur={commitPaper}
-                  endContent={<span className='text-sm text-default-700'>mm</span>}
+                  endContent={<span className='text-sm ink-2'>mm</span>}
                   className='w-40'
                   min={0}
                   max={2000}
@@ -731,8 +731,8 @@ export function SettingsPage() {
                   {PAPER_PRESETS.map((preset) => (
                     <Button
                       key={preset.label}
-                      size='sm'
                       variant='bordered'
+                      className='border border-[var(--line-strong)] bg-[var(--surface)]'
                       onPress={() => {
                         setWidthDraft(String(preset.w));
                         setHeightDraft(String(preset.h));
@@ -761,7 +761,7 @@ export function SettingsPage() {
                   </span>
                 </Switch>
               </div>
-              <p className='text-sm font-medium text-default-700'>
+              <p className='text-sm ink-2'>
                 {t('settings.printerDefaultPageHint')}
               </p>
 
@@ -776,17 +776,16 @@ export function SettingsPage() {
                   </span>
                 </Switch>
                 <Button
-                  color='primary'
-                  variant='flat'
+                  variant='bordered'
                   onPress={testPrint}
                   isLoading={printerBusy}
                   startContent={!printerBusy ? <Printer size={18} /> : undefined}
-                  className='font-semibold'
+                  className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
                 >
                   {t('settings.printTest')}
                 </Button>
               </div>
-              <p className='text-sm font-medium text-default-700'>
+              <p className='text-sm ink-2'>
                 {t('settings.printDialogHint')}
               </p>
             </>
@@ -801,8 +800,8 @@ export function SettingsPage() {
               {printerResult.message}
             </span>
           )}
-        </CardBody>
-      </Card>
+        </div>
+      </div>
 
       {/* Cash drawer. Only rendered when the main process offers the channels,
           so an older build shows nothing rather than a dead card. It sits
@@ -810,14 +809,14 @@ export function SettingsPage() {
           says so, since a shop that does not know that will unplug the wrong
           cable when it stops working. */}
       {drawerCfg && (
-        <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
-          <CardBody className='gap-3'>
+        <div className='ui-card mb-4 min-w-0'>
+          <div className='flex flex-col gap-3 p-4 sm:p-5'>
             <div>
-              <h2 className='flex items-center gap-2 text-base font-bold text-foreground'>
+              <h2 className='flex items-center gap-2 text-base font-semibold ink'>
                 <Inbox size={18} />
                 {t('settings.drawer')}
               </h2>
-              <p className='mt-0.5 text-sm font-medium text-default-700'>
+              <p className='mt-0.5 text-sm ink-2'>
                 {t('settings.drawerHint')}
               </p>
             </div>
@@ -827,23 +826,23 @@ export function SettingsPage() {
                 accepts the RAW job and renders the five bytes as characters —
                 a slip of gibberish and a drawer that never moves. Say so here
                 rather than letting the shop discover it mid-service. */}
-            <div className='flex items-start gap-2 rounded-lg border border-default-200 bg-content2 p-3 text-sm font-medium text-default-700'>
-              <AlertTriangle size={18} className='mt-0.5 shrink-0 text-warning' />
+            <div className='ui-notice text-sm'>
+              <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
               <span>{t('settings.drawerCompatWarning')}</span>
             </div>
 
             {drawerCfg.printerName && (
-              <p className='text-sm font-medium text-default-700'>
+              <p className='text-sm ink-2'>
                 {t('settings.drawerVia')}:{' '}
-                <span className='font-semibold text-foreground'>
+                <span className='font-semibold ink'>
                   {drawerCfg.printerName}
                 </span>
               </p>
             )}
 
             {!drawerCfg.printerName && (
-              <div className='flex items-start gap-2 rounded-lg border border-warning bg-content1 p-3 text-sm font-semibold text-warning'>
-                <AlertTriangle size={18} className='mt-0.5 shrink-0' />
+              <div className='ui-notice text-sm'>
+                <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
                 <span>{t('settings.drawerNoPrinter')}</span>
               </div>
             )}
@@ -857,7 +856,7 @@ export function SettingsPage() {
                 {t('settings.drawerEnable')}
               </span>
             </Switch>
-            <p className='text-sm font-medium text-default-700'>
+            <p className='text-sm ink-2'>
               {t('settings.drawerEnableHint')}
             </p>
 
@@ -870,7 +869,7 @@ export function SettingsPage() {
                 {t('settings.drawerCashOnly')}
               </span>
             </Switch>
-            <p className='text-sm font-medium text-default-700'>
+            <p className='text-sm ink-2'>
               {t('settings.drawerCashOnlyHint')}
             </p>
 
@@ -879,25 +878,24 @@ export function SettingsPage() {
                 label={t('settings.drawerPin')}
                 value={String(drawerCfg.pin)}
                 onChange={(v) => void saveDrawer({ pin: v === '1' ? 1 : 0 })}
-                className='min-w-[18rem]'
+                className='sm:min-w-[18rem]'
                 options={[
                   { value: '0', label: t('settings.drawerPin2') },
                   { value: '1', label: t('settings.drawerPin5') },
                 ]}
               />
               <Button
-                color='primary'
-                variant='flat'
+                variant='bordered'
                 onPress={testDrawer}
                 isLoading={drawerBusy}
                 isDisabled={!drawerCfg.printerName}
                 startContent={!drawerBusy ? <Inbox size={18} /> : undefined}
-                className='font-semibold'
+                className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
               >
                 {t('settings.drawerTest')}
               </Button>
             </div>
-            <p className='text-sm font-medium text-default-700'>
+            <p className='text-sm ink-2'>
               {t('settings.drawerPinHint')}
             </p>
 
@@ -910,28 +908,27 @@ export function SettingsPage() {
                 {drawerResult.message}
               </span>
             )}
-          </CardBody>
-        </Card>
+          </div>
+        </div>
       )}
 
-      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
-        <CardBody className='gap-3'>
+      <div className='ui-card mb-4 min-w-0'>
+        <div className='flex flex-col gap-3 p-4 sm:p-5'>
           <div>
-            <h2 className='text-base font-bold text-foreground'>
+            <h2 className='text-base font-semibold ink'>
               {t('settings.invoiceLogo')}
             </h2>
-            <p className='mt-0.5 text-sm font-medium text-default-700'>
+            <p className='mt-0.5 text-sm ink-2'>
               {t('settings.invoiceLogoHint')}
             </p>
           </div>
           <div className='flex flex-wrap items-center gap-3'>
             <Button
-              color='primary'
-              variant='flat'
+              variant='bordered'
               onPress={fetchLogo}
               isLoading={logoBusy}
               startContent={!logoBusy ? <Download size={18} /> : undefined}
-              className='font-semibold'
+              className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
             >
               {t('settings.fetchLogo')}
             </Button>
@@ -945,27 +942,26 @@ export function SettingsPage() {
               </span>
             )}
           </div>
-        </CardBody>
-      </Card>
+        </div>
+      </div>
 
-      <Card shadow='none' className='mb-4 border border-default-200 bg-content1'>
-        <CardBody className='gap-3'>
+      <div className='ui-card mb-4 min-w-0'>
+        <div className='flex flex-col gap-3 p-4 sm:p-5'>
           <div>
-            <h2 className='text-base font-bold text-foreground'>
+            <h2 className='text-base font-semibold ink'>
               {t('settings.payFixTitle')}
             </h2>
-            <p className='mt-0.5 text-sm font-medium text-default-700'>
+            <p className='mt-0.5 text-sm ink-2'>
               {t('settings.payFixHint')}
             </p>
           </div>
           <div className='flex flex-wrap items-center gap-3'>
             <Button
-              color='primary'
-              variant='flat'
+              variant='bordered'
               onPress={backfillPayments}
               isLoading={payFixBusy}
               startContent={!payFixBusy ? <Download size={18} /> : undefined}
-              className='font-semibold'
+              className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
             >
               {t('settings.payFixRun')}
             </Button>
@@ -981,24 +977,28 @@ export function SettingsPage() {
               </span>
             )}
           </div>
-        </CardBody>
-      </Card>
+        </div>
+      </div>
 
       {/* One source answered and the other faulted. The rows below are real but
           incomplete, so this says so instead of letting a half-loaded page pass
           for the whole picture. */}
       {partial && !error && (
-        <div className='mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning bg-content1 p-3'>
-          <AlertTriangle size={20} className='shrink-0 text-warning' />
+        <div className='ui-notice mb-3 flex-wrap items-center gap-3 p-3'>
+          <AlertTriangle size={20} strokeWidth={1.8} className='shrink-0 text-warning' />
           <div className='min-w-0 flex-1'>
-            <div className='text-sm font-bold text-warning'>
+            <div className='text-sm font-semibold ink'>
               {t('admin.settings.partialLoad')}
             </div>
-            <div className='mt-0.5 break-words text-sm font-medium text-default-700'>
+            <div className='mt-0.5 break-words text-sm ink-2'>
               {partial}
             </div>
           </div>
-          <Button color='warning' variant='flat' onPress={refresh}>
+          <Button
+            variant='bordered'
+            className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+            onPress={refresh}
+          >
             {t('common.retry')}
           </Button>
         </div>
@@ -1022,7 +1022,7 @@ export function SettingsPage() {
         />
       </DataState>
 
-      <div className='mt-6 text-sm font-medium text-default-700'>
+      <div className='mt-6 text-sm ink-2'>
         {t('settings.readOnlyNotice')}
       </div>
     </PageShell>

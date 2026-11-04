@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Autocomplete, Button, Checkbox, Chip, SelectItem, Spinner } from '@heroui/react';
-import { CheckCircle2, RotateCcw, Save, ShieldCheck, Users } from 'lucide-react';
+import { Autocomplete, Button, SelectItem, Spinner, Switch } from '@heroui/react';
+import { AlertTriangle, CheckCircle2, Info, RotateCcw, Save, ShieldCheck, Users } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { PERMISSIONS } from '../../shared/permissions';
 import { useI18n, type StringKey } from '../i18n';
@@ -119,8 +119,8 @@ export default function PermissionsPage() {
 
   return (
     <PageShell title={t('permissions.title')} subtitle={t('permissions.subtitle')}>
-      <div className='max-w-6xl space-y-4'>
-        <div className='grid gap-4 rounded-xl border border-default-200 bg-content1 p-5 shadow-sm lg:grid-cols-2'>
+      <div className='mx-auto max-w-6xl space-y-4'>
+        <div className='ui-card grid gap-4 p-4 sm:p-5 lg:grid-cols-2'>
           <Autocomplete
             label={t('permissions.selectRole')}
             placeholder={t('permissions.chooseRole')}
@@ -136,14 +136,14 @@ export default function PermissionsPage() {
             ))}
           </Autocomplete>
           {role ? (
-            <div className='flex items-center justify-between gap-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3'>
+            <div className='flex items-center justify-between gap-4 rounded-xl border border-line bg-surface-2 px-4 py-3'>
               <div className='flex min-w-0 items-center gap-3'>
-                <div className='flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-primary'>
-                  <ShieldCheck size={20} />
+                <div className='flex h-10 w-10 items-center justify-center rounded-full bg-surface ink-2 border border-line'>
+                  <ShieldCheck size={20} strokeWidth={1.8} />
                 </div>
                 <div className='min-w-0'>
                   <p className='font-semibold capitalize'>{roleLabel(role.role)}</p>
-                  <p className='truncate text-xs text-default-700'>
+                  <p className='truncate text-xs ink-2'>
                     {role.users.length
                       ? t('permissions.appliesTo', { n: role.users.length })
                       : t('permissions.appliesToNobody')}
@@ -151,16 +151,16 @@ export default function PermissionsPage() {
                 </div>
               </div>
               <div className='text-end'>
-                <Chip size='sm' color='primary' variant='solid'>
+                <span className='ui-chip ui-chip-brand'>
                   {t('permissions.enabled', {
                     allowed: allowed.size,
                     total: PERMISSIONS.length,
                   })}
-                </Chip>
+                </span>
               </div>
             </div>
           ) : (
-            <div className='rounded-lg border border-dashed border-default-300 p-4 text-sm text-default-700'>
+            <div className='rounded-[20px] border border-dashed border-line-strong p-4 text-sm ink-2'>
               {t('permissions.noRoles')}
             </div>
           )}
@@ -174,20 +174,23 @@ export default function PermissionsPage() {
           role && (
             <>
               {serverManaged ? (
-                <div className='rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-medium text-default-700'>
-                  {t('permissions.serverManaged')}
+                <div className='ui-notice px-4 py-3 text-sm'>
+                  <Info size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 ink-2' />
+                  <span>{t('permissions.serverManaged')}</span>
                 </div>
               ) : (
                 <>
                   {/* Stated plainly, because the opposite assumption — that
                       this reaches every till — is the one shops actually
                       make, and it is wrong until the back office owns them. */}
-                  <div className='rounded-lg border border-warning/40 bg-warning/5 px-4 py-3 text-sm font-medium text-default-700'>
-                    {t('permissions.localOnly')}
+                  <div className='ui-notice px-4 py-3 text-sm'>
+                    <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
+                    <span>{t('permissions.localOnly')}</span>
                   </div>
                   {role?.is_own_role && (
-                    <div className='rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-medium text-default-700'>
-                      {t('permissions.ownRoleReadOnly')}
+                    <div className='ui-notice px-4 py-3 text-sm'>
+                      <Info size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 ink-2' />
+                      <span>{t('permissions.ownRoleReadOnly')}</span>
                     </div>
                   )}
                 </>
@@ -196,16 +199,16 @@ export default function PermissionsPage() {
               {/* Who this actually changes. The point of moving off per-user
                   permissions is that the blast radius is visible before saving. */}
               {role.users.length > 0 && (
-                <div className='rounded-xl border border-default-200 bg-content1 p-4 shadow-sm'>
+                <div className='ui-card p-4'>
                   <div className='mb-2 flex items-center gap-2 text-sm font-semibold'>
-                    <Users size={16} className='text-primary' />
+                    <Users size={16} strokeWidth={1.8} className='ink-2' />
                     {t('permissions.membersLabel')}
                   </div>
                   <div className='flex flex-wrap gap-1.5'>
                     {role.users.map((u) => (
-                      <Chip key={u.id} size='sm' variant='solid'>
+                      <span key={u.id} className='ui-chip ui-chip-gray'>
                         {u.name}
-                      </Chip>
+                      </span>
                     ))}
                   </div>
                 </div>
@@ -215,14 +218,14 @@ export default function PermissionsPage() {
                 {GROUPS.map((group) => (
                   <section
                     key={group.title}
-                    className='rounded-xl border border-default-200 bg-content1 p-5 shadow-sm'
+                    className='ui-card min-w-0 p-4 sm:p-5'
                   >
-                    <div className='mb-3 flex justify-between'>
+                    <div className='mb-3 flex justify-between gap-2'>
                       <div>
-                        <h2 className='font-semibold'>{t(group.title)}</h2>
-                        <p className='text-xs text-default-700'>{t(group.help)}</p>
+                        <h2 className='text-xs font-semibold uppercase tracking-wide ink-2'>{t(group.title)}</h2>
+                        <p className='text-xs ink-3 mt-0.5'>{t(group.help)}</p>
                       </div>
-                      <ShieldCheck size={19} className='text-primary' />
+                      <ShieldCheck size={19} strokeWidth={1.8} className='shrink-0 ink-3' />
                     </div>
                     <div className='space-y-1'>
                       {group.keys.map((key) => {
@@ -231,14 +234,14 @@ export default function PermissionsPage() {
                           <label
                             key={key}
                             className={
-                              'flex items-center justify-between rounded-lg px-3 py-2.5 ' +
+                              'flex min-h-11 items-center justify-between gap-3 rounded-lg px-3 py-2.5 ' +
                               (locked
                                 ? 'cursor-default opacity-70'
-                                : 'cursor-pointer hover:bg-default-100')
+                                : 'cursor-pointer hover:bg-[var(--hover)]')
                             }
                           >
                             <span className='text-sm font-medium'>{label}</span>
-                            <Checkbox
+                            <Switch
                               aria-label={label}
                               isDisabled={locked}
                               isSelected={allowed.has(key)}
@@ -252,22 +255,23 @@ export default function PermissionsPage() {
                 ))}
               </div>
 
-              <div className='sticky bottom-3 flex items-center justify-between rounded-xl border border-default-200 bg-content1/95 p-4 shadow-lg backdrop-blur'>
+              <div className='ui-card sticky bottom-3 flex flex-wrap items-center justify-between gap-2 p-3 sm:p-4 shadow-[var(--shadow-2)]'>
                 {saved ? (
                   <span className='flex items-center gap-2 text-sm font-medium text-success'>
-                    <CheckCircle2 size={17} />
+                    <CheckCircle2 size={17} strokeWidth={1.8} />
                     {t('permissions.saved')}
                   </span>
                 ) : (
-                  <span className='text-sm text-default-700'>
+                  <span className='text-sm ink-2'>
                     {changed ? t('permissions.unsaved') : t('permissions.current')}
                   </span>
                 )}
                 <div className='flex gap-2'>
                   <Button
-                    variant='flat'
+                    variant='bordered'
+                    className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
                     isDisabled={locked}
-                    startContent={<RotateCcw size={16} />}
+                    startContent={<RotateCcw size={16} strokeWidth={1.8} />}
                     onPress={() => {
                       setAllowed(new Set(defaults));
                       setSaved(false);
@@ -277,9 +281,10 @@ export default function PermissionsPage() {
                   </Button>
                   <Button
                     color='primary'
+                    className='font-semibold'
                     isDisabled={!changed || locked}
                     isLoading={busy}
-                    startContent={busy ? undefined : <Save size={16} />}
+                    startContent={busy ? undefined : <Save size={16} strokeWidth={1.8} />}
                     onPress={save}
                   >
                     {t('permissions.save')}

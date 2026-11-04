@@ -1,4 +1,4 @@
-import React, {
+import {
   createContext,
   useCallback,
   useContext,
@@ -81,8 +81,13 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
         onOpenChange={(isOpen) => !isOpen && handleClose(false)}
         size='md'
         placement='center'
-        backdrop='blur'
-        className='rounded-2xl'
+        backdrop='opaque'
+        scrollBehavior='inside'
+        classNames={{
+          wrapper: 'p-2 sm:p-4',
+          base: 'ui-popup !rounded-[24px] m-0 w-full max-h-[calc(100dvh-2rem)]',
+          backdrop: 'bg-black/50',
+        }}
       >
         <ModalContent>
           {() => (
@@ -90,31 +95,32 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
               <ModalHeader className='flex items-center gap-3'>
                 {/* Tone follows the action: a delete confirm should not wear
                     the same colour as "are you sure you want to continue".
-                    bg-danger/15 was a light-theme tint that rendered as a white
-                    disc on the dark theme. */}
+                    A solid status disc, never a tinted fill. */}
                 <span
                   className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full
                     ${
                       confirmColor === 'danger'
-                        ? 'bg-danger/15 text-danger'
+                        ? 'bg-[var(--st-red)] text-white'
                         : confirmColor === 'success'
-                        ? 'bg-success/15 text-success'
-                        : 'bg-primary/15 text-primary'
+                        ? 'bg-[var(--st-green)] text-white'
+                        : 'bg-[var(--brand)] text-[var(--brand-ink)]'
                     }`}
                 >
-                  <Icon className='w-5 h-5' />
+                  <Icon className='w-5 h-5' strokeWidth={1.8} />
                 </span>
-                <span className='text-base font-bold text-foreground'>
+                <span className='min-w-0 text-lg font-semibold ink'>
                   {options.title ?? t('confirm.title')}
                 </span>
               </ModalHeader>
-              <ModalBody className='text-sm font-medium text-foreground'>
+              <ModalBody className='overflow-y-auto text-sm font-medium ink'>
                 {options.message ?? t('confirm.message')}
               </ModalBody>
-              <ModalFooter className='flex justify-end gap-2'>
+              <ModalFooter className='flex flex-wrap justify-end gap-2 border-t border-line'>
                 {!options.hideCancel && (
                   <Button
-                    variant='flat'
+                    variant='bordered'
+                    size='lg'
+                    className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
                     onPress={() => handleClose(false)}
                   >
                     {options.cancelLabel ?? t('common.cancel')}
@@ -122,7 +128,8 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                 )}
                 <Button
                   color={confirmColor}
-                  className='font-semibold'
+                  size='lg'
+                  className='rounded-[13px] font-semibold'
                   onPress={() => handleClose(true)}
                 >
                   {options.confirmLabel ?? t('confirm.ok')}

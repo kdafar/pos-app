@@ -82,6 +82,10 @@ db.transaction(() => {
     })
   );
 
+  // The restaurant's colour, as the server's settings would deliver it.
+  // DEMO_BRAND lets a review run try a light brand (contrast check).
+  put('app_settings', { key: 'branding.theme_color', value: process.env.DEMO_BRAND || '#1a6fd6', updated_at: now });
+
   /* ---------- staff (invented) ---------- */
   const hash = bcrypt.hashSync(PASSWORD, 10);
   const code = bcrypt.hashSync(MANAGER_CODE, 10);

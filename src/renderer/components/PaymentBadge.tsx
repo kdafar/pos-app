@@ -1,5 +1,4 @@
 // src/renderer/components/PaymentBadge.tsx
-import { Chip } from '@heroui/react';
 import { CheckCircle2, Clock, CloudUpload, CreditCard, HandCoins, XCircle } from 'lucide-react';
 import { useI18n } from '../i18n';
 
@@ -15,10 +14,11 @@ import { useI18n } from '../i18n';
  *    closed, so a closed order was collected — but that is the till's own
  *    inference, not a verified receipt
  *
- * The verified case is rendered solid and the inferred case flat, so a cashier
+ * Every state is a solid status chip (green paid, amber awaiting, red failed,
+ * gray other). The verified case and the inferred case are told apart by icon
+ * and wording (CheckCircle "Paid" vs CreditCard "Collected"), so a cashier
  * handing over food can tell "the customer's payment cleared" from "we closed
- * this, so someone took the money". Collapsing them would make the stronger
- * claim for both.
+ * this, so someone took the money".
  */
 
 export type PaymentState =
@@ -114,62 +114,48 @@ export function PaymentBadge({
 
   const variants: Record<
     PaymentState,
-    {
-      label: string;
-      color: 'success' | 'warning' | 'danger' | 'default';
-      variant: 'solid' | 'flat';
-      Icon: typeof Clock;
-    }
+    { label: string; chip: string; Icon: typeof Clock }
   > = {
     paid: {
       label: t('paid.badgeGateway'),
-      color: 'success',
-      variant: 'solid', // verified by the payment provider
+      chip: 'ui-chip-green', // verified by the payment provider
       Icon: CheckCircle2,
     },
-    // §12: "Paid · {method} · {name}". Solid like the verified one — the
-    // server holds a real record of who took the money, which is a recorded
-    // fact, not the till's inference.
+    // §12: "Paid · {method} · {name}". The server holds a real record of who
+    // took the money, which is a recorded fact, not the till's inference.
     paid_hand: {
       label: handLabel(),
-      color: 'success',
-      variant: 'solid',
+      chip: 'ui-chip-green',
       Icon: HandCoins,
     },
     paid_queued: {
       label: t('paid.badgeQueued'),
-      color: 'warning',
-      variant: 'solid',
+      chip: 'ui-chip-amber',
       Icon: CloudUpload,
     },
     collected: {
       label: t('pay.collected'),
-      color: 'success',
-      variant: 'flat', // inferred from the order being closed
+      chip: 'ui-chip-green', // inferred from the order being closed
       Icon: CreditCard,
     },
     pending: {
       label: t('pay.awaiting'),
-      color: 'warning',
-      variant: 'flat',
+      chip: 'ui-chip-amber',
       Icon: Clock,
     },
     expired: {
       label: t('pay.expired'),
-      color: 'danger',
-      variant: 'flat',
+      chip: 'ui-chip-red',
       Icon: XCircle,
     },
     failed: {
       label: t('pay.failed'),
-      color: 'danger',
-      variant: 'flat',
+      chip: 'ui-chip-red',
       Icon: XCircle,
     },
     unpaid: {
       label: t('pay.unpaid'),
-      color: 'default',
-      variant: 'flat',
+      chip: 'ui-chip-amber',
       Icon: Clock,
     },
   };
@@ -177,15 +163,12 @@ export function PaymentBadge({
   const v = variants[state];
 
   return (
-    <Chip
-      size={size}
-      color={v.color}
-      variant={v.variant}
-      className='font-semibold'
-      startContent={<v.Icon size={size === 'md' ? 15 : 13} />}
-      title={v.label}
+    <span
+      className={`ui-chip ${v.chip} ${size === 'md' ? '!h-7 !px-3 !text-sm' : ''}`}
+      aria-label={v.label}
     >
+      <v.Icon size={size === 'md' ? 15 : 13} strokeWidth={1.8} />
       {v.label}
-    </Chip>
+    </span>
   );
 }

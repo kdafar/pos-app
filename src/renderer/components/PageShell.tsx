@@ -1,9 +1,10 @@
 // src/renderer/components/PageShell.tsx
 import type { ReactNode } from 'react';
-import { Button, Chip, Input, Select, SelectItem, Spinner } from '@heroui/react';
+import { Button, Input, Select, SelectItem, Spinner } from '@heroui/react';
 import { AlertCircle, Inbox, RotateCw, Search, type LucideIcon } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { HelpButton } from '../help/HelpButton';
+import { Hint } from './Hint';
 
 /**
  * The frame every admin page shares — deliberately not a copy of the one they
@@ -53,40 +54,40 @@ export function PageShell({
     // Padding scales with the window: a 13" screen should not spend its margins
     // on whitespace, and a 4K one should not run text the full width.
     <div className='mx-auto w-full max-w-[110rem] p-3 sm:p-4 lg:p-6 min-w-0'>
-      <header className='mb-4 flex flex-wrap items-start justify-between gap-3'>
+      <header className='mb-4 flex flex-wrap items-center gap-2'>
         <div className='min-w-0'>
           <div className='flex items-center gap-2.5 min-w-0'>
-            <h1 className='text-xl sm:text-2xl font-bold tracking-tight truncate text-foreground'>
+            <h1 className='text-xl font-semibold truncate ink'>
               {title}
             </h1>
             {typeof count === 'number' && (
-              <Chip size='sm' color='primary' variant='solid' className='shrink-0 font-semibold'>
-                <span className='money'>{count}</span>
-              </Chip>
+              <span className='ui-count shrink-0 money'>{count}</span>
             )}
           </div>
           {subtitle && (
-            <p className='text-sm font-medium text-default-700 mt-0.5'>
+            <p className='text-sm ink-2 mt-0.5'>
               {subtitle}
             </p>
           )}
         </div>
 
-        <div className='flex items-center gap-2 shrink-0'>
+        <div className='ms-auto flex flex-wrap items-center justify-end gap-2'>
           {onRefresh && (
-            // `flat`, not `light`: a ghost button on a busy screen reads as
+            // An outline button, not a ghost: a ghost on a busy screen reads as
             // decoration, and this one is occasionally the fix when another
             // till has just changed the data.
-            <Button
-              isIconOnly
-              variant='flat'
-              onPress={onRefresh}
-              isLoading={refreshing}
-              aria-label={t('admin.refresh')}
-              title={t('admin.refresh')}
-            >
-              {!refreshing && <RotateCw size={18} />}
-            </Button>
+            <Hint content={t('admin.refresh')} placement='bottom'>
+              <Button
+                isIconOnly
+                variant='bordered'
+                onPress={onRefresh}
+                isLoading={refreshing}
+                aria-label={t('admin.refresh')}
+                className='border border-[var(--line-strong)] bg-[var(--surface)]'
+              >
+                {!refreshing && <RotateCw size={20} strokeWidth={1.8} />}
+              </Button>
+            </Hint>
           )}
           {primaryAction}
           <HelpButton />
@@ -138,7 +139,7 @@ export function DataState({
     return (
       <div className='flex flex-col items-center justify-center gap-3 py-16'>
         <Spinner size='lg' />
-        <span className='text-base font-medium text-default-700'>
+        <span className='text-base font-medium ink-2'>
           {t('common.loading')}
         </span>
       </div>
@@ -147,20 +148,24 @@ export function DataState({
 
   if (error) {
     return (
-      <div className='flex flex-col items-center justify-center gap-3 py-16 text-center px-4'>
-        <AlertCircle size={32} className='text-danger' />
-        <div className='max-w-md'>
-          <div className='text-lg font-bold text-danger'>
+      <div className='ui-notice flex-wrap items-center gap-3 p-4 max-w-2xl mx-auto my-8'>
+        <AlertCircle size={24} strokeWidth={1.8} className='shrink-0 text-danger' />
+        <div className='min-w-0 flex-1'>
+          <div className='text-base font-semibold ink'>
             {t('admin.loadFailed')}
           </div>
           {/* The real message, not a generic apology — it is usually the only
               clue anyone gets when a till misbehaves. */}
-          <div className='text-sm font-medium text-default-700 mt-1 break-words'>
+          <div className='text-sm ink-2 mt-0.5 break-words'>
             {error}
           </div>
         </div>
         {onRetry && (
-          <Button color='danger' variant='flat' onPress={onRetry}>
+          <Button
+            variant='bordered'
+            onPress={onRetry}
+            className='shrink-0 font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
+          >
             {t('common.retry')}
           </Button>
         )}
@@ -170,14 +175,14 @@ export function DataState({
 
   if (empty) {
     return (
-      <div className='flex flex-col items-center justify-center gap-3 py-16 text-center px-4'>
-        <Inbox size={32} className='text-default-700' />
+      <div className='flex flex-col items-center justify-center gap-3 py-16 text-center px-4 rounded-[20px] border border-dashed border-line-strong ink-2'>
+        <Inbox size={32} strokeWidth={1.8} />
         <div>
-          <div className='text-lg font-bold text-foreground'>
+          <div className='text-base font-semibold ink'>
             {emptyTitle ?? t('admin.noData')}
           </div>
           {emptyHint && (
-            <div className='text-sm font-medium text-default-700 mt-1'>
+            <div className='text-sm ink-2 mt-1'>
               {emptyHint}
             </div>
           )}
@@ -213,8 +218,9 @@ export function SearchField({
       value={value}
       onValueChange={onChange}
       placeholder={placeholder ?? t('common.search')}
-      startContent={<Search size={17} className='text-default-700' />}
+      startContent={<Search size={18} strokeWidth={1.8} className='ink-2' />}
       isClearable
+      classNames={{ inputWrapper: 'ui-input' }}
       onClear={() => onChange('')}
       className={`w-full sm:w-64 lg:w-80 ${className}`}
       aria-label={placeholder ?? t('common.search')}
@@ -253,8 +259,9 @@ export function FilterSelect({
         // what is left — which is how "All sources" became "All s..." under a
         // long label like "Filter by source". The width belongs on the control
         // alone, so no label length can eat into it.
-        label: 'text-sm font-semibold text-default-700 self-center shrink-0 whitespace-nowrap',
+        label: 'text-sm font-semibold ink-2 self-center shrink-0 whitespace-nowrap',
         mainWrapper: 'w-full sm:w-44',
+        trigger: 'ui-input',
       }}
       selectedKeys={[value]}
       onSelectionChange={(keys) => {
@@ -296,31 +303,28 @@ export function StatCard({
   icon?: LucideIcon;
   tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
 }) {
+  // The accent is the icon only: a card carries one colour at most, and the
+  // surface stays the portal's white card.
   const accent = {
-    default: 'text-default-700 border-default-300',
-    primary: 'text-primary border-primary',
-    success: 'text-success border-success',
-    warning: 'text-warning border-warning',
-    danger: 'text-danger border-danger',
+    default: 'ink-2',
+    primary: 'text-primary',
+    success: 'text-success',
+    warning: 'text-warning',
+    danger: 'text-danger',
   }[tone];
 
   return (
-    // The accent is a border and an icon, not a fill: a page of four saturated
-    // blocks makes every figure shout, so none of them stands out.
-    <div
-      className={`rounded-lg border border-default-200 border-s-4 ${accent.split(' ')[1]}
-        bg-content1 p-4 flex items-start justify-between gap-3 min-w-0`}
-    >
+    <div className='ui-card p-4 flex items-start justify-between gap-3 min-w-0'>
       <div className='min-w-0'>
-        <div className='text-sm font-semibold text-default-700 mb-1 truncate'>
+        <div className='text-sm font-semibold ink-2 mb-1 truncate'>
           {label}
         </div>
-        <div className='text-2xl xl:text-3xl font-bold text-foreground money'>
+        <div className='text-2xl xl:text-3xl font-bold ink money'>
           {value}
         </div>
       </div>
       {Icon && (
-        <Icon size={26} className={`shrink-0 ${accent.split(' ')[0]}`} />
+        <Icon size={26} strokeWidth={1.8} className={`shrink-0 ${accent}`} />
       )}
     </div>
   );

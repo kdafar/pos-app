@@ -80,8 +80,9 @@ export function Hint({
       classNames={{
         content: [
           'max-w-64 px-2.5 py-1.5',
-          'bg-content1 text-foreground border border-default-200 shadow-md',
-          'text-[11px] leading-snug',
+          'bg-[var(--surface)] text-[var(--ink)] border border-[var(--line)]',
+          'rounded-[11px] shadow-[var(--shadow-2)]',
+          'text-xs font-medium leading-snug',
           // Hints carry URLs and branch names, which have no spaces to break at.
           'break-words',
         ].join(' '),

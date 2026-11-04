@@ -17,7 +17,7 @@ import {
   ModalFooter,
   ModalHeader,
 } from '@heroui/react';
-import { ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { StringKey } from '../i18n';
 import { describeError } from '../utils/posError';
@@ -147,28 +147,33 @@ export function ApprovalProvider({ children }: { children: ReactNode }) {
         onOpenChange={(open) => !open && !busy && close(null)}
         size='md'
         placement='center'
-        backdrop='blur'
-        className='rounded-2xl'
+        backdrop='opaque'
+        scrollBehavior='inside'
+        classNames={{
+          wrapper: 'p-2 sm:p-4',
+          base: 'ui-popup !rounded-[24px] m-0 w-full max-h-[calc(100dvh-2rem)]',
+          backdrop: 'bg-black/50',
+        }}
       >
         <ModalContent>
           {() => (
             <>
               <ModalHeader className='flex items-center gap-3'>
-                <span className='inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning'>
-                  <ShieldCheck className='h-5 w-5' />
+                <span className='inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--st-amber)] text-white'>
+                  <ShieldCheck className='h-5 w-5' strokeWidth={1.8} />
                 </span>
-                <div className='flex flex-col'>
-                  <span className='text-base font-bold text-foreground'>
+                <div className='flex min-w-0 flex-col'>
+                  <span className='text-lg font-semibold ink'>
                     {t('approval.title')}
                   </span>
                   {pending && (
-                    <span className='text-sm font-medium text-default-700'>
+                    <span className='text-sm font-medium ink-2'>
                       {t(ACTION_LABEL[pending.action])}
                     </span>
                   )}
                 </div>
               </ModalHeader>
-              <ModalBody className='gap-4'>
+              <ModalBody className='gap-4 overflow-y-auto'>
                 {/* A manager card is a barcode of the same six digits; a
                     scanner types them and presses Enter, so the field submits
                     on Enter just like typing it. */}
@@ -189,7 +194,7 @@ export function ApprovalProvider({ children }: { children: ReactNode }) {
                     if (e.key === 'Enter') void submit();
                   }}
                   isDisabled={busy}
-                  classNames={{ input: 'text-center text-xl tracking-[0.5em] money' }}
+                  classNames={{ inputWrapper: 'ui-input min-h-12', input: 'text-center text-xl tracking-[0.5em] money' }}
                 />
 
                 <div className='space-y-2'>
@@ -200,6 +205,7 @@ export function ApprovalProvider({ children }: { children: ReactNode }) {
                     value={reason}
                     onValueChange={setReason}
                     isDisabled={busy}
+                    classNames={{ inputWrapper: 'ui-input' }}
                   />
                   <div className='flex flex-wrap gap-2'>
                     {REASONS.map((key) => (
@@ -207,7 +213,7 @@ export function ApprovalProvider({ children }: { children: ReactNode }) {
                         key={key}
                         variant={reason === t(key) ? 'solid' : 'bordered'}
                         color={reason === t(key) ? 'primary' : 'default'}
-                        className='cursor-pointer'
+                        className='min-h-8 cursor-pointer'
                         onClick={() => setReason(t(key))}
                       >
                         {t(key)}
@@ -217,19 +223,29 @@ export function ApprovalProvider({ children }: { children: ReactNode }) {
                 </div>
 
                 {problem && (
-                  <div className='rounded-lg border border-danger bg-danger/10 px-3 py-2'>
-                    <p className='text-sm font-bold text-danger'>{problem.title}</p>
-                    <p className='text-sm font-medium text-foreground'>{problem.message}</p>
+                  <div className='ui-notice'>
+                    <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-[var(--st-red)]' strokeWidth={1.8} />
+                    <div className='min-w-0'>
+                      <p className='text-sm font-semibold text-[var(--st-red)]'>{problem.title}</p>
+                      <p className='text-sm font-medium ink'>{problem.message}</p>
+                    </div>
                   </div>
                 )}
               </ModalBody>
-              <ModalFooter className='flex justify-end gap-2'>
-                <Button variant='flat' onPress={() => close(null)} isDisabled={busy}>
+              <ModalFooter className='flex flex-wrap justify-end gap-2 border-t border-line'>
+                <Button
+                  variant='bordered'
+                  size='lg'
+                  className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                  onPress={() => close(null)}
+                  isDisabled={busy}
+                >
                   {t('common.cancel')}
                 </Button>
                 <Button
                   color='primary'
-                  className='font-semibold'
+                  size='lg'
+                  className='rounded-[13px] font-semibold'
                   onPress={() => void submit()}
                   isLoading={busy}
                   isDisabled={code.length === 0}

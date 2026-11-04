@@ -285,68 +285,59 @@ export function Layout() {
     [sync?.last_sync_at]
   );
 
-  const iconButtonClass =
-    'inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-medium transition-colors hover:bg-default-100 hover:text-foreground h-9 w-9 text-default-700';
+  const iconButtonClass = 'ui-icon-btn';
+
+  /*
+   * Screen size decides the rail first. Below 1280px wide — old 1024x768 and
+   * 1366x768@125% PCs, Android tablets — the menu starts as icons so the order
+   * screen keeps its width; the toggle still opens it, for this session only.
+   * From 1280px the till's saved choice applies, as before.
+   */
+  const narrow = useMediaQuery('(max-width: 1279px)');
+  const [openOnNarrow, setOpenOnNarrow] = useState(false);
+  useEffect(() => setOpenOnNarrow(false), [location.pathname]);
+  const rail = narrow ? !openOnNarrow : collapsed;
+  const toggleRail = () => (narrow ? setOpenOnNarrow((v) => !v) : toggleCollapsed());
+
+  // The restaurant, as in the portal's rail: its initial in a brand square.
+  const storeName = sync?.branch_name || APP_VENDOR;
+  const storeInitial = (storeName.trim()[0] || 'M').toUpperCase();
+  const userLine = [
+    user?.name || t('pos.operator'),
+    user?.role || (user?.is_admin ? t('nav.role.admin') : t('nav.role.staff')),
+  ].join(' · ');
 
   return (
     <div
       className='h-screen w-screen overflow-hidden grid bg-background transition-all duration-300 min-h-0 min-w-0'
-      style={{ gridTemplateColumns: collapsed ? '64px 1fr' : '244px 1fr' }}
+      style={{ gridTemplateColumns: rail ? '76px 1fr' : '264px 1fr' }}
     >
       {/* Sidebar */}
       <aside
         className={`
-          h-full border-e border-default-200 flex flex-col min-h-0 min-w-0
-          ${collapsed ? 'gap-2 p-2' : 'gap-2 p-2.5'}
-          bg-content1
+          m-2 lg:m-3 me-0 lg:me-0 flex flex-col min-h-0 min-w-0 overflow-hidden
+          rounded-[20px] border border-line bg-surface shadow-[var(--shadow-1)]
+          ${rail ? 'gap-2 p-2' : 'gap-2 p-3'}
         `}
       >
-        {/* User header + controls */}
+        {/* Restaurant + operator, as in the portal's rail */}
         <div
-          className={`flex items-center gap-2 ${
-            collapsed ? 'flex-col px-0' : 'px-1'
+          className={`flex items-center gap-2.5 ${
+            rail ? 'flex-col px-0' : 'px-0.5'
           }`}
         >
-          {/* Collapsed, the sidebar is the only place the operator is named —
-              the POS header used to repeat it, which meant the name appeared
-              twice whenever the sidebar was open. Keeping the avatar here lets
-              that duplicate go without losing the information. */}
-          {collapsed && (
-            <Hint
-              content={`${user?.name || t('pos.operator')}${
-                user?.role ? ` — ${user.role}` : ''
-              }`}
-            >
-              <div className='w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-xs uppercase shrink-0'>
-                {(user?.name || 'U').slice(0, 2)}
-              </div>
-            </Hint>
-          )}
+          <Hint content={`${storeName} — ${userLine}`} isDisabled={!rail}>
+            <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[var(--brand)] text-[var(--brand-ink)] text-lg font-bold'>
+              {storeInitial}
+            </div>
+          </Hint>
 
-          {!collapsed && (
-            <div
-              className={`
-              flex items-center gap-2.5 overflow-hidden
-              rounded-xl px-2.5 py-1.5
-              bg-content1 shadow-sm border border-default-200
-              flex-1
-            `}
-            >
-              {/* Avatar */}
-              <div className='w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-xs uppercase'>
-                {(user?.name || 'U').slice(0, 2)}
+          {!rail && (
+            <div className='min-w-0 flex-1'>
+              <div className='truncate text-[0.9375rem] font-semibold ink'>
+                {storeName}
               </div>
-
-              {/* Name + role */}
-              <div className='min-w-0 flex flex-col'>
-                <span className='text-sm font-semibold truncate text-foreground'>
-                  {user?.name || t('pos.operator')}
-                </span>
-                <span className='text-[10px] uppercase tracking-[0.16em] text-default-700 truncate'>
-                  {user?.role ||
-                    (user?.is_admin ? t('nav.role.admin') : t('nav.role.staff'))}
-                </span>
-              </div>
+              <div className='truncate text-xs ink-2'>{userLine}</div>
             </div>
           )}
 
@@ -354,7 +345,7 @@ export function Layout() {
           <div className='flex flex-col gap-1 items-center'>
             <Hint content={t('nav.toggleTheme')}>
               <button
-                className={`${iconButtonClass} ${collapsed ? 'hidden' : ''}`}
+                className={`${iconButtonClass} ${rail ? 'hidden' : ''}`}
                 onClick={toggleTheme}
               >
                 {theme === 'light' ? (
@@ -366,11 +357,11 @@ export function Layout() {
             </Hint>
             <Hint
               content={
-                collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')
+                rail ? t('nav.expandSidebar') : t('nav.collapseSidebar')
               }
             >
-              <button className={iconButtonClass} onClick={toggleCollapsed}>
-                {collapsed ? (
+              <button className={iconButtonClass} onClick={toggleRail}>
+                {rail ? (
                   <IconPanelRight className='h-5 w-5 flip-rtl' />
                 ) : (
                   <IconPanelLeft className='h-5 w-5 flip-rtl' />
@@ -381,11 +372,11 @@ export function Layout() {
         </div>
 
         {/* Sync card */}
-        {!collapsed && (
+        {!rail && (
           <section
             className='
-              rounded-xl border border-default-200 bg-content1
-              px-2.5 py-2 text-[11px] shadow-sm
+              rounded-[14px] border border-line bg-surface-2
+              px-3 py-2.5 text-xs
             '
           >
             {/*
@@ -399,8 +390,8 @@ export function Layout() {
             */}
             <div className='flex items-center justify-between gap-2 mb-1'>
               <Hint placement='bottom' content={lastSyncExact}>
-                <div className='flex min-w-0 items-center gap-1 text-[10px] text-default-700'>
-                  <Timer size={11} className='shrink-0' />
+                <div className='flex min-w-0 items-center gap-1 text-xs ink-2'>
+                  <Timer size={14} strokeWidth={1.8} className='shrink-0' />
                   <span className='truncate'>{lastSyncText}</span>
                 </div>
               </Hint>
@@ -423,12 +414,9 @@ export function Layout() {
                   }
                 >
                   <div
-                    className={[
-                      'inline-flex h-7 px-3 items-center justify-center gap-1 rounded-full border text-[10px] font-medium',
-                      sync?.mode === 'live'
-                        ? 'bg-success text-success-foreground border-success'
-                        : 'bg-default-100 text-foreground border-default-200',
-                    ].join(' ')}
+                    className={`ui-chip ${
+                      sync?.mode === 'live' ? 'ui-chip-green' : 'ui-chip-gray'
+                    }`}
                   >
                     {sync?.mode === 'live' ? (
                       <Cloud size={13} />
@@ -455,19 +443,12 @@ export function Layout() {
                       runSync();
                     }}
                     aria-disabled={sync?.mode !== 'live' || syncing}
-                    className={[
-                      'inline-flex h-8 w-8 items-center justify-center rounded-full border text-[10px]',
-                      'bg-foreground text-background border-transparent hover:bg-foreground/90',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
-                      // The button sits on the card, so the ring is offset off
-                      // that surface rather than Tailwind's default white.
-                      'focus-visible:ring-offset-1 focus-visible:ring-offset-content1',
-                      'aria-disabled:cursor-not-allowed aria-disabled:opacity-60',
-                      'aria-disabled:hover:bg-foreground',
-                    ].join(' ')}
+                    aria-label={t('nav.sync')}
+                    className='ui-icon-btn ui-icon-btn-outline aria-disabled:cursor-not-allowed aria-disabled:opacity-50'
                   >
                     <RefreshCw
-                      size={13}
+                      size={16}
+                      strokeWidth={1.8}
                       className={syncing ? 'animate-spin' : ''}
                     />
                   </button>
@@ -478,8 +459,8 @@ export function Layout() {
             {/* Branch: the whole width of the card, and the whole name on
                 hover on the rare one that still outruns it. */}
             <Hint placement='bottom' content={sync?.branch_name || ''}>
-              <div className='flex min-w-0 items-center gap-1.5 text-[11px] text-foreground'>
-                <GitBranch size={11} className='shrink-0 text-default-700' />
+              <div className='flex min-w-0 items-center gap-1.5 text-xs ink'>
+                <GitBranch size={14} strokeWidth={1.8} className='shrink-0 ink-2' />
                 <span className='truncate font-medium'>
                   {sync?.branch_name || t('sync.noBranch')}
                 </span>
@@ -489,13 +470,9 @@ export function Layout() {
             {!sync?.paired && (
               <button
                 onClick={() => navigate('/settings')}
-                className='
-                  mt-2 flex h-6 w-full items-center justify-center gap-1.5 rounded-md
-                  border border-warning bg-warning px-2 text-[10px] font-semibold
-                  text-warning-foreground hover:bg-warning/90
-                '
+                className='ui-btn ui-btn-sm mt-2 w-full bg-[var(--st-amber)] text-white'
               >
-                <AlertTriangle size={11} />
+                <AlertTriangle size={16} strokeWidth={1.8} />
                 <span className='truncate'>{t('sync.notPaired')}</span>
               </button>
             )}
@@ -504,48 +481,48 @@ export function Layout() {
 
         {/* Nav (RBAC) */}
         <nav className='space-y-0.5 flex-grow overflow-y-auto nice-scroll rail-scroll min-h-0'>
-          <SectionLabel hidden={collapsed}>{t('nav.orders')}</SectionLabel>
+          <SectionLabel hidden={rail}>{t('nav.orders')}</SectionLabel>
           {can('orders.create') && <NavLink
             to='/'
             text={t('nav.orderProcess')}
             icon={ShoppingCart}
-            collapsed={collapsed}
+            collapsed={rail}
             active={location.pathname === '/'}
           />}
           {can('orders.view_own') && <NavLink
             to='/orders'
             text={t('nav.recentOrders')}
             icon={ReceiptText}
-            collapsed={collapsed}
+            collapsed={rail}
             active={location.pathname === '/orders'}
           />}
-          {can('orders.kitchen_view') && <NavLink to='/kitchen' text={t('nav.kitchen')} icon={ChefHat} collapsed={collapsed} active={location.pathname === '/kitchen'} />}
+          {can('orders.kitchen_view') && <NavLink to='/kitchen' text={t('nav.kitchen')} icon={ChefHat} collapsed={rail} active={location.pathname === '/kitchen'} />}
           {/* Closing Report → admin only */}{' '}
-          {canReport && <NavLink to='/reports/closing' text={t('nav.closingReport')} icon={BarChart3} collapsed={collapsed} active={location.pathname === '/reports/closing'} />}
+          {canReport && <NavLink to='/reports/closing' text={t('nav.closingReport')} icon={BarChart3} collapsed={rail} active={location.pathname === '/reports/closing'} />}
           {canCatalog && (
             <>
-              <SectionLabel hidden={collapsed}>
+              <SectionLabel hidden={rail}>
                 {t('nav.section.catalog')}
               </SectionLabel>
               <NavLink
                 to='/categories'
                 text={t('nav.categories')}
                 icon={FolderTree}
-                collapsed={collapsed}
+                collapsed={rail}
                 active={location.pathname === '/categories'}
               />
               <NavLink
                 to='/items'
                 text={t('nav.items')}
                 icon={Package}
-                collapsed={collapsed}
+                collapsed={rail}
                 active={location.pathname === '/items'}
               />
               <NavLink
                 to='/promos'
                 text={t('nav.promocodes')}
                 icon={Ticket}
-                collapsed={collapsed}
+                collapsed={rail}
                 active={location.pathname === '/promos'}
               />
             </>
@@ -553,7 +530,7 @@ export function Layout() {
 
           {canSystemAny && (
             <>
-              <SectionLabel hidden={collapsed}>
+              <SectionLabel hidden={rail}>
                 {t('nav.section.system')}
               </SectionLabel>
               {can('payments.manage') && (
@@ -561,7 +538,7 @@ export function Layout() {
                   to='/payment-methods'
                   text={t('nav.paymentMethods')}
                   icon={CreditCard}
-                  collapsed={collapsed}
+                  collapsed={rail}
                   active={location.pathname === '/payment-methods'}
                 />
               )}
@@ -570,7 +547,7 @@ export function Layout() {
                   to='/locations'
                   text={t('nav.locations')}
                   icon={MapPin}
-                  collapsed={collapsed}
+                  collapsed={rail}
                   active={location.pathname === '/locations'}
                 />
               )}
@@ -579,7 +556,7 @@ export function Layout() {
                   to='/tables'
                   text={t('nav.tables')}
                   icon={Armchair}
-                  collapsed={collapsed}
+                  collapsed={rail}
                   active={location.pathname === '/tables'}
                 />
               )}
@@ -588,7 +565,7 @@ export function Layout() {
                   to='/settings'
                   text={t('nav.settings')}
                   icon={Settings}
-                  collapsed={collapsed}
+                  collapsed={rail}
                   active={location.pathname === '/settings'}
                 />
               )}
@@ -597,7 +574,7 @@ export function Layout() {
                   to='/updates'
                   text={t('nav.updates')}
                   icon={ArrowUpCircle}
-                  collapsed={collapsed}
+                  collapsed={rail}
                   active={location.pathname === '/updates'}
                   dot={updateReady}
                 />
@@ -607,7 +584,7 @@ export function Layout() {
                   to='/permissions'
                   text={t('nav.permissions')}
                   icon={ShieldCheck}
-                  collapsed={collapsed}
+                  collapsed={rail}
                   active={location.pathname === '/permissions'}
                 />
               )}
@@ -616,25 +593,21 @@ export function Layout() {
         </nav>
 
         {/* Footer / Language + Logout */}
-        <div className='mt-1 pt-1.5 border-t border-default-200 dark:border-default-200'>
+        <div className='mt-1 pt-2 border-t border-line space-y-0.5'>
           {/* Language lives in the sidebar so it is reachable from every
               screen, not just the order screen. */}
-          <div className={collapsed ? 'pb-1' : ''}>
-            <LanguageToggle collapsed={collapsed} row={!collapsed} />
+          <div className={rail ? 'pb-1' : ''}>
+            <LanguageToggle collapsed={rail} row={!rail} />
           </div>
 
           {/* A downloaded update is announced to every operator, not just
               admins, because whoever closes the till is who applies it. */}
-          {updateReady && !collapsed && (
+          {updateReady && !rail && (
             <button
               onClick={() => navigate('/updates')}
-              className='
-                mb-1 flex h-7 w-full items-center justify-center gap-1.5 rounded-md border
-                border-success/40 bg-success/15 px-2 text-[10px] font-semibold
-                text-success hover:bg-success/25
-              '
+              className='ui-btn ui-btn-sm mb-1 w-full bg-[var(--st-green)] text-white'
             >
-              <Rocket size={11} />
+              <Rocket size={16} strokeWidth={1.8} />
               <span className='truncate'>{t('update.badgeReady')}</span>
             </button>
           )}
@@ -644,19 +617,19 @@ export function Layout() {
             to='/help'
             text={t('nav.help')}
             icon={CircleHelp}
-            collapsed={collapsed}
+            collapsed={rail}
             active={location.pathname === '/help'}
           />
           <NavLink
             to='/logout'
             text={t('auth.logout')}
             icon={LogOut}
-            collapsed={collapsed}
+            collapsed={rail}
             active={false}
           />
           {/* Tiny version badge */}
-          {!collapsed && (
-            <div className='px-2.5 pt-0.5 text-[10px] text-default-700 flex items-center justify-between'>
+          {!rail && (
+            <div className='px-3 pt-1 text-[11px] ink-3 flex items-center justify-between'>
               {/* Version + vendor are identifiers, never localized. */}
               <span className='font-mono' dir='ltr'>
                 v{shownVersion}
@@ -667,9 +640,9 @@ export function Layout() {
             </div>
           )}
 
-          {collapsed && (
+          {rail && (
             <div
-              className='flex items-center justify-center pb-1 text-[9px] text-default-700 font-mono'
+              className='flex items-center justify-center pb-1 text-[10px] ink-3 font-mono'
               dir='ltr'
             >
               v{shownVersion}
@@ -712,20 +685,13 @@ function NavLink({
   /** Small marker for "something is waiting here" — e.g. a downloaded update. */
   dot?: boolean;
 }) {
-  const baseClasses =
-    'group relative flex items-center rounded-xl text-sm font-medium transition-colors duration-200';
-  const activeClasses =
-    // Inverts against the surface in both themes, so the active row is a dark
-    // pill on light and a light pill on dark without a `dark:` pair. The pair
-    // it replaces had drifted: a sweep rewrote `dark:text-slate-900` to
-    // `dark:text-foreground`, which in dark mode is light ink on the light
-    // pill — the active nav item was unreadable.
-    'bg-foreground text-background shadow-sm';
-  const inactiveClasses =
-    'text-default-700 hover:text-foreground hover:bg-default-100';
+  // The portal's nav item: the current screen is a brand fill with the
+  // brand's own text colour (`.ui-nav[aria-current=page]`), the rest ink-2.
+  // Rows are finger-sized (44px) in both shapes.
+  const baseClasses = 'ui-nav group relative flex items-center text-sm';
   // Collapsed rows are square and centred so the icons form a straight column.
-  const collapsedClasses = 'h-10 w-10 mx-auto justify-center';
-  const expandedClasses = 'w-full gap-2.5 px-2.5 py-2 nav-row';
+  const collapsedClasses = 'h-11 w-11 mx-auto justify-center';
+  const expandedClasses = 'w-full gap-3 px-3 min-h-11 nav-row';
 
   return (
     // The label is the only thing identifying an icon once the rail is
@@ -734,14 +700,13 @@ function NavLink({
       <Link
         to={to}
         aria-label={collapsed ? text : undefined}
-        className={`${baseClasses} ${active ? activeClasses : inactiveClasses} ${
-          collapsed ? collapsedClasses : expandedClasses
-        }`}
+        aria-current={active ? 'page' : undefined}
+        className={`${baseClasses} ${collapsed ? collapsedClasses : expandedClasses}`}
       >
         <span className='relative flex-shrink-0 inline-flex items-center justify-center'>
-          {Icon ? <Icon size={18} strokeWidth={1.9} /> : null}
+          {Icon ? <Icon size={20} strokeWidth={1.8} /> : null}
           {dot && (
-            <span className='absolute -top-1 -end-1 h-2 w-2 rounded-full bg-success ring-2 ring-content1' />
+            <span className='absolute -top-1 -end-1 h-2.5 w-2.5 rounded-full bg-[var(--st-green)] ring-2 ring-[var(--surface)]' />
           )}
         </span>
         {!collapsed && <span className='truncate'>{text}</span>}
@@ -762,10 +727,10 @@ function SectionLabel({
   // that just looks like inconsistent spacing.
   if (hidden)
     return (
-      <div className='mx-auto my-2 h-px w-6 bg-default-200' />
+      <div className='mx-auto my-2 h-px w-6 bg-[var(--line-strong)]' />
     );
   return (
-    <div className='mt-2.5 mb-0.5 uppercase tracking-wide text-[10px] text-default-700 px-2.5 nav-section'>
+    <div className='mt-3 mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide ink-3 nav-section'>
       {children}
     </div>
   );
@@ -843,4 +808,22 @@ declare global {
   interface Window {
     api: { invoke: (channel: string, ...args: any[]) => Promise<any> };
   }
+}
+
+/** True while the media query matches; follows window resizes. */
+function useMediaQuery(query: string): boolean {
+  const get = () =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false;
+  const [matches, setMatches] = useState(get);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(query);
+    const on = () => setMatches(mql.matches);
+    on();
+    mql.addEventListener('change', on);
+    return () => mql.removeEventListener('change', on);
+  }, [query]);
+  return matches;
 }

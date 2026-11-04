@@ -65,7 +65,10 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans-arabic": "^5.1.1",
+    "@fontsource/inter": "^5.1.1",
     "@heroui/react": "^2.8.5",
+    "@internationalized/date": "^3.10.0",
     "@radix-ui/react-popover": "^1.1.15",
     "@tailwindcss/vite": "^4.1.16",
     "@tanstack/react-table": "^8.21.3",

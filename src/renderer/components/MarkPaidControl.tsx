@@ -24,6 +24,7 @@ import { useToast } from './ToastProvider';
 import { useApproval } from './ApprovalProvider';
 import { copyFor, describeError, isKnownCode } from '../utils/posError';
 import { PaymentBadge } from './PaymentBadge';
+import { Hint } from './Hint';
 import { paidMethodNeedsReference, PAID_REFERENCE_MAX } from '../../shared/paid';
 
 type Support = { supported: boolean; canMark: boolean; canUndoAlone: boolean };
@@ -256,12 +257,18 @@ export function MarkPaidControl({
         isOpen={dialog === 'mark'}
         onOpenChange={(open) => !open && !busy && setDialog(null)}
         placement='center'
-        backdrop='blur'
+        backdrop='opaque'
+        scrollBehavior='inside'
+        classNames={{
+          wrapper: 'p-2 sm:p-4',
+          base: 'ui-popup !rounded-[24px] m-0 w-full max-h-[calc(100dvh-2rem)]',
+          backdrop: 'bg-black/50',
+        }}
       >
         <ModalContent>
-          <ModalHeader>{t('paid.confirmTitle')}</ModalHeader>
-          <ModalBody className='space-y-3'>
-            <p className='text-sm font-medium text-foreground'>
+          <ModalHeader className='text-lg font-semibold ink'>{t('paid.confirmTitle')}</ModalHeader>
+          <ModalBody className='space-y-3 overflow-y-auto'>
+            <p className='text-sm font-medium ink'>
               {t('paid.confirmBody', {
                 amount: money(order.grand_total),
                 method: methodName(selected) || '—',
@@ -271,6 +278,7 @@ export function MarkPaidControl({
               label={t('paid.method')}
               selectedKeys={methodId ? [methodId] : []}
               isDisabled={busy || closed}
+              classNames={{ trigger: 'ui-input' }}
               onSelectionChange={(keys) => {
                 const next = Array.from(keys)[0];
                 if (next != null) setMethodId(String(next));
@@ -281,7 +289,7 @@ export function MarkPaidControl({
               ))}
             </Select>
             {closed && (
-              <p className='text-xs font-medium text-default-700'>{t('paid.methodLocked')}</p>
+              <p className='text-xs font-medium ink-2'>{t('paid.methodLocked')}</p>
             )}
             {needsReference && (
               <Input
@@ -294,6 +302,7 @@ export function MarkPaidControl({
                 isRequired
                 autoFocus
                 dir='ltr'
+                classNames={{ inputWrapper: 'ui-input' }}
               />
             )}
             <Input
@@ -302,26 +311,28 @@ export function MarkPaidControl({
               maxLength={500}
               onValueChange={setNote}
               isDisabled={busy}
+              classNames={{ inputWrapper: 'ui-input' }}
             />
             {linkOpen && (
-              <div className='flex items-start gap-2 rounded-lg border border-warning bg-content1 px-3 py-2'>
-                <AlertTriangle size={16} className='mt-0.5 shrink-0 text-warning' />
-                <span className='text-sm font-medium text-foreground'>{t('paid.linkWarning')}</span>
+              <div className='ui-notice'>
+                <AlertTriangle size={16} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-amber)]' />
+                <span className='text-sm font-medium ink'>{t('paid.linkWarning')}</span>
               </div>
             )}
             {problem && (
-              <p role='alert' className='text-sm font-semibold text-danger'>
+              <p role='alert' className='text-sm font-semibold text-[var(--st-red)]'>
                 {problem}
               </p>
             )}
           </ModalBody>
-          <ModalFooter>
-            <Button variant='flat' onPress={() => setDialog(null)} isDisabled={busy}>
+          <ModalFooter className='flex flex-wrap justify-end gap-2 border-t border-line'>
+            <Button variant='bordered' size='lg' className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold' onPress={() => setDialog(null)} isDisabled={busy}>
               {t('common.cancel')}
             </Button>
             <Button
-              color='success'
-              className='font-semibold text-success-foreground'
+              color='primary'
+              size='lg'
+              className='rounded-[13px] font-semibold'
               onPress={submitMark}
               isLoading={busy}
               isDisabled={!selected || referenceMissing}
@@ -336,11 +347,17 @@ export function MarkPaidControl({
         isOpen={dialog === 'undo'}
         onOpenChange={(open) => !open && !busy && setDialog(null)}
         placement='center'
-        backdrop='blur'
+        backdrop='opaque'
+        scrollBehavior='inside'
+        classNames={{
+          wrapper: 'p-2 sm:p-4',
+          base: 'ui-popup !rounded-[24px] m-0 w-full max-h-[calc(100dvh-2rem)]',
+          backdrop: 'bg-black/50',
+        }}
       >
         <ModalContent>
-          <ModalHeader>{t('paid.undo')}</ModalHeader>
-          <ModalBody className='space-y-3'>
+          <ModalHeader className='text-lg font-semibold ink'>{t('paid.undo')}</ModalHeader>
+          <ModalBody className='space-y-3 overflow-y-auto'>
             <p className='text-sm font-medium text-foreground'>{t('paid.undoConfirm')}</p>
             <Input
               label={t('paid.reason')}
@@ -350,11 +367,11 @@ export function MarkPaidControl({
               isDisabled={busy}
             />
           </ModalBody>
-          <ModalFooter>
-            <Button variant='flat' onPress={() => setDialog(null)} isDisabled={busy}>
+          <ModalFooter className='flex flex-wrap justify-end gap-2 border-t border-line'>
+            <Button variant='bordered' size='lg' className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold' onPress={() => setDialog(null)} isDisabled={busy}>
               {t('common.cancel')}
             </Button>
-            <Button color='danger' className='font-semibold' onPress={submitUndo} isLoading={busy}>
+            <Button color='danger' size='lg' className='rounded-[13px] font-semibold' onPress={submitUndo} isLoading={busy}>
               {t('paid.undo')}
             </Button>
           </ModalFooter>
@@ -371,18 +388,19 @@ export function MarkPaidControl({
     if (!canShowMark) return badge;
     return (
       <>
-        <button
-          type='button'
-          onClick={(e) => {
-            e.stopPropagation();
-            openMark();
-          }}
-          className='rounded-full outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-primary'
-          title={t('paid.mark')}
-          aria-label={t('paid.mark')}
-        >
-          {badge}
-        </button>
+        <Hint content={t('paid.mark')} placement='top'>
+          <button
+            type='button'
+            onClick={(e) => {
+              e.stopPropagation();
+              openMark();
+            }}
+            className='rounded-full outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-[var(--brand)]'
+            aria-label={t('paid.mark')}
+          >
+            {badge}
+          </button>
+        </Hint>
         {dialogs}
       </>
     );
@@ -393,11 +411,11 @@ export function MarkPaidControl({
   return (
     <>
       {refusal && (
-        <div className='flex items-start gap-2 rounded-lg border border-warning bg-content1 px-3 py-2'>
-          <AlertTriangle size={16} className='mt-0.5 shrink-0 text-warning' />
+        <div className='ui-notice'>
+          <AlertTriangle size={16} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-amber)]' />
           <div className='min-w-0 flex-1 text-sm'>
-            <div className='font-semibold text-foreground'>{t('paid.refusedTitle')}</div>
-            <div className='font-medium text-default-700'>
+            <div className='font-semibold ink'>{t('paid.refusedTitle')}</div>
+            <div className='font-medium ink-2'>
               {refusal.title} — {refusal.body}
             </div>
           </div>
@@ -408,7 +426,7 @@ export function MarkPaidControl({
             aria-label={t('common.close')}
             onPress={dismissRefusal}
           >
-            <X size={15} />
+            <X size={15} strokeWidth={1.8} />
           </Button>
         </div>
       )}
@@ -418,9 +436,9 @@ export function MarkPaidControl({
           {canShowMark && (
             <Button
               size={size}
-              color='success'
-              className='font-semibold text-success-foreground'
-              startContent={<HandCoins size={15} />}
+              color='primary'
+              className='rounded-[11px] font-semibold [@media(pointer:coarse)]:min-h-11'
+              startContent={<HandCoins size={15} strokeWidth={1.8} />}
               onPress={openMark}
             >
               {t('paid.mark')}
@@ -429,9 +447,9 @@ export function MarkPaidControl({
           {canShowUndo && (
             <Button
               size={size}
-              variant='flat'
-              className='font-semibold'
-              startContent={<Undo2 size={15} />}
+              variant='bordered'
+              className='rounded-[11px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold [@media(pointer:coarse)]:min-h-11'
+              startContent={<Undo2 size={15} strokeWidth={1.8} />}
               onPress={openUndo}
             >
               {t('paid.undo')}

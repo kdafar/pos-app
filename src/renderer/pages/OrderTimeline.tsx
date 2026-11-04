@@ -33,15 +33,15 @@ type Event = { action: string; at: number; user?: string | null };
 
 /** Icon and tone per action. Unknown actions still get a sane default. */
 const LOOK: Record<string, { Icon: LucideIcon; tone: string }> = {
-  'orders.start': { Icon: Play, tone: 'text-default-700' },
-  'orders.setType': { Icon: Shuffle, tone: 'text-default-700' },
-  'orders.addLineWithAddons': { Icon: CirclePlus, tone: 'text-primary' },
-  'orders.clearLines': { Icon: Ban, tone: 'text-warning' },
-  'orders.setDeliveryFee': { Icon: Truck, tone: 'text-warning' },
-  'orders.setPaymentMethod': { Icon: CreditCard, tone: 'text-warning' },
-  'orders.complete': { Icon: CheckCircle2, tone: 'text-success' },
-  'orders.close': { Icon: Lock, tone: 'text-success' },
-  'orders.print': { Icon: Printer, tone: 'text-default-700' },
+  'orders.start': { Icon: Play, tone: 'ink-2' },
+  'orders.setType': { Icon: Shuffle, tone: 'ink-2' },
+  'orders.addLineWithAddons': { Icon: CirclePlus, tone: 'text-[var(--brand-strong)]' },
+  'orders.clearLines': { Icon: Ban, tone: 'text-[var(--st-amber)]' },
+  'orders.setDeliveryFee': { Icon: Truck, tone: 'text-[var(--st-amber)]' },
+  'orders.setPaymentMethod': { Icon: CreditCard, tone: 'text-[var(--st-amber)]' },
+  'orders.complete': { Icon: CheckCircle2, tone: 'text-[var(--st-green)]' },
+  'orders.close': { Icon: Lock, tone: 'text-[var(--st-green)]' },
+  'orders.print': { Icon: Printer, tone: 'ink-2' },
 };
 
 export function OrderTimeline({ events }: { events: Event[] }) {
@@ -49,7 +49,7 @@ export function OrderTimeline({ events }: { events: Event[] }) {
 
   if (!events.length) {
     return (
-      <div className='text-sm font-medium text-default-700'>
+      <div className='text-sm ink-2'>
         {t('admin.orders.noHistory')}
       </div>
     );
@@ -77,7 +77,7 @@ export function OrderTimeline({ events }: { events: Event[] }) {
   return (
     <ol className='relative space-y-0'>
       {ordered.map((e, i) => {
-        const look = LOOK[e.action] ?? { Icon: Clock, tone: 'text-default-700' };
+        const look = LOOK[e.action] ?? { Icon: Clock, tone: 'ink-2' };
         const last = i === ordered.length - 1;
         return (
           <li key={`${e.action}-${e.at}-${i}`} className='flex gap-3 min-w-0'>
@@ -85,18 +85,18 @@ export function OrderTimeline({ events }: { events: Event[] }) {
             <div className='flex flex-col items-center shrink-0'>
               <span
                 className={`flex h-7 w-7 items-center justify-center rounded-full
-                  bg-default-100 ${look.tone}`}
+                  border border-line bg-surface-2 ${look.tone}`}
               >
                 <look.Icon size={14} />
               </span>
-              {!last && <span className='w-px flex-1 bg-default-200 my-1' />}
+              {!last && <span className='w-px flex-1 bg-[var(--line-strong)] my-1' />}
             </div>
 
             <div className={`min-w-0 flex-1 ${last ? 'pb-0' : 'pb-4'}`}>
-              <div className='text-sm font-semibold text-foreground'>
+              <div className='text-sm font-semibold ink'>
                 {label(e.action)}
               </div>
-              <div className='flex items-center gap-2 flex-wrap text-xs text-default-700'>
+              <div className='flex items-center gap-2 flex-wrap text-xs ink-2'>
                 {/* Timestamps stay LTR so 17/08/2026 never mirrors in Arabic. */}
                 <span className='money' dir='ltr'>
                   {when(e.at)}

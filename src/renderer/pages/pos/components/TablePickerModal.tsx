@@ -13,6 +13,7 @@ import {
   Tabs,
 } from '@heroui/react';
 import { RotateCw } from 'lucide-react';
+import { Hint } from '../../../components/Hint';
 import { TableInfo, TableStatus, Order } from '../types';
 import { DataState } from '../../../components/PageShell';
 import { useI18n } from '../../../i18n';
@@ -33,16 +34,10 @@ const STATUS_COLOR: Record<TableStatus, 'success' | 'warning' | 'danger'> = {
   occupied: 'danger',
 };
 
-const STATUS_BORDER: Record<TableStatus, string> = {
-  available: 'border-success',
-  reserved: 'border-warning',
-  occupied: 'border-danger',
-};
-
 const STATUS_DOT: Record<TableStatus, string> = {
-  available: 'bg-success',
-  reserved: 'bg-warning',
-  occupied: 'bg-danger',
+  available: 'bg-[var(--st-green)]',
+  reserved: 'bg-[var(--st-amber)]',
+  occupied: 'bg-[var(--st-red)]',
 };
 
 export function TablePickerModal({
@@ -115,20 +110,24 @@ export function TablePickerModal({
       }}
       size='2xl'
       placement='center'
-      backdrop='blur'
+      backdrop='opaque'
       scrollBehavior='inside'
-      className='rounded-2xl'
+      classNames={{
+        wrapper: 'p-2 sm:p-4',
+        base: 'ui-popup !rounded-[24px] m-0 w-full max-h-[calc(100dvh-2rem)]',
+        backdrop: 'bg-black/50',
+      }}
     >
       <ModalContent>
         {() => (
           <>
             <ModalHeader className='flex flex-col gap-2'>
-              <span className='text-lg font-bold text-foreground'>
+              <span className='text-lg font-semibold ink'>
                 {t('tables.assign')}
               </span>
               {/* The legend is the key to the whole grid, so it is a solid
                   default-600 at readable size rather than an 11px whisper. */}
-              <div className='flex flex-wrap items-center gap-4 text-xs font-medium text-default-700'>
+              <div className='flex flex-wrap items-center gap-4 text-xs font-medium ink-2'>
                 {legend.map((s) => (
                   <span key={s} className='flex items-center gap-1.5'>
                     <span
@@ -140,7 +139,7 @@ export function TablePickerModal({
               </div>
             </ModalHeader>
 
-            <ModalBody className='gap-4'>
+            <ModalBody className='gap-4 overflow-y-auto'>
               <div className='flex flex-wrap items-end justify-between gap-3'>
                 <Input
                   type='number'
@@ -150,18 +149,20 @@ export function TablePickerModal({
                   value={String(covers)}
                   onValueChange={(v) => setCovers(Math.max(1, Number(v || 1)))}
                   classNames={{
+                    inputWrapper: 'ui-input',
                     input: 'money text-base font-semibold',
-                    label: 'text-sm font-semibold text-default-700',
+                    label: 'text-sm font-semibold ink-2',
                   }}
                   className='w-32'
                   aria-label={t('tables.covers')}
                 />
                 <Button
-                  variant='flat'
+                  variant='bordered'
                   size='lg'
+                  className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
                   onPress={handleRefresh}
                   isLoading={refreshing}
-                  startContent={!refreshing && <RotateCw size={18} />}
+                  startContent={!refreshing && <RotateCw size={18} strokeWidth={1.8} />}
                 >
                   {t('tables.refresh')}
                 </Button>
@@ -169,6 +170,7 @@ export function TablePickerModal({
 
               {floors.length > 0 && (
                 <Tabs
+                  classNames={{ base: 'max-w-full', tabList: 'max-w-full overflow-x-auto chip-scroll' }}
                   aria-label={t('tables.floor')}
                   selectedKey={floor}
                   onSelectionChange={(k) => setFloor(String(k))}
@@ -190,7 +192,7 @@ export function TablePickerModal({
               )}
 
               {current.table_id && (
-                <p className='text-sm font-medium text-default-700'>
+                <p className='text-sm font-medium ink-2'>
                   {t('tables.tip')}
                 </p>
               )}
@@ -205,7 +207,7 @@ export function TablePickerModal({
                 empty={visible.length === 0}
                 emptyTitle={t('tables.none')}
               >
-                <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
+                <div className='grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3'>
                   {/* `tbl`, not `t` — `t` is the translator in this scope. */}
                   {visible.map((tbl) => {
                     const isCurrent = current.table_id === tbl.id;
@@ -213,14 +215,21 @@ export function TablePickerModal({
                     const disabled = !isCurrent && tbl.status !== 'available';
 
                     return (
-                      <button
+                      <Hint
                         key={tbl.id}
+                        placement='top'
+                        content={t('tables.seatsTitle', {
+                          name: lang === 'ar' && tbl.name_ar ? tbl.name_ar : tbl.name,
+                          seats: tbl.seats || 0,
+                        })}
+                      >
+                      <button
                         type='button'
                         onClick={() => {
                           if (!disabled) onAssign(tbl, covers);
                         }}
                         disabled={disabled}
-                        title={t('tables.seatsTitle', {
+                        aria-label={t('tables.seatsTitle', {
                           name: lang === 'ar' && tbl.name_ar ? tbl.name_ar : tbl.name,
                           seats: tbl.seats || 0,
                         })}
@@ -228,25 +237,24 @@ export function TablePickerModal({
                         // the floor still has to read "Occupied" from arm's
                         // length. It is the surface and the cursor that say
                         // "not this one", never the contrast.
-                        className={`flex min-h-28 flex-col justify-between rounded-xl border-2 p-3 text-start transition
-                          ${STATUS_BORDER[tbl.status]}
-                          ${
-                            disabled
-                              ? 'cursor-not-allowed bg-default-100'
-                              : 'bg-content1 hover:-translate-y-0.5 hover:bg-default-100 hover:shadow-sm'
-                          }
+                        className={`flex min-h-28 w-full flex-col justify-between rounded-[16px] border p-3 text-start transition
                           ${
                             isCurrent
-                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-content1'
-                              : ''
+                              ? 'border-2 border-[var(--brand)] shadow-[0_0_0_4px_var(--brand-ring)]'
+                              : 'border-line-strong'
+                          }
+                          ${
+                            disabled
+                              ? 'cursor-not-allowed bg-surface-2'
+                              : 'bg-surface hover:border-[var(--brand)] hover:shadow-[var(--shadow-1)]'
                           }`}
                       >
                         <div className='flex items-start justify-between gap-2'>
                           <div className='min-w-0 flex-1'>
-                            <div className='truncate text-base font-semibold text-foreground'>
+                            <div className='truncate text-base font-semibold ink'>
                               {lang === 'ar' && tbl.name_ar ? tbl.name_ar : tbl.name}
                             </div>
-                            <div className='mt-1 text-sm font-medium text-default-700'>
+                            <div className='mt-1 text-sm font-medium ink-2'>
                               {t('tables.seats')}:{' '}
                               <span className='money'>{tbl.seats || 0}</span>
                             </div>
@@ -255,26 +263,32 @@ export function TablePickerModal({
                             size='sm'
                             variant='solid'
                             color={STATUS_COLOR[tbl.status]}
-                            className='shrink-0 font-semibold'
+                            className='shrink-0 font-semibold text-white'
                           >
                             {statusLabel(tbl.status)}
                           </Chip>
                         </div>
 
                         {isCurrent && (
-                          <div className='mt-2 text-xs font-semibold text-primary'>
+                          <div className='mt-2 text-xs font-semibold text-[var(--brand-strong)]'>
                             {t('tables.currentlyAssigned')}
                           </div>
                         )}
                       </button>
+                      </Hint>
                     );
                   })}
                 </div>
               </DataState>
             </ModalBody>
 
-            <ModalFooter>
-              <Button variant='flat' size='lg' onPress={onClose}>
+            <ModalFooter className='flex flex-wrap justify-end gap-2 border-t border-line'>
+              <Button
+                variant='bordered'
+                size='lg'
+                className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                onPress={onClose}
+              >
                 {t('common.close')}
               </Button>
             </ModalFooter>

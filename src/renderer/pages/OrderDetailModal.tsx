@@ -49,6 +49,16 @@ import { SYNCED_EVENT } from '../utils/syncEvents';
  * looking like an order with nothing in it.
  */
 
+/** Status chip colour per docs/DESIGN-SYSTEM.md. */
+function statusChip(status: unknown): string {
+  const s = String(status ?? '').toLowerCase();
+  if (s === 'closed' || s === 'completed' || s === 'done') return 'ui-chip-green';
+  if (s === 'ready' || s === 'awaiting_pickup') return 'ui-chip-blue';
+  if (s.startsWith('cancel') || s === 'rejected' || s === 'refunded') return 'ui-chip-red';
+  if (s === 'placed' || s === 'new') return 'ui-chip-brand';
+  return 'ui-chip-gray';
+}
+
 /** A labelled panel. The label is a solid tone, never a faded one. */
 function Section({
   icon: Icon,
@@ -60,9 +70,9 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <div className='rounded-xl border border-default-200 bg-default-50 p-3.5 space-y-2'>
-      <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-default-700'>
-        <Icon size={14} />
+    <div className='ui-card min-w-0 space-y-2 p-4'>
+      <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ink-2'>
+        <Icon size={16} strokeWidth={1.8} />
         {title}
       </div>
       {children}
@@ -176,21 +186,21 @@ export function OrderDetailModal({
           const l = row.original;
           return (
             <div className='leading-tight'>
-              <span className='font-semibold text-foreground'>
+              <span className='font-semibold ink'>
                 {localName(l)}
               </span>
               {l.variation && (
-                <span className='ms-1 text-xs font-medium text-default-700'>
+                <span className='ms-1 text-xs ink-2'>
                   [{l.variation}]
                 </span>
               )}
               {l.addons_name && (
-                <div className='text-xs font-medium text-default-700'>
+                <div className='text-xs ink-2'>
                   + {l.addons_name}
                 </div>
               )}
               {l.notes && (
-                <div className='text-xs font-medium italic text-default-700'>
+                <div className='text-xs font-medium italic ink-2'>
                   {l.notes}
                 </div>
               )}
@@ -232,35 +242,46 @@ export function OrderDetailModal({
       placement='center'
       backdrop='blur'
       scrollBehavior='inside'
-      className='rounded-2xl'
+      classNames={{
+        base: 'm-2 max-h-[calc(100dvh-1rem)] w-full rounded-3xl bg-surface shadow-[var(--shadow-3)] sm:m-4 sm:max-h-[calc(100dvh-2rem)]',
+      }}
     >
       <ModalContent>
         <ModalHeader className='flex flex-col gap-1'>
-          <span className='text-xs font-semibold uppercase tracking-wide text-default-700'>
+          <span className='text-xs font-semibold uppercase tracking-wide ink-2'>
             {t('admin.orders.detailTitle')}
           </span>
-          <span className='flex items-center gap-2 text-lg font-bold text-foreground'>
-            {o?.reference_no ? `#${o.reference_no}` : (o?.number ?? orderId)}
-            {o && <PaymentBadge order={o} size='md' />}
+          <span className='flex flex-wrap items-center gap-2 text-2xl font-bold ink'>
+            <span className='money min-w-0 break-words'>
+              {o?.reference_no ? `#${o.reference_no}` : (o?.number ?? orderId)}
+            </span>
+            {o && (
+              <span className='flex flex-wrap items-center gap-1.5'>
+                <span className={`ui-chip ${statusChip(o.status)}`}>{statusLabel(o.status)}</span>
+                <span className='ui-chip ui-chip-outline'>{typeLabel(o.order_type)}</span>
+                <PaymentBadge order={o} size='md' />
+              </span>
+            )}
           </span>
           {o?.reference_no && (
-            <span className='text-xs font-medium text-default-700' dir='ltr'>
+            <span className='text-xs ink-2' dir='ltr'>
               {o.number}
             </span>
           )}
         </ModalHeader>
 
-        <ModalBody className='nice-scroll space-y-3'>
+        <ModalBody className='nice-scroll space-y-3 px-3 sm:px-6'>
           <DataState loading={loading} error={error} onRetry={load}>
             {data && o && (
               <>
                 {data.isServerSeed && (
-                  <div className='flex items-start gap-2 rounded-lg border border-warning bg-content1 px-3 py-2'>
+                  <div className='ui-notice'>
                     <AlertTriangle
                       size={16}
-                      className='shrink-0 mt-0.5 text-warning'
+                      strokeWidth={1.8}
+                      className='mt-0.5 shrink-0 text-[var(--st-amber)]'
                     />
-                    <span className='text-sm font-medium text-foreground'>
+                    <span className='text-sm font-medium ink'>
                       {t('admin.orders.seedOnly')}
                     </span>
                   </div>
@@ -268,18 +289,18 @@ export function OrderDetailModal({
 
                 <div className='grid gap-3 sm:grid-cols-2'>
                   <Section icon={User} title={t('cust.customer')}>
-                    <div className='text-sm font-medium text-foreground'>
+                    <div className='text-sm font-medium ink'>
                       {o.full_name || '—'}
                     </div>
                     <div
-                      className='text-xs font-medium text-default-700'
+                      className='text-xs ink-2'
                       dir='ltr'
                     >
                       {o.mobile || '—'}
                     </div>
                     {o.email && (
                       <div
-                        className='text-xs font-medium text-default-700'
+                        className='text-xs ink-2'
                         dir='ltr'
                       >
                         {o.email}
@@ -288,66 +309,66 @@ export function OrderDetailModal({
                   </Section>
 
                   <Section icon={Receipt} title={t('admin.orders.summary')}>
-                    <div className='text-sm font-medium text-foreground'>
+                    <div className='text-sm font-medium ink'>
                       {typeLabel(o.order_type)} · {statusLabel(o.status)}
                     </div>
-                    <div className='text-xs font-medium text-default-700'>
+                    <div className='text-xs ink-2'>
                       {t('admin.orders.placedAt')}: {when(o.opened_at)}
                     </div>
                     {o.table_name && (
-                      <div className='text-xs font-medium text-default-700'>
+                      <div className='text-xs ink-2'>
                         {t('cust.table')}: {o.table_name}
                       </div>
                     )}
                   </Section>
 
                   <Section icon={MapPin} title={t('cust.address')}>
-                    <div className='text-sm font-medium text-foreground'>
+                    <div className='text-sm font-medium ink'>
                       {geoLine || '—'}
                     </div>
                     {o.address && (
-                      <div className='text-xs font-medium text-default-700'>
+                      <div className='text-xs ink-2'>
                         {o.address}
                       </div>
                     )}
                     {o.landmark && (
-                      <div className='text-xs font-medium text-default-700'>
+                      <div className='text-xs ink-2'>
                         {o.landmark}
                       </div>
                     )}
                   </Section>
 
                   <Section icon={CreditCard} title={t('cust.paymentMethod')}>
-                    <div className='text-sm font-medium text-foreground'>
+                    <div className='text-sm font-medium ink'>
                       {data.payment?.method_slug || '—'}
                     </div>
                     {data.payment?.link_url && (
                       <Button
-                        size='sm'
-                        variant='flat'
-                        color='primary'
-                        startContent={<QrCode size={15} />}
+                        size='md'
+                        variant='bordered'
+                        className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                        startContent={<QrCode size={16} strokeWidth={1.8} />}
                         onPress={() => onShowQr?.(orderId)}
                       >
                         {t('admin.orders.showQr')}
                       </Button>
                     )}
                     {data.payment?.verified_at && (
-                      <div className='text-xs font-medium text-default-700'>
+                      <div className='text-xs ink-2'>
                         {when(data.payment.verified_at)}
                       </div>
                     )}
                     {o.paid_status === 'paid' && o.paid_time && (
-                      <div className='text-xs font-medium text-default-700'>
+                      <div className='text-xs ink-2'>
                         {t('paid.at', {
                           time: when(Date.parse(o.paid_time) || null),
                         })}
                       </div>
                     )}
                     {o.paid_status === 'paid' && o.paid_reference && (
-                      <div className='text-xs font-medium text-default-700'>
+                      <div className='text-xs ink-2'>
                         {t('paid.referenceShown', { ref: '' })}
-                        <span dir='ltr' className='font-semibold text-foreground'>{o.paid_reference}</span>
+                        <span dir='ltr' className='font-semibold ink'>{o.paid_reference}</span>
                       </div>
                     )}
                     {/* Mark paid / Undo paid. Reloads the detail afterwards,
@@ -363,15 +384,23 @@ export function OrderDetailModal({
                 </div>
 
                 {/* Items */}
-                <DataTable
-                  data={lines}
-                  columns={columns}
-                  empty={t('cart.empty')}
-                  getRowId={(r: any, i) => String(r?.id ?? i)}
-                />
+                <div className='min-w-0 space-y-2'>
+                  <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ink-2'>
+                    {t('opts.variation')}
+                    <span className='ui-count'>{lines.length}</span>
+                  </div>
+                  <div className='ui-card min-w-0 overflow-x-auto'>
+                    <DataTable
+                      data={lines}
+                      columns={columns}
+                      empty={t('cart.empty')}
+                      getRowId={(r: any, i) => String(r?.id ?? i)}
+                    />
+                  </div>
+                </div>
 
                 {/* Totals */}
-                <div className='rounded-xl border border-default-200 bg-default-50 p-3.5 space-y-1 text-sm'>
+                <div className='ui-card space-y-1 p-4 text-sm'>
                   {[
                     [t('cart.subtotal'), o.subtotal],
                     [t('cart.discount'), o.discount_total],
@@ -379,13 +408,13 @@ export function OrderDetailModal({
                   ].map(([label, val]: any) => (
                     <div
                       key={label}
-                      className='flex items-center justify-between gap-3 font-medium text-default-700'
+                      className='flex items-center justify-between gap-3 ink-2'
                     >
                       <span>{label}</span>
                       <span className='money text-end'>{money(val)}</span>
                     </div>
                   ))}
-                  <div className='flex items-center justify-between gap-3 border-t border-default-200 pt-1 text-base font-bold text-foreground'>
+                  <div className='flex items-center justify-between gap-3 border-t border-line pt-2 text-base font-bold ink'>
                     <span>{t('cart.grandTotal')}</span>
                     <span className='money text-end'>
                       {money(o.grand_total)}
@@ -402,8 +431,8 @@ export function OrderDetailModal({
           </DataState>
         </ModalBody>
 
-        <ModalFooter>
-          <Button color='primary' onPress={onClose}>
+        <ModalFooter className='px-3 sm:px-6'>
+          <Button color='primary' size='lg' fullWidth className='font-semibold' onPress={onClose}>
             {t('common.close')}
           </Button>
         </ModalFooter>

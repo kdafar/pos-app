@@ -1,6 +1,6 @@
 // src/renderer/pages/ItemDetailPanel.tsx
 import { useEffect, useState } from 'react';
-import { Chip, Spinner } from '@heroui/react';
+import { Spinner } from '@heroui/react';
 import { useI18n } from '../i18n';
 
 import { errorLine as errLine } from '../utils/posError';
@@ -96,8 +96,8 @@ export function ItemDetailPanel({
 
   if (error) {
     return (
-      <div className='py-2 text-sm font-semibold text-danger break-words'>
-        {error}
+      <div className='ui-notice my-1 text-sm break-words'>
+        <span className='text-danger font-semibold'>{error}</span>
       </div>
     );
   }
@@ -120,7 +120,7 @@ export function ItemDetailPanel({
     <div className='grid gap-4 md:grid-cols-2 min-w-0'>
       {variations.length > 0 && (
         <section className='min-w-0'>
-          <h4 className='text-xs uppercase tracking-wider font-bold text-default-700 mb-2'>
+          <h4 className='text-xs uppercase tracking-wide font-semibold ink-2 mb-2'>
             {t('opts.variation')}
           </h4>
           <ul className='space-y-1'>
@@ -153,7 +153,7 @@ export function ItemDetailPanel({
 
       {groups.length > 0 && (
         <section className='min-w-0'>
-          <h4 className='text-xs uppercase tracking-wider font-bold text-default-700 mb-2'>
+          <h4 className='text-xs uppercase tracking-wide font-semibold ink-2 mb-2'>
             {t('admin.addons.groupsTitle')}
           </h4>
           <div className='space-y-2'>
@@ -167,18 +167,13 @@ export function ItemDetailPanel({
                     <span className='text-sm font-semibold truncate'>
                       {localName(g)}
                     </span>
-                    <Chip
-                      size='sm'
-                      variant='solid'
-                      color={g.is_required ? 'warning' : 'default'}
-                      className='font-semibold'
-                    >
+                    <span className={`ui-chip ${g.is_required ? 'ui-chip-amber' : 'ui-chip-gray'}`}>
                       {g.is_required ? t('common.required') : t('common.optional')}
-                    </Chip>
+                    </span>
                     {g.max_select && Number(g.max_select) > 0 && (
-                      <Chip size='sm' variant='solid'>
+                      <span className='ui-chip ui-chip-outline'>
                         {t('opts.maxChoices', { n: String(g.max_select) })}
-                      </Chip>
+                      </span>
                     )}
                   </div>
                   {list.length === 0 ? (

@@ -289,7 +289,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
       {/* Bottom-centre, clear of the edge and above a numpad. */}
       <div
-        className='pointer-events-none fixed inset-x-0 bottom-6 z-[9999] flex flex-col items-center gap-3 px-4'
+        className='pointer-events-none fixed inset-x-0 bottom-3 z-[9999] flex flex-col items-center gap-3 px-3 sm:bottom-6 sm:px-4'
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
       >
@@ -325,28 +325,28 @@ const TONE_STYLES: Record<
   { icon: ReactNode; chip: string; accent: string; bar: string }
 > = {
   success: {
-    icon: <CheckCircle2 className='h-6 w-6' />,
-    chip: 'bg-success/15 text-success',
-    accent: 'border-s-success',
-    bar: 'bg-success',
+    icon: <CheckCircle2 className='h-6 w-6' strokeWidth={1.8} />,
+    chip: 'bg-[var(--st-green)] text-white',
+    accent: '',
+    bar: 'bg-[var(--st-green)]',
   },
   warning: {
-    icon: <AlertTriangle className='h-6 w-6' />,
-    chip: 'bg-warning/15 text-warning',
-    accent: 'border-s-warning',
-    bar: 'bg-warning',
+    icon: <AlertTriangle className='h-6 w-6' strokeWidth={1.8} />,
+    chip: 'bg-[var(--st-amber)] text-white',
+    accent: '',
+    bar: 'bg-[var(--st-amber)]',
   },
   danger: {
-    icon: <AlertCircle className='h-6 w-6' />,
-    chip: 'bg-danger/15 text-danger',
-    accent: 'border-s-danger',
-    bar: 'bg-danger',
+    icon: <AlertCircle className='h-6 w-6' strokeWidth={1.8} />,
+    chip: 'bg-[var(--st-red)] text-white',
+    accent: '',
+    bar: 'bg-[var(--st-red)]',
   },
   info: {
-    icon: <Info className='h-6 w-6' />,
-    chip: 'bg-primary/15 text-primary',
-    accent: 'border-s-primary',
-    bar: 'bg-primary',
+    icon: <Info className='h-6 w-6' strokeWidth={1.8} />,
+    chip: 'bg-[var(--brand)] text-[var(--brand-ink)]',
+    accent: '',
+    bar: 'bg-[var(--brand)]',
   },
 };
 
@@ -392,14 +392,14 @@ function ToastCard({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8, transition: { duration: 0.14 } }}
         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-        className='pointer-events-auto flex max-w-[420px] items-center gap-2 rounded-full border border-default-200 bg-content1 py-2 ps-3 pe-2 shadow-lg'
+        className='ui-popup pointer-events-auto flex max-w-full items-center gap-2 !rounded-full py-2 ps-3 pe-2 sm:max-w-[420px]'
         role='status'
         aria-live='polite'
       >
-        <span className={`inline-flex shrink-0 ${tone === 'success' ? 'text-success' : 'text-primary'}`}>
-          {tone === 'success' ? <CheckCircle2 className='h-5 w-5' /> : <Info className='h-5 w-5' />}
+        <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${tone === 'success' ? 'bg-[var(--st-green)] text-white' : 'bg-[var(--brand)] text-[var(--brand-ink)]'}`}>
+          {tone === 'success' ? <CheckCircle2 className='h-4 w-4' strokeWidth={1.8} /> : <Info className='h-4 w-4' strokeWidth={1.8} />}
         </span>
-        <span className='min-w-0 truncate text-base font-semibold text-foreground'>
+        <span className='min-w-0 truncate text-base font-semibold ink'>
           {toast.title}
         </span>
         <Button
@@ -407,11 +407,11 @@ function ToastCard({
           variant='light'
           size='sm'
           radius='full'
-          className='shrink-0'
+          className='h-11 w-11 shrink-0'
           aria-label={t('toast.dismiss')}
           onPress={onDismiss}
         >
-          <X className='h-4 w-4 text-default-700' />
+          <X className='h-4 w-4 ink-2' strokeWidth={1.8} />
         </Button>
       </motion.div>
     );
@@ -424,13 +424,11 @@ function ToastCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 8, transition: { duration: 0.14 } }}
       transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-      className={`pointer-events-auto w-full max-w-[560px] sm:min-w-[420px]
-        overflow-hidden rounded-xl border border-default-200 border-s-4 ${style.accent}
-        bg-content1 shadow-2xl`}
+      className={`ui-popup pointer-events-auto w-full max-w-[560px] overflow-hidden sm:min-w-[min(420px,100%)] ${style.accent}`}
       role={tone === 'danger' || tone === 'warning' ? 'alert' : 'status'}
       aria-live={tone === 'danger' ? 'assertive' : 'polite'}
     >
-      <div className='flex items-start gap-3 p-4'>
+      <div className='flex items-start gap-3 p-3 sm:p-4'>
         {/* The icon carries the state as well as the colour — a good part of
             any shop's staff cannot rely on red-versus-amber alone. */}
         <span
@@ -443,11 +441,11 @@ function ToastCard({
           {toast.title && (
             <div className='flex items-center gap-2'>
               {/* Title says what happened; the body says what to do next. */}
-              <span className='text-[22px] font-bold leading-snug text-foreground'>
+              <span className='text-[22px] font-semibold leading-snug ink'>
                 {toast.title}
               </span>
               {toast.count > 1 && (
-                <span className='rounded-full bg-default-200 px-2 py-0.5 text-base font-bold text-default-700'>
+                <span className='ui-chip ui-chip-gray'>
                   {t('error.repeated', { count: toast.count })}
                 </span>
               )}
@@ -457,7 +455,7 @@ function ToastCard({
           {toast.message && (
             // 18px floor, dark neutral rather than red — small red text on a
             // light background is the least readable thing on a till.
-            <div className='mt-1 break-words text-[18px] font-medium leading-relaxed text-default-700'>
+            <div className='mt-1 break-words text-[18px] font-medium leading-relaxed ink-2'>
               {toast.message}
             </div>
           )}
@@ -467,10 +465,9 @@ function ToastCard({
               {toast.onRetry && (
                 <Button
                   size='lg'
-                  variant='flat'
                   color={tone === 'danger' ? 'danger' : 'primary'}
-                  className='h-12 text-base font-semibold'
-                  startContent={<RotateCw className='h-5 w-5' />}
+                  className='h-12 rounded-[13px] text-base font-semibold'
+                  startContent={<RotateCw className='h-5 w-5' strokeWidth={1.8} />}
                   onPress={() => {
                     onDismiss();
                     void toast.onRetry?.();
@@ -483,7 +480,7 @@ function ToastCard({
                 <Button
                   size='sm'
                   variant='light'
-                  className='h-11 text-base text-default-700'
+                  className='h-11 text-base ink-2'
                   endContent={
                     <ChevronDown
                       className={`h-4 w-4 transition-transform ${showDetail ? 'rotate-180' : ''}`}
@@ -506,22 +503,22 @@ function ToastCard({
                 transition={{ duration: 0.18, ease: 'easeOut' }}
                 className='overflow-hidden'
               >
-                <div className='mt-2 rounded-lg bg-default-100 p-2.5'>
+                <div className='mt-2 rounded-[11px] border border-line bg-surface-2 p-2.5'>
                   {toast.code && (
-                    <div className='mb-1 text-base font-bold tracking-wide text-default-700'>
+                    <div className='mb-1 text-base font-bold tracking-wide ink-2'>
                       {t('error.code')}: {toast.code}
                     </div>
                   )}
                   {/* dir=ltr: the raw text is English, and mirroring it in an
                       Arabic UI makes it unreadable to whoever is on the phone
                       to support. */}
-                  <div dir='ltr' className='break-words text-start text-base text-default-700'>
+                  <div dir='ltr' className='break-words text-start text-base ink-2'>
                     {toast.detail}
                   </div>
                   <Button
                     size='sm'
                     variant='light'
-                    className='mt-1 h-11 text-base text-default-700'
+                    className='mt-1 h-11 text-base ink-2'
                     startContent={
                       copied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />
                     }
@@ -544,7 +541,7 @@ function ToastCard({
           aria-label={t('toast.dismiss')}
           onPress={onDismiss}
         >
-          <X className='h-5 w-5 text-default-700' />
+          <X className='h-5 w-5 ink-2' strokeWidth={1.8} />
         </Button>
       </div>
 
@@ -552,7 +549,7 @@ function ToastCard({
           is then a single property — the bar freezes exactly when the dismiss
           timer does, instead of drifting out of step with it. */}
       {toast.durationMs > 0 && (
-        <div className='h-1 w-full bg-default-100'>
+        <div className='h-1 w-full bg-[var(--hover)]'>
           <div
             className={`h-full ${style.bar} opacity-60`}
             style={{
@@ -597,7 +594,7 @@ function BlockerDialog({
   };
 
   return (
-    <div className='fixed inset-0 z-[10000] flex items-center justify-center p-4'>
+    <div className='fixed inset-0 z-[10000] flex items-center justify-center p-2 sm:p-4'>
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -610,19 +607,19 @@ function BlockerDialog({
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.12 } }}
         transition={{ duration: 0.18, ease: 'easeOut' }}
-        className='relative w-full max-w-[560px] rounded-2xl border border-danger/40 bg-content1 p-8 shadow-2xl'
+        className='ui-popup relative max-h-[calc(100dvh-2rem)] w-full max-w-[560px] overflow-y-auto !rounded-[24px] p-5 sm:p-8'
         role='alertdialog'
         aria-modal='true'
         dir={isRTL ? 'rtl' : 'ltr'}
       >
-        <span className='mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-danger/15 text-danger'>
-          <AlertOctagon className='h-8 w-8' />
+        <span className='mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--st-red)] text-white'>
+          <AlertOctagon className='h-8 w-8' strokeWidth={1.8} />
         </span>
 
         {/* Arabic renders visually smaller at the same size, so the title runs
             a step up from the toast's 22px. */}
-        <h2 className='text-[24px] font-bold leading-snug text-foreground'>{blocker.title}</h2>
-        <p className='mt-2 text-[18px] font-medium leading-relaxed text-default-700'>
+        <h2 className='text-[24px] font-semibold leading-snug ink'>{blocker.title}</h2>
+        <p className='mt-2 text-[18px] font-medium leading-relaxed ink-2'>
           {blocker.message}
         </p>
 
@@ -630,17 +627,17 @@ function BlockerDialog({
           <Button
             color='danger'
             size='lg'
-            className='h-12 min-w-[8rem] text-base font-semibold'
+            className='h-12 min-w-[8rem] rounded-[13px] text-base font-semibold'
             onPress={onClose}
           >
             {t('common.ok')}
           </Button>
           {blocker.onRetry && (
             <Button
-              variant='flat'
+              variant='bordered'
               size='lg'
-              className='h-12 text-base font-semibold'
-              startContent={<RotateCw className='h-5 w-5' />}
+              className='h-12 rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] text-base font-semibold'
+              startContent={<RotateCw className='h-5 w-5' strokeWidth={1.8} />}
               onPress={() => {
                 onClose();
                 void blocker.onRetry?.();
@@ -656,7 +653,7 @@ function BlockerDialog({
           down a phone to support — and it used to show the code and nothing
           else. It has always been handed a `detail` and never rendered it.
         */}
-        <div className='mt-5 w-full text-base text-default-700'>
+        <div className='mt-5 w-full text-base ink-2'>
           <div className='flex flex-wrap items-center justify-between gap-2'>
             <span>
               {t('error.code')}: <span dir='ltr'>{blocker.code}</span>
@@ -665,7 +662,7 @@ function BlockerDialog({
               <Button
                 size='sm'
                 variant='light'
-                className='h-11 text-base text-default-700'
+                className='h-11 text-base ink-2'
                 endContent={
                   <ChevronDown
                     className={`h-4 w-4 transition-transform ${showDetail ? 'rotate-180' : ''}`}
@@ -687,18 +684,18 @@ function BlockerDialog({
                 transition={{ duration: 0.18, ease: 'easeOut' }}
                 className='overflow-hidden'
               >
-                <div className='mt-2 rounded-lg bg-default-100 p-2.5'>
+                <div className='mt-2 rounded-[11px] border border-line bg-surface-2 p-2.5'>
                   {/* dir=ltr: the raw text is English either way. */}
                   <div
                     dir='ltr'
-                    className='break-words text-start text-base text-default-700'
+                    className='break-words text-start text-base ink-2'
                   >
                     {blocker.detail}
                   </div>
                   <Button
                     size='sm'
                     variant='light'
-                    className='mt-1 h-11 text-base text-default-700'
+                    className='mt-1 h-11 text-base ink-2'
                     startContent={
                       copied ? (
                         <Check className='h-4 w-4' />

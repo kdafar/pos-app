@@ -3,6 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Chip } from '@heroui/react';
 import { ChevronRight, X } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { Hint } from '../components/Hint';
 import { DataTable } from '../components/DataTable';
 import { DataState, PageShell, SearchField } from '../components/PageShell';
 
@@ -54,14 +55,9 @@ function ActiveChip({ value }: { value: any }) {
   const { t } = useI18n();
   const on = parseBool(value);
   return (
-    <Chip
-      size='sm'
-      variant='solid'
-      color={on ? 'success' : 'default'}
-      className='font-semibold'
-    >
+    <span className={`ui-chip ${on ? 'ui-chip-green' : 'ui-chip-gray'}`}>
       {on ? t('admin.enabled') : t('admin.disabled')}
-    </Chip>
+    </span>
   );
 }
 
@@ -78,7 +74,7 @@ function SectionHeading({
   clearTitle: string;
 }) {
   return (
-    <h2 className='text-lg font-bold text-foreground flex items-center gap-2 min-w-0'>
+    <h2 className='text-base font-semibold ink flex items-center gap-2 min-w-0'>
       <span className='truncate'>{title}</span>
       {filterLabel && (
         <Chip
@@ -86,15 +82,16 @@ function SectionHeading({
           variant='solid'
           className='font-semibold'
           endContent={
-            <button
-              type='button'
-              onClick={onClearFilter}
-              aria-label={clearTitle}
-              title={clearTitle}
-              className='ms-0.5'
-            >
-              <X size={14} />
-            </button>
+            <Hint content={clearTitle} placement='bottom'>
+              <button
+                type='button'
+                onClick={onClearFilter}
+                aria-label={clearTitle}
+                className='ms-0.5'
+              >
+                <X size={14} strokeWidth={1.8} />
+              </button>
+            </Hint>
           }
         >
           {filterLabel}
@@ -346,14 +343,14 @@ export default function LocationsPage() {
           {/* Breadcrumb of the current drill-down, so the two filters below are
               never a mystery. */}
           {(selectedStateRow || selectedCityRow) && (
-            <div className='flex items-center gap-1.5 text-sm font-medium text-default-700 flex-wrap'>
+            <div className='flex items-center gap-1.5 text-sm ink-2 flex-wrap'>
               <button
                 type='button'
                 onClick={() => {
                   setSelectedState(null);
                   setSelectedCity(null);
                 }}
-                className='hover:text-primary transition-colors'
+                className='hover:text-[var(--ink)] transition-colors'
               >
                 {t('admin.loc.allStates')}
               </button>
@@ -363,7 +360,7 @@ export default function LocationsPage() {
                   <button
                     type='button'
                     onClick={() => setSelectedCity(null)}
-                    className='text-foreground font-semibold hover:text-primary transition-colors'
+                    className='ink font-semibold hover:text-[var(--brand-strong)] transition-colors'
                   >
                     {localName(selectedStateRow)}
                   </button>
@@ -372,7 +369,7 @@ export default function LocationsPage() {
               {selectedCityRow && (
                 <>
                   <ChevronRight size={14} className='rtl:-scale-x-100' />
-                  <span className='text-foreground font-semibold'>
+                  <span className='ink font-semibold'>
                     {localName(selectedCityRow)}
                   </span>
                 </>

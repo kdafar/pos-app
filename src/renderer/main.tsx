@@ -4,6 +4,16 @@ import { BrowserRouter, HashRouter } from 'react-router-dom';
 import { HeroUIProvider } from '@heroui/react';
 import App from './App.tsx';
 import './styles/tailwind.css';
+// Bundled fonts (the till must look right offline): Inter for Latin,
+// IBM Plex Sans Arabic for Arabic, weights 400-700.
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/ibm-plex-sans-arabic/400.css';
+import '@fontsource/ibm-plex-sans-arabic/500.css';
+import '@fontsource/ibm-plex-sans-arabic/600.css';
+import '@fontsource/ibm-plex-sans-arabic/700.css';
 import { ThemeProvider } from '../context/ThemeContext';
 import { I18nProvider } from './i18n';
 import { ConfirmDialogProvider } from './../renderer/components/ConfirmDialogProvider';

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, Chip } from '@heroui/react';
+import { Button } from '@heroui/react';
 import { Eraser } from 'lucide-react';
 
 import { useConfirmDialog } from '../components/ConfirmDialogProvider';
@@ -94,10 +94,10 @@ const STATUS_KEY: Record<TableStatus, StringKey> = {
   reserved: 'admin.tables.reserved',
 };
 
-const STATUS_COLOR: Record<TableStatus, 'success' | 'warning' | 'danger'> = {
-  available: 'success',
-  reserved: 'warning',
-  occupied: 'danger',
+const STATUS_COLOR: Record<TableStatus, 'green' | 'amber' | 'red'> = {
+  available: 'green',
+  reserved: 'amber',
+  occupied: 'red',
 };
 
 export default function TablesPage() {
@@ -177,7 +177,7 @@ export default function TablesPage() {
         message: (
           <div className='space-y-1 text-sm'>
             <p>{t('admin.tables.clearBody')}</p>
-            <p className='text-xs text-default-700'>
+            <p className='text-xs ink-2'>
               {t('admin.tables.clearHint')}
             </p>
           </div>
@@ -252,14 +252,9 @@ export default function TablesPage() {
         cell: (info) => {
           const s = info.getValue() as TableStatus;
           return (
-            <Chip
-              size='sm'
-              variant='solid'
-              color={STATUS_COLOR[s] ?? 'default'}
-              className='font-semibold'
-            >
+            <span className={`ui-chip ui-chip-${STATUS_COLOR[s] ?? 'gray'}`}>
               {t(STATUS_KEY[s] ?? 'admin.tables.occupied')}
-            </Chip>
+            </span>
           );
         },
       },
@@ -295,10 +290,10 @@ export default function TablesPage() {
           // An available table has nothing to clear.
           row.original.status === 'available' ? null : (
             <Button
-              size='sm'
               color='danger'
-              variant='flat'
-              startContent={<Eraser size={15} />}
+              variant='light'
+              className='font-semibold'
+              startContent={<Eraser size={16} strokeWidth={1.8} />}
               onPress={() => handleClearTable(row.original)}
             >
               {t('admin.tables.clear')}
