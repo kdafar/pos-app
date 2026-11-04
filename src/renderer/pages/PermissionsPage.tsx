@@ -154,7 +154,7 @@ export default function PermissionsPage() {
 
   return (
     <PageShell title={t('permissions.title')} subtitle={t('permissions.subtitle')}>
-      <div className='mx-auto max-w-6xl'>
+      <div className='max-w-6xl'>
         {busy && !role ? (
           <div className='flex justify-center py-16'>
             <Spinner />
@@ -241,7 +241,7 @@ export default function PermissionsPage() {
                       </p>
                     </div>
                   </div>
-                  <span className='ui-chip ui-chip-brand'>
+                  <span className='ui-chip ui-chip-outline'>
                     {t('permissions.enabled', {
                       allowed: allowed.size,
                       total: PERMISSIONS.length,

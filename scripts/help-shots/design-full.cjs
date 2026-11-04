@@ -207,7 +207,7 @@ const ROUTES = [
           await shot('21-mark-paid-dialog'); await esc();
         });
         await safe('order details', async () => {
-          await win.getByRole('button', { name: t.viewDetails }).first().click(); await sleep(900);
+          await win.getByText('Mona', { exact: true }).first().click(); await sleep(900);
           await shot('22-order-details'); await esc();
         });
       }
@@ -224,7 +224,18 @@ const ROUTES = [
       await win.getByPlaceholder(t.pw).fill('demo1234');
       await btn(t.signIn).click();
       await win.waitForURL(/#\/$/, { timeout: 15000 }); await sleep(1500);
-      await win.locator('header button').filter({ hasText: t.dineIn }).first().click(); await sleep(900);
+      await btn(t.NEW, false).first().click(); await sleep(700);
+      await win.locator('header').getByText(t.dineIn, { exact: true }).last().click(); await sleep(700);
+      await btn(t.assign, false).first().click(); await sleep(800);
+      await dialog().getByText('T3', { exact: true }).first().click(); await sleep(800);
+      if (await dialog().isVisible().catch(() => false)) {
+        await dialog().getByRole('button', { name: t.assign }).click().catch(() => {}); await sleep(500);
+      }
+      await win.getByText(t.juice, { exact: true }).first().click(); await sleep(600);
+      await btn(t.updatePay, false).last().click(); await sleep(900);
+      await checkout().getByPlaceholder(t.fullName).fill('Yousef');
+      await checkout().getByText(t.cash, { exact: true }).first().click();
+      await checkout().getByRole('button', { name: t.place }).click(); await sleep(1500);
       await btn(t.remove, false).last().click(); await sleep(900);
       await shot('11-approval-dialog');
       await btn(t.cancel, true).last().click().catch(() => esc()); await sleep(400);

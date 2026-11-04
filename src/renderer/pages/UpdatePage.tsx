@@ -5,14 +5,14 @@
 // makes that visible and gives the operator the two decisions that are
 // genuinely theirs: check now, and restart now instead of at closing time.
 //
-// One story: "where am I, what should I do". A single hero card carries the
-// state (icon, solid status chip, title, hint, progress) and the one relevant
-// action; installed version / last checked sit inside it. Below: what's new,
-// a three-step stepper with the current step highlighted, and a short
-// pre-restart checklist. No tinted fills — status is a solid chip, the icon
-// sits in a neutral circle.
+// One panel, three questions: which version is this, is it current, what do
+// I tap. The single relevant action sits next to the version; the status line
+// says where things stand (with a progress bar while downloading); the
+// pre-restart checklist appears only when a restart is the next step, and
+// release notes only when there is a new version. Everything else is one
+// quiet line under the panel.
 
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@heroui/react';
 import {
   RefreshCw,
@@ -21,8 +21,6 @@ import {
   AlertTriangle,
   Ban,
   Rocket,
-  ShieldCheck,
-  Wifi,
   Power,
   Clock3,
 } from 'lucide-react';
@@ -34,35 +32,14 @@ import { PageShell } from '../components/PageShell';
 
 type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
-/** Chip colour per tone: a solid status chip, white text (design system). */
-const CHIP: Record<Tone, string> = {
-  neutral: 'ui-chip-gray',
-  info: 'ui-chip-blue',
-  success: 'ui-chip-green',
-  warning: 'ui-chip-amber',
-  danger: 'ui-chip-red',
+/** Status icon colour per tone (fixed status colours, design system). */
+const DOT: Record<Tone, string> = {
+  neutral: 'ink-3',
+  info: 'text-[var(--st-blue)]',
+  success: 'text-[var(--st-green)]',
+  warning: 'text-[var(--st-amber)]',
+  danger: 'text-[var(--st-red)]',
 };
-
-/** Section heading: small uppercase label, per the design system. */
-function SectionTitle({ children }: { children: ReactNode }) {
-  return (
-    <h2 className='text-xs font-semibold uppercase tracking-wide ink-2'>
-      {children}
-    </h2>
-  );
-}
-
-/** A label above a value. */
-function FieldLabel({ children }: { children: ReactNode }) {
-  return (
-    <div className='text-xs font-semibold uppercase tracking-wide ink-2'>
-      {children}
-    </div>
-  );
-}
-
-/** "1. Check" -> "Check": the chip wants the word, not the step number. */
-const stripStepNo = (s: string) => s.replace(/^[\d٠-٩]+\.\s*/, '');
 
 function formatBytes(n: number): string {
   if (!n || n < 0) return '—';
@@ -92,11 +69,6 @@ export function UpdatePage() {
   }, [lastCheckedAt, t]);
 
   const readyVersion = state.status === 'ready' ? state.version : null;
-  const stage = ['available', 'downloading'].includes(state.status)
-    ? 2
-    : state.status === 'ready'
-    ? 3
-    : 1;
   // A check while downloading or installing would be ignored by main anyway.
   const canCheck =
     !busy &&
@@ -124,239 +96,159 @@ export function UpdatePage() {
     }
   };
 
-  const steps: [number, typeof RefreshCw, string, string][] = [
-    [1, RefreshCw, t('update.stepCheck'), t('update.stepCheckHelp')],
-    [2, Download, t('update.stepDownload'), t('update.stepDownloadHelp')],
-    [3, Rocket, t('update.stepInstall'), t('update.stepInstallHelp')],
-  ];
-
-  const tips: [typeof Wifi, string][] = [
-    [Wifi, t('update.helpInternet')],
+  // Shown only when an update is ready, so the download is already done:
+  // "keep the internet connected" no longer applies.
+  const tips: [typeof Clock3, string][] = [
     [Clock3, t('update.helpOrders')],
     [Power, t('update.helpPower')],
   ];
-
-  // Short status word for the chip, from text the app already has. Error and
-  // disabled have no short word, so their chip carries the icon alone.
-  const chipText =
-    state.status === 'idle' || state.status === 'checking'
-      ? stripStepNo(t('update.stepCheck'))
-      : state.status === 'available' || state.status === 'downloading'
-      ? stripStepNo(t('update.stepDownload'))
-      : state.status === 'ready'
-      ? t('update.badgeReady')
-      : // "Up to date" has no short word either; "Safe automatic updates"
-        // says something else, so this chip is the icon alone (title below).
-        null;
   const tone: Tone = state.status === 'ready' ? 'warning' : view.tone;
-
-  const checkButton = (
-    <Button
-      size='lg'
-      color={state.status === 'error' ? 'primary' : 'default'}
-      variant={
-        state.status === 'error' ? 'solid' : readyVersion ? 'light' : 'bordered'
-      }
-      className={`font-semibold ${
-        state.status === 'error' || readyVersion
-          ? ''
-          : 'border border-[var(--line-strong)] bg-[var(--surface)]'
-      }`}
-      onPress={check}
-      isLoading={checking}
-      isDisabled={!canCheck}
-      startContent={checking ? undefined : <RefreshCw size={17} />}
-    >
-      {state.status === 'error' ? t('update.tryAgain') : t('update.checkNow')}
-    </Button>
-  );
+  const [showError, setShowError] = useState(false);
 
   return (
     <PageShell title={t('update.title')} subtitle={t('update.subtitle')}>
-      <div className='mx-auto w-full max-w-4xl space-y-4 min-w-0'>
-        {/* Hero: where am I, and the one thing to do about it. */}
-        <div className='ui-card min-w-0'>
-          <div className='p-4 sm:p-6' aria-live='polite'>
-            <div className='flex flex-col items-start gap-4 sm:flex-row min-w-0'>
-              <div className='grid h-14 w-14 shrink-0 place-items-center rounded-full border border-line bg-surface-2'>
-                <view.Icon
-                  size={28}
-                  strokeWidth={1.8}
-                  className={`ink ${
-                    state.status === 'checking' ? 'animate-spin' : ''
-                  }`}
+      {/* One panel: which version, is it current, the one thing to do. */}
+      <div className='ui-card w-full max-w-2xl min-w-0 overflow-hidden'>
+        {/* Version + the one action */}
+        <div className='flex flex-wrap items-center gap-4 p-4 sm:p-5'>
+          <div className='grid h-12 w-12 shrink-0 place-items-center rounded-[14px] bg-[var(--brand)] text-[var(--brand-ink)]'>
+            <Rocket size={22} strokeWidth={1.8} />
+          </div>
+          <div className='min-w-0 flex-1'>
+            <div className='text-xs font-semibold ink-2'>
+              {t('update.installedVersion')}
+            </div>
+            {/* Versions are identifiers: always Latin, always LTR. */}
+            <div className='text-2xl font-bold ink money' dir='ltr'>
+              v{currentVersion || '—'}
+            </div>
+          </div>
+          <div className='flex w-full flex-wrap gap-2 sm:w-auto'>
+            {readyVersion ? (
+              <Button
+                color='primary'
+                size='lg'
+                className='w-full font-semibold sm:w-auto'
+                onPress={onInstall}
+                startContent={<Rocket size={16} />}
+              >
+                {t('update.installNow')}
+              </Button>
+            ) : state.status !== 'disabled' ? (
+              <Button
+                size='lg'
+                color={state.status === 'error' ? 'primary' : 'default'}
+                variant={state.status === 'error' ? 'solid' : 'bordered'}
+                className={`w-full font-semibold sm:w-auto ${
+                  state.status === 'error'
+                    ? ''
+                    : 'border border-[var(--line-strong)] bg-[var(--surface)]'
+                }`}
+                onPress={check}
+                isLoading={checking}
+                isDisabled={!canCheck}
+                startContent={checking ? undefined : <RefreshCw size={17} />}
+              >
+                {state.status === 'error' ? t('update.tryAgain') : t('update.checkNow')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Status */}
+        <div className='border-t border-line p-4 sm:p-5' aria-live='polite'>
+          <div className='flex min-w-0 items-start gap-3'>
+            <view.Icon
+              size={20}
+              strokeWidth={1.8}
+              className={`mt-0.5 shrink-0 ${DOT[tone]} ${
+                state.status === 'checking' ? 'animate-spin' : ''
+              }`}
+            />
+            <div className='min-w-0 flex-1'>
+              <div className='font-semibold ink'>{view.title}</div>
+              {view.hint && <div className='mt-0.5 text-sm ink-2'>{view.hint}</div>}
+              <div className='mt-1 text-xs ink-3'>
+                {t('update.lastChecked')}: {lastCheckedText}
+              </div>
+            </div>
+          </div>
+
+          {state.status === 'downloading' && (
+            <div className='mt-3 flex items-center gap-3'>
+              <div
+                className='h-2.5 flex-1 overflow-hidden rounded-full bg-[var(--hover)]'
+                role='progressbar'
+                aria-valuenow={state.percent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className='h-full bg-[var(--brand)] transition-[width] duration-300'
+                  style={{ width: `${Math.min(100, Math.max(0, state.percent))}%` }}
                 />
               </div>
-
-              <div className='min-w-0 flex-1'>
-                <span
-                  className={`ui-chip ${CHIP[tone]}`}
-                  aria-label={chipText ? undefined : view.title}
-                >
-                  <view.Icon size={14} strokeWidth={1.8} />
-                  {chipText}
-                </span>
-                <div className='mt-2 text-xl font-bold ink'>{view.title}</div>
-                {view.hint && (
-                  <div className='mt-1 max-w-prose text-sm ink-2'>
-                    {view.hint}
-                  </div>
-                )}
-
-                {state.status === 'downloading' && (
-                  <div className='mt-4'>
-                    <div
-                      className='h-3 w-full overflow-hidden rounded-full bg-[var(--hover)]'
-                      role='progressbar'
-                      aria-valuenow={state.percent}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                    >
-                      <div
-                        className='h-full bg-primary transition-[width] duration-300'
-                        style={{
-                          width: `${Math.min(100, Math.max(0, state.percent))}%`,
-                        }}
-                      />
-                    </div>
-                    <div
-                      className='mt-1 text-sm font-semibold ink money'
-                      dir='ltr'
-                    >
-                      {state.percent}%
-                    </div>
-                  </div>
-                )}
-
-                {/* Raw error text from the network stack — never translated. */}
-                {state.status === 'error' && (
-                  <pre
-                    className='mt-3 max-h-32 overflow-auto rounded-[11px] border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap break-all'
-                    dir='ltr'
-                  >
-                    {state.message}
-                  </pre>
-                )}
-
-                <div className='mt-4 flex flex-wrap items-center gap-2'>
-                  {/* The restart decision belongs with the status that prompts it. */}
-                  {readyVersion && (
-                    <Button
-                      color='primary'
-                      size='lg'
-                      className='w-full font-semibold sm:w-auto'
-                      onPress={onInstall}
-                      startContent={<Rocket size={16} />}
-                    >
-                      {t('update.installNow')}
-                    </Button>
-                  )}
-                  {checkButton}
-                </div>
-              </div>
+              <span className='text-sm font-semibold ink money' dir='ltr'>
+                {state.percent}%
+              </span>
             </div>
-          </div>
+          )}
 
-          <div className='grid min-w-0 gap-3 border-t border-line p-4 sm:grid-cols-2 sm:px-6'>
-            <div className='min-w-0'>
-              <FieldLabel>{t('update.installedVersion')}</FieldLabel>
-              {/* Versions are identifiers — always Latin, always LTR. */}
-              <div
-                className='mt-0.5 truncate font-mono text-base font-bold ink'
-                dir='ltr'
+          {/* Raw error text from the network stack is never translated, so it
+              stays folded away unless someone asks for it. */}
+          {state.status === 'error' && (
+            <div className='mt-3'>
+              <button
+                type='button'
+                className='ui-btn ui-btn-ghost ui-btn-sm'
+                onClick={() => setShowError((v) => !v)}
+                aria-expanded={showError}
               >
-                v{currentVersion || '—'}
-              </div>
+                {showError ? t('error.hideDetails') : t('error.details')}
+              </button>
+              {showError && (
+                <pre
+                  className='mt-2 max-h-32 overflow-auto rounded-[11px] border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap break-all'
+                  dir='ltr'
+                >
+                  {state.message}
+                </pre>
+              )}
             </div>
-            <div className='min-w-0'>
-              <FieldLabel>{t('update.lastChecked')}</FieldLabel>
-              <div className='mt-0.5 text-base font-semibold ink'>
-                {lastCheckedText}
+          )}
+
+          {/* The checklist only matters when a restart is the next step. */}
+          {readyVersion && (
+            <div className='ui-notice mt-3 flex-col'>
+              <div className='flex items-center gap-2 font-semibold'>
+                <AlertTriangle size={16} strokeWidth={1.8} className='text-[var(--st-amber)]' />
+                {t('update.beforeRestart')}
               </div>
+              <ul className='mt-1 space-y-1.5'>
+                {tips.map(([Icon, text]) => (
+                  <li key={text} className='flex min-w-0 gap-2 text-sm ink'>
+                    <Icon className='mt-0.5 shrink-0 ink-2' strokeWidth={1.8} size={16} />
+                    <span className='min-w-0'>{text}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
+          )}
         </div>
 
         {view.notes && (
-          <div className='ui-card min-w-0'>
-            <div className='flex flex-col gap-2 p-4 sm:p-5'>
-              <SectionTitle>{t('update.releaseNotes')}</SectionTitle>
-              <pre className='max-h-56 overflow-auto rounded-[11px] border border-line bg-surface-2 p-3 text-sm whitespace-pre-wrap'>
-                {view.notes}
-              </pre>
+          <div className='border-t border-line p-4 sm:p-5'>
+            <div className='mb-2 text-xs font-semibold uppercase tracking-wide ink-2'>
+              {t('update.releaseNotes')}
             </div>
+            <pre className='max-h-56 overflow-auto text-sm ink whitespace-pre-wrap font-[inherit]'>
+              {view.notes}
+            </pre>
           </div>
         )}
-
-        <div className='ui-card min-w-0'>
-          <div className='flex flex-col gap-3 p-4 sm:p-5'>
-            <SectionTitle>{t('update.howItWorks')}</SectionTitle>
-            <ol className='grid min-w-0 gap-3 sm:grid-cols-3'>
-              {steps.map(([n, Icon, title, help]) => {
-                const current = stage === n;
-                const past = stage > n;
-                return (
-                  <li
-                    key={n}
-                    aria-current={current ? 'step' : undefined}
-                    className={`min-w-0 rounded-[16px] border p-3 ${
-                      current ? 'border-primary' : 'border-line'
-                    }`}
-                  >
-                    <div className='flex min-w-0 items-center gap-2'>
-                      <div
-                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${
-                          current
-                            ? 'bg-primary text-primary-foreground'
-                            : past
-                            ? 'bg-[var(--ink)] text-[var(--surface)]'
-                            : 'bg-[var(--hover)] ink-2'
-                        }`}
-                      >
-                        <Icon size={15} strokeWidth={1.8} />
-                      </div>
-                      <span
-                        className={`truncate font-semibold ${
-                          current || past ? 'ink' : 'ink-2'
-                        }`}
-                      >
-                        {title}
-                      </span>
-                    </div>
-                    <p className='mt-2 text-sm leading-5 ink-2'>{help}</p>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        </div>
-
-        <div className='ui-card min-w-0'>
-          <div className='flex flex-col gap-3 p-4 sm:p-5'>
-            <div className='flex flex-wrap items-center justify-between gap-2'>
-              <SectionTitle>{t('update.beforeRestart')}</SectionTitle>
-              <span className='ui-chip ui-chip-green'>
-                <ShieldCheck size={14} strokeWidth={1.8} />
-                {t('update.safeBadge')}
-              </span>
-            </div>
-            <ul className='space-y-2'>
-              {tips.map(([Icon, text]) => (
-                <li key={text} className='flex min-w-0 gap-3 text-sm ink'>
-                  <Icon
-                    className='mt-0.5 shrink-0 ink-2'
-                    strokeWidth={1.8}
-                    size={18}
-                  />
-                  <span className='min-w-0'>{text}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        <p className='max-w-prose px-1 text-xs ink-2'>{t('update.autoNote')}</p>
       </div>
+
+      <p className='mt-3 max-w-2xl px-1 text-xs ink-2'>{t('update.autoNote')}</p>
     </PageShell>
   );
 }
