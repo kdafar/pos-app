@@ -1126,6 +1126,20 @@ export function clearRestaurantData(reason: string) {
 }
 
 /**
+ * SQL for "this till rang the order up": a local sale has a UUID id, a server
+ * order (web, partner, or another till's sale arriving over /pull) has the
+ * server's integer id. Same rule as isOwnOrder() in paidMarks.ts.
+ *
+ * Only own orders belong in the outbox. A pulled order never gets synced_at
+ * stamped, and its status label can be 'ready' (server code 3), which is also
+ * a pushable local status, so without this every other till's ready order
+ * would be pushed back up under its server id and counted as unsent here.
+ */
+export function ownOrderSql(alias: string): string {
+  return `${alias}.id GLOB '*[^0-9]*'`;
+}
+
+/**
  * Write every order the server never acknowledged to a file before a wipe.
  *
  * A wipe can be ordered from the back office or ticked by someone at the
@@ -1139,6 +1153,7 @@ function backupUnsentOrders(reason: string) {
       .prepare(
         `SELECT * FROM orders o
           WHERE (o.synced_at IS NULL OR o.synced_at = 0)
+            AND ${ownOrderSql('o')}
             AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = o.id)`
       )
       .all() as Array<{ id: string }>;
@@ -1177,6 +1192,7 @@ export function countUnsentOrders(): number {
         `SELECT COUNT(*) FROM orders o
           WHERE (o.synced_at IS NULL OR o.synced_at = 0)
             AND COALESCE(o.push_legacy, 0) = 0
+            AND ${ownOrderSql('o')}
             AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = o.id)`
       )
       .pluck()

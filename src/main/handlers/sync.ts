@@ -18,6 +18,7 @@ import db, {
   dataOwnerFor,
   getDataOwner,
   setDataOwner,
+  ownOrderSql,
 } from '../db';
 import { PUSHABLE_STATUSES, sqlList } from '../utils/orderStatus';
 
@@ -29,6 +30,7 @@ const PUSH_ELIGIBLE = `
   status IN (${sqlList(PUSHABLE_STATUSES)})
   AND (synced_at IS NULL OR synced_at = 0)
   AND COALESCE(push_legacy, 0) = 0
+  AND ${ownOrderSql('orders')}
   AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id = orders.id)
 `;
 import { safePushStatus } from '../utils/serverStatus';
@@ -307,6 +309,10 @@ function safeCollectUnsyncedOrders(limit = 20) {
         -- Never replay pre-temp_id pushes: the server stored them under a
         -- ULID nothing can map back, so a re-push duplicates a real sale.
         AND COALESCE(o.push_legacy, 0) = 0
+        -- Only this till's own sales. Orders from /pull (web, partner, and
+        -- since fix/pos-order-feed every other till's) carry the server's
+        -- integer id and are never ours to push. See ownOrderSql().
+        AND ${ownOrderSql('o')}
         -- Server seed rows (recent-orders feed, for phone lookup) live here
         -- too and carry no local lines. Pushing one back would echo the
         -- server's own order at it.
