@@ -40,20 +40,29 @@ const CHIP: Record<string, string> = {
   cancelled_client: 'bg-[var(--st-red)] text-white',
 };
 
-export function OrderStatusCell({
+export type StatusStep = { value: string; key: StringKey };
+
+/**
+ * The status flow for one order, with its `change()` (optimistic update,
+ * manager approval for cancelling a sent order, toast on refusal). The select
+ * below and the card's "next step" button + menu all go through this one
+ * handler.
+ *
+ * `next` is the first forward step (never the cancel); `others` is every other
+ * allowed choice, cancel last; `known` is false for drafts and for statuses the
+ * server owns, which have no step to offer.
+ */
+export function useOrderStatusFlow({
   orderId,
   status,
   statusCode,
-  disabled = false,
   onChanged,
 }: {
   orderId: string;
   status?: string | null;
   statusCode?: number | null;
-  disabled?: boolean;
   onChanged?: () => void | Promise<void>;
 }) {
-  const { t } = useI18n();
   const approve = useApproval();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -106,16 +115,25 @@ export function OrderStatusCell({
       localCode[f.value] === currentCode ||
       (nextCodes[currentCode] ?? []).includes(localCode[f.value])
   );
+  const forward = known
+    ? visible.filter(
+        (f) => f.value !== current && f.value !== 'cancelled_client'
+      )
+    : [];
+  const next: StatusStep | null = forward[0] ?? null;
+  const others: StatusStep[] = known
+    ? visible.filter((f) => f.value !== current && f !== next)
+    : [];
 
-  const change = async (next: string) => {
+  const change = async (nextStatus: string) => {
     const previous = current;
-    setCurrent(next); // optimistic; reverted if the handler refuses
+    setCurrent(nextStatus); // optimistic; reverted if the handler refuses
     setBusy(true);
     try {
       // Only cancelling an order already sent to the kitchen ever asks for a
       // manager; every other status change goes straight through.
       const done = await approve('cancel_sent_order', (approval) =>
-        window.api.invoke('orders:setStatus', orderId, next, approval)
+        window.api.invoke('orders:setStatus', orderId, nextStatus, approval)
       );
       if (done === null) {
         setCurrent(previous); // approval dialog cancelled
@@ -130,6 +148,30 @@ export function OrderStatusCell({
       setBusy(false);
     }
   };
+
+  return { current, known, visible, next, others, busy, change };
+}
+
+export function OrderStatusCell({
+  orderId,
+  status,
+  statusCode,
+  disabled = false,
+  onChanged,
+}: {
+  orderId: string;
+  status?: string | null;
+  statusCode?: number | null;
+  disabled?: boolean;
+  onChanged?: () => void | Promise<void>;
+}) {
+  const { t } = useI18n();
+  const { current, known, visible, busy, change } = useOrderStatusFlow({
+    orderId,
+    status,
+    statusCode,
+    onChanged,
+  });
 
   if (!known) {
     return <span className='ink-2'>{status || '—'}</span>;

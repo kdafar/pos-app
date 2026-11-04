@@ -1,8 +1,8 @@
 // src/renderer/pages/SettingsPage.tsx
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, Input, Switch } from '@heroui/react';
-import { AlertTriangle, Check, Copy, Download, Inbox, Languages, Lock, Printer, Type } from 'lucide-react';
+import { Button, Input, Select, SelectItem, Switch } from '@heroui/react';
+import { Activity, AlertTriangle, Check, Copy, Download, Inbox, Lock, Monitor, Printer, RotateCw, Wrench } from 'lucide-react';
 import {
   TEXT_SCALES,
   normalizeTextScale,
@@ -139,12 +139,25 @@ const PAPER_PRESETS = [
   { label: 'Letter', w: 216, h: 279 },
 ];
 
+type SectionId = 'till' | 'printing' | 'maintenance' | 'diagnostics';
+const SECTION_KEY = 'settings.section';
+const SECTION_IDS: SectionId[] = ['till', 'printing', 'maintenance', 'diagnostics'];
+
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
   // Already applied at startup (main.tsx); read it back from <html>.
   const [textScale, setTextScale] = useState<TextScaleId>(() =>
     normalizeTextScale(document.documentElement.dataset.textScale)
   );
+  // Remembered for the session only; the URL hash is left alone.
+  const [section, setSection] = useState<SectionId>(() => {
+    try {
+      const v = sessionStorage.getItem(SECTION_KEY) as SectionId | null;
+      return v && SECTION_IDS.includes(v) ? v : 'till';
+    } catch {
+      return 'till';
+    }
+  });
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -550,481 +563,568 @@ export function SettingsPage() {
 
   const isFiltered = !!q.trim() || sourceFilter !== 'all';
 
+  const cardBtn =
+    'font-semibold border border-[var(--line-strong)] bg-[var(--surface)]';
+  const selectClasses = { trigger: 'ui-input' };
+
+  const printerOptions = [
+    // Keeping the default as an explicit option matters: a shop whose only
+    // printer is the till printer should not be made to pin a device name that
+    // Windows may rename.
+    { value: '', label: t('settings.printerSystemDefault') },
+    ...(printerCfg?.printers ?? []).map((pr) => ({
+      value: pr.name,
+      label: pr.isDefault ? `${pr.displayName} ★` : pr.displayName,
+    })),
+  ];
+  const pinOptions = [
+    { value: '0', label: t('settings.drawerPin2') },
+    { value: '1', label: t('settings.drawerPin5') },
+  ];
+
+  const sections: { id: SectionId; label: string; icon: ReactNode }[] = [
+    { id: 'till', label: t('settings.secThisTill'), icon: <Monitor size={20} strokeWidth={1.8} /> },
+    { id: 'printing', label: t('settings.secPrinting'), icon: <Printer size={20} strokeWidth={1.8} /> },
+    { id: 'maintenance', label: t('settings.secMaintenance'), icon: <Wrench size={20} strokeWidth={1.8} /> },
+    { id: 'diagnostics', label: t('settings.secDiagnostics'), icon: <Activity size={20} strokeWidth={1.8} /> },
+  ];
+
+  const pickSection = (id: SectionId) => {
+    setSection(id);
+    try {
+      sessionStorage.setItem(SECTION_KEY, id);
+    } catch {
+      /* session memory is a convenience only */
+    }
+  };
+
   return (
-    <PageShell
-      title={t('settings.title')}
-      subtitle={t('settings.subtitle')}
-      count={loading || error ? undefined : filtered.length}
-      onRefresh={refresh}
-      refreshing={loading}
-      primaryAction={
-        <span className='ui-chip ui-chip-amber'>{t('admin.readOnly')}</span>
-      }
-      filters={
-        <>
-          <SearchField
-            value={q}
-            onChange={setQ}
-            placeholder={t('settings.searchPlaceholder')}
-          />
-          <FilterSelect
-            label={t('settings.filterBySource')}
-            value={sourceFilter}
-            onChange={(v) => setSourceFilter(v as typeof sourceFilter)}
-            options={[
-              { value: 'all', label: t('settings.allSources') },
-              { value: 'meta', label: t('settings.sourceMeta') },
-              { value: 'server', label: t('settings.sourceServer') },
-            ]}
-          />
-        </>
-      }
-    >
-      {/* Language lives here rather than behind a menu: shifts hand the till
-          over mid-service and the switch has to be findable in one look. */}
-      <div className='ui-card mb-4 min-w-0'>
-        <div className='flex flex-col gap-3 p-4 sm:p-5'>
-          <div>
-            <h2 className='text-base font-semibold ink'>
-              {t('nav.language')}
-            </h2>
-            <p className='mt-0.5 text-sm ink-2'>
-              {t('settings.languageHint')}
-            </p>
-          </div>
-          <div className='flex flex-wrap gap-2'>
-            {LANGS.map((l) => {
-              const current = l.code === lang;
-              return (
-                <Button
-                  key={l.code}
-                  color={current ? 'primary' : 'default'}
-                  variant={current ? 'solid' : 'bordered'}
-                  onPress={() => setLang(l.code)}
-                  startContent={
-                    current ? <Check size={18} /> : <Languages size={18} />
-                  }
-                  className={`font-semibold ${current ? '' : 'border border-[var(--line-strong)] bg-[var(--surface)]'}`}
-                >
-                  <span lang={l.code}>{l.label}</span>
-                </Button>
-              );
-            })}
+    <PageShell title={t('settings.pageTitle')} subtitle={t('settings.pageSubtitle')}>
+      <div className='flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:gap-6'>
+        {/* < lg: a switcher that scrolls sideways; >= lg: a sticky side list. */}
+        <div className='min-w-0 max-w-full overflow-x-auto chip-scroll lg:hidden'>
+          <div className='ui-seg' role='group' aria-label={t('settings.pageTitle')}>
+            {sections.map((s) => (
+              <button
+                key={s.id}
+                type='button'
+                className='ui-seg-item gap-2'
+                aria-pressed={section === s.id}
+                onClick={() => pickSection(s.id)}
+              >
+                {s.icon}
+                {s.label}
+              </button>
+            ))}
           </div>
         </div>
-      </div>
+        <nav
+          aria-label={t('settings.pageTitle')}
+          className='sticky top-4 hidden w-56 shrink-0 flex-col gap-1 lg:flex'
+        >
+          {sections.map((s) => (
+            <button
+              key={s.id}
+              type='button'
+              className='ui-nav flex min-h-11 w-full items-center gap-2.5 px-3 text-start text-sm'
+              aria-current={section === s.id ? 'page' : undefined}
+              onClick={() => pickSection(s.id)}
+            >
+              {s.icon}
+              <span className='min-w-0 truncate'>{s.label}</span>
+            </button>
+          ))}
+        </nav>
 
-      {/* Text size sits next to language for the same reason: it is a per-till
-          comfort setting, and a small tablet or a far-away screen needs it
-          changed by whoever is on shift, not by the office. */}
-      <div className='ui-card mb-4 min-w-0'>
-        <div className='flex flex-col gap-3 p-4 sm:p-5'>
-          <div>
-            <h2 className='text-base font-semibold ink'>
-              {t('settings.textSize')}
-            </h2>
-            <p className='mt-0.5 text-sm ink-2'>
-              {t('settings.textSizeHint')}
-            </p>
-          </div>
-          <div className='flex flex-wrap gap-2'>
-            {TEXT_SCALES.map((s) => {
-              const current = s.id === textScale;
-              return (
-                <Button
-                  key={s.id}
-                  color={current ? 'primary' : 'default'}
-                  variant={current ? 'solid' : 'bordered'}
-                  onPress={() => {
-                    setTextScale(s.id);
-                    void saveTextScale(s.id);
-                  }}
-                  startContent={current ? <Check size={18} /> : <Type size={18} />}
-                  className={`font-semibold ${current ? '' : 'border border-[var(--line-strong)] bg-[var(--surface)]'}`}
-                >
-                  {t(`settings.textSize.${s.id}`)}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Receipt printer. This is the one setting on the page that is written
-          rather than displayed: everything below comes from the server or from
-          device provisioning, but which printer a till uses is only knowable
-          on the till. */}
-      <div className='ui-card mb-4 min-w-0'>
-        <div className='flex flex-col gap-3 p-4 sm:p-5'>
-          <div>
-            <h2 className='flex items-center gap-2 text-base font-semibold ink'>
-              <Printer size={18} />
-              {t('settings.printer')}
-            </h2>
-            <p className='mt-0.5 text-sm ink-2'>
-              {t('settings.printerHint')}
-            </p>
-          </div>
-
-          {printerCfg && printerCfg.printers.length === 0 ? (
-            <div className='ui-notice items-center text-sm'>
-              <AlertTriangle size={18} strokeWidth={1.8} className='shrink-0 text-warning' />
-              {t('settings.printerNone')}
-            </div>
-          ) : (
-            <>
-              {printerCfg?.missing && (
-                <div className='ui-notice text-sm'>
-                  <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
-                  <span>{t('settings.printerMissing')}</span>
+        <div className='flex min-w-0 flex-1 flex-col gap-4'>
+          {section === 'till' && (
+            <SettingsCard>
+              {/* Language lives here rather than behind a menu: shifts hand the
+                  till over mid-service and the switch has to be findable in one
+                  look. */}
+              <SettingRow label={t('nav.language')} hint={t('settings.languageHint')}>
+                <div className='max-w-full overflow-x-auto chip-scroll'>
+                  <div className='ui-seg' role='group' aria-label={t('nav.language')}>
+                    {LANGS.map((l) => (
+                      <button
+                        key={l.code}
+                        type='button'
+                        className='ui-seg-item'
+                        aria-pressed={l.code === lang}
+                        onClick={() => setLang(l.code)}
+                      >
+                        <span lang={l.code}>{l.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              )}
+              </SettingRow>
+              {/* Text size is a per-till comfort setting: a small tablet or a
+                  far-away screen needs it changed by whoever is on shift. */}
+              <SettingRow label={t('settings.textSize')} hint={t('settings.textSizeHint')}>
+                <div className='max-w-full overflow-x-auto chip-scroll'>
+                  <div className='ui-seg' role='group' aria-label={t('settings.textSize')}>
+                    {TEXT_SCALES.map((s) => (
+                      <button
+                        key={s.id}
+                        type='button'
+                        className='ui-seg-item'
+                        aria-pressed={s.id === textScale}
+                        onClick={() => {
+                          setTextScale(s.id);
+                          void saveTextScale(s.id);
+                        }}
+                      >
+                        {t(`settings.textSize.${s.id}`)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </SettingRow>
+            </SettingsCard>
+          )}
 
-              <div className='flex flex-wrap items-end gap-4'>
-                <FilterSelect
-                  label={t('settings.printerSelect')}
-                  value={printerCfg?.printerName ?? ''}
-                  onChange={(v) => void savePrinter({ printerName: v })}
-                  className='sm:min-w-[18rem]'
-                  options={[
-                    // Keeping the default as an explicit option matters: a shop
-                    // whose only printer is the till printer should not be made
-                    // to pin a device name that Windows may rename.
-                    { value: '', label: t('settings.printerSystemDefault') },
-                    ...(printerCfg?.printers ?? []).map((pr) => ({
-                      value: pr.name,
-                      label: pr.isDefault
-                        ? `${pr.displayName} ★`
-                        : pr.displayName,
-                    })),
-                  ]}
-                />
-              </div>
+          {section === 'printing' && (
+            <>
+              {/* Receipt printer. This is the one setting on the page that is
+                  written rather than displayed: which printer a till uses is
+                  only knowable on the till. */}
+              <SettingsCard
+                icon={<Printer size={20} strokeWidth={1.8} />}
+                title={t('settings.printer')}
+                hint={t('settings.printerHint')}
+              >
+                {printerCfg && printerCfg.printers.length === 0 ? (
+                  <div className='py-4'>
+                    <div className='ui-notice items-center text-sm'>
+                      <AlertTriangle size={18} strokeWidth={1.8} className='shrink-0 text-warning' />
+                      {t('settings.printerNone')}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {printerCfg?.missing && (
+                      <div className='py-4'>
+                        <div className='ui-notice text-sm'>
+                          <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
+                          <span>{t('settings.printerMissing')}</span>
+                        </div>
+                      </div>
+                    )}
 
-              <div className='flex flex-wrap items-end gap-3'>
-                <Input
-                  type='number'
-                  label={t('settings.paperWidth')}
-                  labelPlacement='outside'
-                  value={widthDraft}
-                  onValueChange={setWidthDraft}
-                  onBlur={commitPaper}
-                  endContent={<span className='text-sm ink-2'>mm</span>}
-                  className='w-40'
-                  min={10}
-                  max={210}
-                />
-                <Input
-                  type='number'
-                  label={t('settings.paperHeight')}
-                  labelPlacement='outside'
-                  value={heightDraft}
-                  onValueChange={setHeightDraft}
-                  onBlur={commitPaper}
-                  endContent={<span className='text-sm ink-2'>mm</span>}
-                  className='w-40'
-                  min={0}
-                  max={2000}
-                  description={t('settings.paperHeightHint')}
-                />
-                <div className='flex flex-wrap gap-1 pb-1'>
-                  {PAPER_PRESETS.map((preset) => (
-                    <Button
-                      key={preset.label}
-                      variant='bordered'
-                      className='border border-[var(--line-strong)] bg-[var(--surface)]'
-                      onPress={() => {
-                        setWidthDraft(String(preset.w));
-                        setHeightDraft(String(preset.h));
-                        void savePrinter({
-                          paperWidthMm: preset.w,
-                          paperHeightMm: preset.h,
-                        });
+                    <SettingRow label={t('settings.printerSelect')}>
+                      <Select
+                        aria-label={t('settings.printerSelect')}
+                        classNames={selectClasses}
+                        className='w-full sm:w-72'
+                        selectedKeys={[printerCfg?.printerName ?? '']}
+                        onSelectionChange={(keys) => {
+                          const next = Array.from(keys)[0];
+                          if (next != null) void savePrinter({ printerName: String(next) });
+                        }}
+                      >
+                        {printerOptions.map((o) => (
+                          <SelectItem key={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </Select>
+                    </SettingRow>
+
+                    <SettingRow stack>
+                      <div className='flex flex-wrap items-start gap-3'>
+                        <Input
+                          type='number'
+                          label={t('settings.paperWidth')}
+                          labelPlacement='outside'
+                          value={widthDraft}
+                          onValueChange={setWidthDraft}
+                          onBlur={commitPaper}
+                          endContent={<span className='text-sm ink-2'>mm</span>}
+                          classNames={{ inputWrapper: 'ui-input' }}
+                          className='w-40'
+                          min={10}
+                          max={210}
+                        />
+                        <Input
+                          type='number'
+                          label={t('settings.paperHeight')}
+                          labelPlacement='outside'
+                          value={heightDraft}
+                          onValueChange={setHeightDraft}
+                          onBlur={commitPaper}
+                          endContent={<span className='text-sm ink-2'>mm</span>}
+                          classNames={{ inputWrapper: 'ui-input' }}
+                          className='w-40'
+                          min={0}
+                          max={2000}
+                          description={t('settings.paperHeightHint')}
+                        />
+                      </div>
+                      <div className='max-w-full overflow-x-auto chip-scroll'>
+                        <div className='ui-seg' role='group' aria-label={t('settings.paperWidth')}>
+                          {PAPER_PRESETS.map((preset) => (
+                            <button
+                              key={preset.label}
+                              type='button'
+                              className='ui-seg-item'
+                              aria-pressed={
+                                Number(widthDraft) === preset.w &&
+                                Number(heightDraft) === preset.h
+                              }
+                              onClick={() => {
+                                setWidthDraft(String(preset.w));
+                                setHeightDraft(String(preset.h));
+                                void savePrinter({
+                                  paperWidthMm: preset.w,
+                                  paperHeightMm: preset.h,
+                                });
+                              }}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </SettingRow>
+
+                    <SettingRow
+                      label={t('settings.printerDefaultPage')}
+                      hint={t('settings.printerDefaultPageHint')}
+                    >
+                      <Switch
+                        aria-label={t('settings.printerDefaultPage')}
+                        isSelected={!!printerCfg?.usePrinterDefaultPage}
+                        onValueChange={(v) => void savePrinter({ usePrinterDefaultPage: v })}
+                        isDisabled={printerBusy}
+                      />
+                    </SettingRow>
+
+                    <SettingRow
+                      label={t('settings.printDialog')}
+                      hint={t('settings.printDialogHint')}
+                    >
+                      <Switch
+                        aria-label={t('settings.printDialog')}
+                        isSelected={!!printerCfg?.showDialog}
+                        onValueChange={(v) => void savePrinter({ showDialog: v })}
+                        isDisabled={printerBusy}
+                      />
+                    </SettingRow>
+
+                    <SettingRow label={t('settings.printTest')}>
+                      <Button
+                        variant='bordered'
+                        onPress={testPrint}
+                        isLoading={printerBusy}
+                        startContent={!printerBusy ? <Printer size={18} strokeWidth={1.8} /> : undefined}
+                        className={cardBtn}
+                      >
+                        {t('settings.printTest')}
+                      </Button>
+                    </SettingRow>
+                  </>
+                )}
+
+                {printerResult && (
+                  <div className='py-4'>
+                    <ResultNotice result={printerResult} />
+                  </div>
+                )}
+              </SettingsCard>
+
+              {/* Cash drawer. Only rendered when the main process offers the
+                  channels, so an older build shows nothing rather than a dead
+                  card. It sits under the printer because the printer opens it —
+                  the wording says so, since a shop that does not know that will
+                  unplug the wrong cable when it stops working. */}
+              {drawerCfg && (
+                <SettingsCard
+                  icon={<Inbox size={20} strokeWidth={1.8} />}
+                  title={t('settings.drawer')}
+                  hint={t('settings.drawerHint')}
+                >
+                  <div className='flex flex-col gap-3 py-4'>
+                    {/* The one failure this cannot detect for the shop: a TSPL
+                        label printer, or a thermal printer with the wrong
+                        driver, accepts the RAW job and prints gibberish while
+                        the drawer never moves. Say so up front. */}
+                    <div className='ui-notice text-sm'>
+                      <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
+                      <span>{t('settings.drawerCompatWarning')}</span>
+                    </div>
+
+                    {drawerCfg.printerName ? (
+                      <p className='text-sm ink-2'>
+                        {t('settings.drawerVia')}:{' '}
+                        <span className='font-semibold ink'>{drawerCfg.printerName}</span>
+                      </p>
+                    ) : (
+                      <div className='ui-notice text-sm'>
+                        <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
+                        <span>{t('settings.drawerNoPrinter')}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <SettingRow
+                    label={t('settings.drawerEnable')}
+                    hint={t('settings.drawerEnableHint')}
+                  >
+                    <Switch
+                      aria-label={t('settings.drawerEnable')}
+                      isSelected={drawerCfg.enabled}
+                      onValueChange={(v) => void saveDrawer({ enabled: v })}
+                      isDisabled={drawerBusy}
+                    />
+                  </SettingRow>
+
+                  <SettingRow
+                    label={t('settings.drawerCashOnly')}
+                    hint={t('settings.drawerCashOnlyHint')}
+                  >
+                    <Switch
+                      aria-label={t('settings.drawerCashOnly')}
+                      isSelected={drawerCfg.cashOnly}
+                      onValueChange={(v) => void saveDrawer({ cashOnly: v })}
+                      isDisabled={drawerBusy || !drawerCfg.enabled}
+                    />
+                  </SettingRow>
+
+                  <SettingRow label={t('settings.drawerPin')} hint={t('settings.drawerPinHint')}>
+                    <Select
+                      aria-label={t('settings.drawerPin')}
+                      classNames={selectClasses}
+                      className='w-full sm:w-72'
+                      selectedKeys={[String(drawerCfg.pin)]}
+                      onSelectionChange={(keys) => {
+                        const next = Array.from(keys)[0];
+                        if (next != null) void saveDrawer({ pin: String(next) === '1' ? 1 : 0 });
                       }}
                     >
-                      {preset.label}
+                      {pinOptions.map((o) => (
+                        <SelectItem key={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </Select>
+                  </SettingRow>
+
+                  <SettingRow label={t('settings.drawerTest')}>
+                    <Button
+                      variant='bordered'
+                      onPress={testDrawer}
+                      isLoading={drawerBusy}
+                      isDisabled={!drawerCfg.printerName}
+                      startContent={!drawerBusy ? <Inbox size={18} strokeWidth={1.8} /> : undefined}
+                      className={cardBtn}
+                    >
+                      {t('settings.drawerTest')}
                     </Button>
-                  ))}
-                </div>
-              </div>
+                  </SettingRow>
 
-              <div className='flex flex-wrap items-center gap-4'>
-                <Switch
-                  isSelected={!!printerCfg?.usePrinterDefaultPage}
-                  onValueChange={(v) =>
-                    void savePrinter({ usePrinterDefaultPage: v })
-                  }
-                  isDisabled={printerBusy}
-                >
-                  <span className='text-sm font-semibold'>
-                    {t('settings.printerDefaultPage')}
-                  </span>
-                </Switch>
-              </div>
-              <p className='text-sm ink-2'>
-                {t('settings.printerDefaultPageHint')}
-              </p>
-
-              <div className='flex flex-wrap items-center gap-4'>
-                <Switch
-                  isSelected={!!printerCfg?.showDialog}
-                  onValueChange={(v) => void savePrinter({ showDialog: v })}
-                  isDisabled={printerBusy}
-                >
-                  <span className='text-sm font-semibold'>
-                    {t('settings.printDialog')}
-                  </span>
-                </Switch>
-                <Button
-                  variant='bordered'
-                  onPress={testPrint}
-                  isLoading={printerBusy}
-                  startContent={!printerBusy ? <Printer size={18} /> : undefined}
-                  className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
-                >
-                  {t('settings.printTest')}
-                </Button>
-              </div>
-              <p className='text-sm ink-2'>
-                {t('settings.printDialogHint')}
-              </p>
+                  {drawerResult && (
+                    <div className='py-4'>
+                      <ResultNotice result={drawerResult} />
+                    </div>
+                  )}
+                </SettingsCard>
+              )}
             </>
           )}
 
-          {printerResult && (
-            <span
-              className={`text-sm font-semibold ${
-                printerResult.kind === 'success' ? 'text-success' : 'text-danger'
-              }`}
-            >
-              {printerResult.message}
-            </span>
+          {section === 'maintenance' && (
+            <SettingsCard>
+              <SettingRow label={t('settings.invoiceLogo')} hint={t('settings.invoiceLogoHint')}>
+                <Button
+                  variant='bordered'
+                  onPress={fetchLogo}
+                  isLoading={logoBusy}
+                  startContent={!logoBusy ? <Download size={18} strokeWidth={1.8} /> : undefined}
+                  className={cardBtn}
+                >
+                  {t('settings.fetchLogo')}
+                </Button>
+              </SettingRow>
+              {logoResult && (
+                <div className='pb-4'>
+                  <ResultNotice result={logoResult} />
+                </div>
+              )}
+              <SettingRow label={t('settings.payFixTitle')} hint={t('settings.payFixHint')}>
+                <Button
+                  variant='bordered'
+                  onPress={backfillPayments}
+                  isLoading={payFixBusy}
+                  startContent={!payFixBusy ? <Download size={18} strokeWidth={1.8} /> : undefined}
+                  className={cardBtn}
+                >
+                  {t('settings.payFixRun')}
+                </Button>
+              </SettingRow>
+              {payFixResult && (
+                <div className='pb-4'>
+                  <ResultNotice result={payFixResult} />
+                </div>
+              )}
+            </SettingsCard>
+          )}
+
+          {section === 'diagnostics' && (
+            <>
+              <div className='ui-notice items-center text-sm'>
+                <Lock size={18} strokeWidth={1.8} className='shrink-0 text-warning' />
+                <span className='min-w-0'>{t('settings.readOnlyNotice')}</span>
+              </div>
+
+              <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                <span className='ui-chip ui-chip-amber'>{t('admin.readOnly')}</span>
+                {!loading && !error && (
+                  <span className='ui-count money'>{filtered.length}</span>
+                )}
+                <SearchField
+                  value={q}
+                  onChange={setQ}
+                  placeholder={t('settings.searchPlaceholder')}
+                />
+                <FilterSelect
+                  label={t('settings.filterBySource')}
+                  value={sourceFilter}
+                  onChange={(v) => setSourceFilter(v as typeof sourceFilter)}
+                  options={[
+                    { value: 'all', label: t('settings.allSources') },
+                    { value: 'meta', label: t('settings.sourceMeta') },
+                    { value: 'server', label: t('settings.sourceServer') },
+                  ]}
+                />
+                <Hint content={t('admin.refresh')} placement='bottom'>
+                  <Button
+                    isIconOnly
+                    variant='bordered'
+                    onPress={refresh}
+                    isLoading={loading}
+                    aria-label={t('admin.refresh')}
+                    className='ms-auto border border-[var(--line-strong)] bg-[var(--surface)]'
+                  >
+                    {!loading && <RotateCw size={20} strokeWidth={1.8} />}
+                  </Button>
+                </Hint>
+              </div>
+
+              {/* One source answered and the other faulted. The rows below are
+                  real but incomplete, so say so instead of letting a half-loaded
+                  page pass for the whole picture. */}
+              {partial && !error && (
+                <div className='ui-notice flex-wrap items-center gap-3 p-3'>
+                  <AlertTriangle size={20} strokeWidth={1.8} className='shrink-0 text-warning' />
+                  <div className='min-w-0 flex-1'>
+                    <div className='text-sm font-semibold ink'>
+                      {t('admin.settings.partialLoad')}
+                    </div>
+                    <div className='mt-0.5 break-words text-sm ink-2'>{partial}</div>
+                  </div>
+                  <Button
+                    variant='bordered'
+                    className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                    onPress={refresh}
+                  >
+                    {t('common.retry')}
+                  </Button>
+                </div>
+              )}
+
+              <DataState
+                loading={loading}
+                error={error}
+                onRetry={refresh}
+                empty={filtered.length === 0}
+                emptyTitle={
+                  isFiltered ? t('settings.noRowsFiltered') : t('settings.noRowsFound')
+                }
+                emptyHint={isFiltered ? t('admin.clearFiltersHint') : undefined}
+              >
+                <DataTable
+                  data={filtered}
+                  columns={columns}
+                  initialSorting={[{ id: 'key', desc: false }]}
+                  getRowId={(r, i) => `${r.source}:${r.key}:${i}`}
+                />
+              </DataState>
+            </>
           )}
         </div>
       </div>
-
-      {/* Cash drawer. Only rendered when the main process offers the channels,
-          so an older build shows nothing rather than a dead card. It sits
-          under the printer because it is opened by the printer — the wording
-          says so, since a shop that does not know that will unplug the wrong
-          cable when it stops working. */}
-      {drawerCfg && (
-        <div className='ui-card mb-4 min-w-0'>
-          <div className='flex flex-col gap-3 p-4 sm:p-5'>
-            <div>
-              <h2 className='flex items-center gap-2 text-base font-semibold ink'>
-                <Inbox size={18} />
-                {t('settings.drawer')}
-              </h2>
-              <p className='mt-0.5 text-sm ink-2'>
-                {t('settings.drawerHint')}
-              </p>
-            </div>
-
-            {/* The one failure this cannot detect for the shop. A TSPL label
-                printer, or a thermal printer installed with the wrong driver,
-                accepts the RAW job and renders the five bytes as characters —
-                a slip of gibberish and a drawer that never moves. Say so here
-                rather than letting the shop discover it mid-service. */}
-            <div className='ui-notice text-sm'>
-              <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
-              <span>{t('settings.drawerCompatWarning')}</span>
-            </div>
-
-            {drawerCfg.printerName && (
-              <p className='text-sm ink-2'>
-                {t('settings.drawerVia')}:{' '}
-                <span className='font-semibold ink'>
-                  {drawerCfg.printerName}
-                </span>
-              </p>
-            )}
-
-            {!drawerCfg.printerName && (
-              <div className='ui-notice text-sm'>
-                <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-warning' />
-                <span>{t('settings.drawerNoPrinter')}</span>
-              </div>
-            )}
-
-            <Switch
-              isSelected={drawerCfg.enabled}
-              onValueChange={(v) => void saveDrawer({ enabled: v })}
-              isDisabled={drawerBusy}
-            >
-              <span className='text-sm font-semibold'>
-                {t('settings.drawerEnable')}
-              </span>
-            </Switch>
-            <p className='text-sm ink-2'>
-              {t('settings.drawerEnableHint')}
-            </p>
-
-            <Switch
-              isSelected={drawerCfg.cashOnly}
-              onValueChange={(v) => void saveDrawer({ cashOnly: v })}
-              isDisabled={drawerBusy || !drawerCfg.enabled}
-            >
-              <span className='text-sm font-semibold'>
-                {t('settings.drawerCashOnly')}
-              </span>
-            </Switch>
-            <p className='text-sm ink-2'>
-              {t('settings.drawerCashOnlyHint')}
-            </p>
-
-            <div className='flex flex-wrap items-end gap-4'>
-              <FilterSelect
-                label={t('settings.drawerPin')}
-                value={String(drawerCfg.pin)}
-                onChange={(v) => void saveDrawer({ pin: v === '1' ? 1 : 0 })}
-                className='sm:min-w-[18rem]'
-                options={[
-                  { value: '0', label: t('settings.drawerPin2') },
-                  { value: '1', label: t('settings.drawerPin5') },
-                ]}
-              />
-              <Button
-                variant='bordered'
-                onPress={testDrawer}
-                isLoading={drawerBusy}
-                isDisabled={!drawerCfg.printerName}
-                startContent={!drawerBusy ? <Inbox size={18} /> : undefined}
-                className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
-              >
-                {t('settings.drawerTest')}
-              </Button>
-            </div>
-            <p className='text-sm ink-2'>
-              {t('settings.drawerPinHint')}
-            </p>
-
-            {drawerResult && (
-              <span
-                className={`text-sm font-semibold ${
-                  drawerResult.kind === 'success' ? 'text-success' : 'text-danger'
-                }`}
-              >
-                {drawerResult.message}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className='ui-card mb-4 min-w-0'>
-        <div className='flex flex-col gap-3 p-4 sm:p-5'>
-          <div>
-            <h2 className='text-base font-semibold ink'>
-              {t('settings.invoiceLogo')}
-            </h2>
-            <p className='mt-0.5 text-sm ink-2'>
-              {t('settings.invoiceLogoHint')}
-            </p>
-          </div>
-          <div className='flex flex-wrap items-center gap-3'>
-            <Button
-              variant='bordered'
-              onPress={fetchLogo}
-              isLoading={logoBusy}
-              startContent={!logoBusy ? <Download size={18} /> : undefined}
-              className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
-            >
-              {t('settings.fetchLogo')}
-            </Button>
-            {logoResult && (
-              <span
-                className={`text-sm font-semibold ${
-                  logoResult.kind === 'success' ? 'text-success' : 'text-danger'
-                }`}
-              >
-                {logoResult.message}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className='ui-card mb-4 min-w-0'>
-        <div className='flex flex-col gap-3 p-4 sm:p-5'>
-          <div>
-            <h2 className='text-base font-semibold ink'>
-              {t('settings.payFixTitle')}
-            </h2>
-            <p className='mt-0.5 text-sm ink-2'>
-              {t('settings.payFixHint')}
-            </p>
-          </div>
-          <div className='flex flex-wrap items-center gap-3'>
-            <Button
-              variant='bordered'
-              onPress={backfillPayments}
-              isLoading={payFixBusy}
-              startContent={!payFixBusy ? <Download size={18} /> : undefined}
-              className='font-semibold border border-[var(--line-strong)] bg-[var(--surface)]'
-            >
-              {t('settings.payFixRun')}
-            </Button>
-            {payFixResult && (
-              <span
-                className={`text-sm font-semibold ${
-                  payFixResult.kind === 'success'
-                    ? 'text-success'
-                    : 'text-danger'
-                }`}
-              >
-                {payFixResult.message}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* One source answered and the other faulted. The rows below are real but
-          incomplete, so this says so instead of letting a half-loaded page pass
-          for the whole picture. */}
-      {partial && !error && (
-        <div className='ui-notice mb-3 flex-wrap items-center gap-3 p-3'>
-          <AlertTriangle size={20} strokeWidth={1.8} className='shrink-0 text-warning' />
-          <div className='min-w-0 flex-1'>
-            <div className='text-sm font-semibold ink'>
-              {t('admin.settings.partialLoad')}
-            </div>
-            <div className='mt-0.5 break-words text-sm ink-2'>
-              {partial}
-            </div>
-          </div>
-          <Button
-            variant='bordered'
-            className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
-            onPress={refresh}
-          >
-            {t('common.retry')}
-          </Button>
-        </div>
-      )}
-
-      <DataState
-        loading={loading}
-        error={error}
-        onRetry={refresh}
-        empty={filtered.length === 0}
-        emptyTitle={
-          isFiltered ? t('settings.noRowsFiltered') : t('settings.noRowsFound')
-        }
-        emptyHint={isFiltered ? t('admin.clearFiltersHint') : undefined}
-      >
-        <DataTable
-          data={filtered}
-          columns={columns}
-          initialSorting={[{ id: 'key', desc: false }]}
-          getRowId={(r, i) => `${r.source}:${r.key}:${i}`}
-        />
-      </DataState>
-
-      <div className='mt-6 text-sm ink-2'>
-        {t('settings.readOnlyNotice')}
-      </div>
     </PageShell>
+  );
+}
+
+/* ---------- layout helpers ---------- */
+
+/** A card of setting rows; an optional header names a group of related rows. */
+function SettingsCard({
+  icon,
+  title,
+  hint,
+  children,
+}: {
+  icon?: ReactNode;
+  title?: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className='ui-card min-w-0 px-4 sm:px-5'>
+      {title && (
+        <header className='pt-4 sm:pt-5'>
+          <h2 className='flex items-center gap-2 text-base font-semibold ink'>
+            {icon}
+            {title}
+          </h2>
+          {hint && <p className='mt-0.5 text-sm ink-2'>{hint}</p>}
+        </header>
+      )}
+      <div className='divide-y divide-[var(--line)]'>{children}</div>
+    </section>
+  );
+}
+
+/** Label + hint on the start side, control on the end (below it when narrow). */
+function SettingRow({
+  label,
+  hint,
+  stack,
+  children,
+}: {
+  label?: string;
+  hint?: string;
+  /** Full-width control with no label column (e.g. paper size). */
+  stack?: boolean;
+  children: ReactNode;
+}) {
+  if (stack) {
+    return <div className='flex min-w-0 flex-col gap-3 py-4'>{children}</div>;
+  }
+  return (
+    <div className='flex min-w-0 flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6'>
+      <div className='min-w-0 sm:max-w-[60%]'>
+        <div className='text-sm font-semibold ink'>{label}</div>
+        {hint && <p className='mt-0.5 text-sm ink-2'>{hint}</p>}
+      </div>
+      <div className='min-w-0 sm:shrink-0'>{children}</div>
+    </div>
+  );
+}
+
+function ResultNotice({
+  result,
+}: {
+  result: { kind: 'success' | 'error'; message: string };
+}) {
+  const ok = result.kind === 'success';
+  return (
+    <div className='ui-notice text-sm' role='status'>
+      {ok ? (
+        <Check size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-success' />
+      ) : (
+        <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-danger' />
+      )}
+      <span className='min-w-0 break-words font-semibold ink'>{result.message}</span>
+    </div>
   );
 }

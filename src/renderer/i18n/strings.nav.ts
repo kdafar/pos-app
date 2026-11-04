@@ -67,6 +67,15 @@ export const navStrings = {
 
   /* ---------- settings page ---------- */
   'settings.title': { en: 'Settings (Read-only)', ar: 'الإعدادات (عرض فقط)' },
+  'settings.pageTitle': { en: 'Settings', ar: 'الإعدادات' },
+  'settings.pageSubtitle': {
+    en: 'Set up this till: language, text size, receipt printer and cash drawer.',
+    ar: 'جهّز هالجهاز: اللغة وحجم الخط وطابعة الإيصالات ودرج الكاش.',
+  },
+  'settings.secThisTill': { en: 'This till', ar: 'هالجهاز' },
+  'settings.secPrinting': { en: 'Printing', ar: 'الطباعة' },
+  'settings.secMaintenance': { en: 'Maintenance', ar: 'الصيانة' },
+  'settings.secDiagnostics': { en: 'Diagnostics', ar: 'التشخيص' },
   'settings.subtitle': {
     en: 'Meta (local) + Server settings. Sensitive values are masked. Pairing codes are hidden.',
     ar: 'إعدادات الجهاز المحلية وإعدادات الخادم. القيم الحساسة مخفية، وأكواد الربط لا تظهر.',

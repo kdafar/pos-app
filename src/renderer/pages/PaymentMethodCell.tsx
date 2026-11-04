@@ -45,6 +45,7 @@ export function PaymentMethodCell({
   amount,
   orderNumber,
   disabled = false,
+  wide = false,
   onChanged,
   onPaymentLink,
 }: {
@@ -54,6 +55,8 @@ export function PaymentMethodCell({
   amount: number;
   orderNumber?: string | null;
   disabled?: boolean;
+  /** Fill the container instead of the 10rem cap (used inside a dialog). */
+  wide?: boolean;
   onChanged?: () => void;
   onPaymentLink?: (link: {
     url: string;
@@ -171,7 +174,7 @@ export function PaymentMethodCell({
       // Falls back to whatever the order carries, so a method the catalogue has
       // since dropped still shows its name instead of an empty control.
       placeholder={current || '—'}
-      className='w-full min-w-0 max-w-[10rem]'
+      className={`w-full min-w-0 ${wide ? '' : 'max-w-[10rem]'}`}
       classNames={{
         trigger: 'ui-input min-h-10 px-3 shadow-none',
         value: 'text-sm font-medium ink',

@@ -5,12 +5,12 @@
 // makes that visible and gives the operator the two decisions that are
 // genuinely theirs: check now, and restart now instead of at closing time.
 //
-// Built from the same pieces as every other admin screen — PageShell for the
-// frame, Card/CardBody for sections — rather than the hand-rolled header and
-// rounded-2xl panels this page grew on its own. It also drops the tinted
-// surfaces (`bg-primary/10`, `bg-success/15`) it used to signal state with:
-// per StatCard, the accent is a border and an icon on a neutral surface, so a
-// status reads at a glance instead of washing out at arm's length.
+// One story: "where am I, what should I do". A single hero card carries the
+// state (icon, solid status chip, title, hint, progress) and the one relevant
+// action; installed version / last checked sit inside it. Below: what's new,
+// a three-step stepper with the current step highlighted, and a short
+// pre-restart checklist. No tinted fills — status is a solid chip, the icon
+// sits in a neutral circle.
 
 import { useMemo, type ReactNode } from 'react';
 import { Button } from '@heroui/react';
@@ -34,35 +34,35 @@ import { PageShell } from '../components/PageShell';
 
 type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
-/**
- * One accent per tone, as a border and an icon colour.
- *
- * Never a fill: a tinted panel is the thing that made this page unreadable on
- * the dark theme, and a status the operator has to lean in to read is a status
- * they will miss.
- */
-const TONE: Record<Tone, { border: string; icon: string }> = {
-  neutral: { border: 'border-s-default-300', icon: 'ink-2' },
-  info: { border: 'border-s-[var(--line-strong)]', icon: 'ink-2' },
-  success: { border: 'border-s-success', icon: 'text-success' },
-  warning: { border: 'border-s-warning', icon: 'text-warning' },
-  danger: { border: 'border-s-danger', icon: 'text-danger' },
+/** Chip colour per tone: a solid status chip, white text (design system). */
+const CHIP: Record<Tone, string> = {
+  neutral: 'ui-chip-gray',
+  info: 'ui-chip-blue',
+  success: 'ui-chip-green',
+  warning: 'ui-chip-amber',
+  danger: 'ui-chip-red',
 };
 
-/** Section heading, one size, so the page has a single visual rhythm. */
+/** Section heading: small uppercase label, per the design system. */
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className='text-base font-semibold ink'>{children}</h2>;
-}
-
-/**
- * A label above a value. Was `text-[10px]` with wide letter-spacing, which is
- * unreadable across a counter — the shared StatCard label size instead.
- */
-function FieldLabel({ children }: { children: ReactNode }) {
   return (
-    <div className='text-sm font-semibold ink-2'>{children}</div>
+    <h2 className='text-xs font-semibold uppercase tracking-wide ink-2'>
+      {children}
+    </h2>
   );
 }
+
+/** A label above a value. */
+function FieldLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className='text-xs font-semibold uppercase tracking-wide ink-2'>
+      {children}
+    </div>
+  );
+}
+
+/** "1. Check" -> "Check": the chip wants the word, not the step number. */
+const stripStepNo = (s: string) => s.replace(/^[\d٠-٩]+\.\s*/, '');
 
 function formatBytes(n: number): string {
   if (!n || n < 0) return '—';
@@ -136,54 +136,77 @@ export function UpdatePage() {
     [Power, t('update.helpPower')],
   ];
 
-  return (
-    <PageShell
-      title={t('update.title')}
-      subtitle={t('update.subtitle')}
-      primaryAction={
-        <Button
-          color={state.status === 'error' ? 'primary' : 'default'}
-          variant={state.status === 'error' ? 'solid' : 'bordered'}
-          className={`font-semibold ${state.status === 'error' ? '' : 'border border-[var(--line-strong)] bg-[var(--surface)]'}`}
-          onPress={check}
-          isLoading={checking}
-          isDisabled={!canCheck}
-          startContent={checking ? undefined : <RefreshCw size={17} />}
-        >
-          {state.status === 'error' ? t('update.tryAgain') : t('update.checkNow')}
-        </Button>
+  // Short status word for the chip, from text the app already has. Error and
+  // disabled have no short word, so their chip carries the icon alone.
+  const chipText =
+    state.status === 'idle' || state.status === 'checking'
+      ? stripStepNo(t('update.stepCheck'))
+      : state.status === 'available' || state.status === 'downloading'
+      ? stripStepNo(t('update.stepDownload'))
+      : state.status === 'ready'
+      ? t('update.badgeReady')
+      : // "Up to date" has no short word either; "Safe automatic updates"
+        // says something else, so this chip is the icon alone (title below).
+        null;
+  const tone: Tone = state.status === 'ready' ? 'warning' : view.tone;
+
+  const checkButton = (
+    <Button
+      size='lg'
+      color={state.status === 'error' ? 'primary' : 'default'}
+      variant={
+        state.status === 'error' ? 'solid' : readyVersion ? 'light' : 'bordered'
       }
+      className={`font-semibold ${
+        state.status === 'error' || readyVersion
+          ? ''
+          : 'border border-[var(--line-strong)] bg-[var(--surface)]'
+      }`}
+      onPress={check}
+      isLoading={checking}
+      isDisabled={!canCheck}
+      startContent={checking ? undefined : <RefreshCw size={17} />}
     >
-      <div className='space-y-4 min-w-0'>
-        {/* Status — the reason the page exists, so it leads. */}
-        <div
-          className={`ui-card border-s-4 ${TONE[view.tone].border}`}
-        >
-          <div className='p-4 sm:p-5' aria-live='polite'>
-            {/* Wraps on a narrow till: the icon and text stop being a row
-                before the title has to hyphenate. */}
-            <div className='flex items-start gap-3 min-w-0'>
-              <view.Icon
-                size={26}
-                className={`shrink-0 mt-0.5 ${TONE[view.tone].icon} ${
-                  state.status === 'checking' ? 'animate-spin' : ''
-                }`}
-              />
+      {state.status === 'error' ? t('update.tryAgain') : t('update.checkNow')}
+    </Button>
+  );
+
+  return (
+    <PageShell title={t('update.title')} subtitle={t('update.subtitle')}>
+      <div className='mx-auto w-full max-w-4xl space-y-4 min-w-0'>
+        {/* Hero: where am I, and the one thing to do about it. */}
+        <div className='ui-card min-w-0'>
+          <div className='p-4 sm:p-6' aria-live='polite'>
+            <div className='flex flex-col items-start gap-4 sm:flex-row min-w-0'>
+              <div className='grid h-14 w-14 shrink-0 place-items-center rounded-full border border-line bg-surface-2'>
+                <view.Icon
+                  size={28}
+                  strokeWidth={1.8}
+                  className={`ink ${
+                    state.status === 'checking' ? 'animate-spin' : ''
+                  }`}
+                />
+              </div>
 
               <div className='min-w-0 flex-1'>
-                <div className='text-lg font-bold ink'>
-                  {view.title}
-                </div>
+                <span
+                  className={`ui-chip ${CHIP[tone]}`}
+                  aria-label={chipText ? undefined : view.title}
+                >
+                  <view.Icon size={14} strokeWidth={1.8} />
+                  {chipText}
+                </span>
+                <div className='mt-2 text-xl font-bold ink'>{view.title}</div>
                 {view.hint && (
-                  <div className='mt-0.5 text-sm text-default-700'>
+                  <div className='mt-1 max-w-prose text-sm ink-2'>
                     {view.hint}
                   </div>
                 )}
 
                 {state.status === 'downloading' && (
-                  <div className='mt-3'>
+                  <div className='mt-4'>
                     <div
-                      className='h-3 w-full rounded-full bg-[var(--hover)] overflow-hidden'
+                      className='h-3 w-full overflow-hidden rounded-full bg-[var(--hover)]'
                       role='progressbar'
                       aria-valuenow={state.percent}
                       aria-valuemin={0}
@@ -197,7 +220,7 @@ export function UpdatePage() {
                       />
                     </div>
                     <div
-                      className='mt-1 text-sm font-semibold text-default-700 money'
+                      className='mt-1 text-sm font-semibold ink money'
                       dir='ltr'
                     >
                       {state.percent}%
@@ -215,129 +238,124 @@ export function UpdatePage() {
                   </pre>
                 )}
 
-                {view.notes && (
-                  <div className='mt-3'>
-                    <FieldLabel>{t('update.releaseNotes')}</FieldLabel>
-                    <pre className='mt-1 max-h-48 overflow-auto rounded-[11px] border border-line bg-surface-2 p-2 text-xs whitespace-pre-wrap'>
-                      {view.notes}
-                    </pre>
-                  </div>
-                )}
-
-                {/* The restart decision belongs with the status that prompts
-                    it, not stranded at the bottom of the page. */}
-                {readyVersion && (
-                  <Button
-                    color='primary'
-                    className='mt-4 w-full font-semibold sm:w-auto'
-                    onPress={onInstall}
-                    startContent={<Rocket size={16} />}
-                  >
-                    {t('update.installNow')}
-                  </Button>
-                )}
+                <div className='mt-4 flex flex-wrap items-center gap-2'>
+                  {/* The restart decision belongs with the status that prompts it. */}
+                  {readyVersion && (
+                    <Button
+                      color='primary'
+                      size='lg'
+                      className='w-full font-semibold sm:w-auto'
+                      onPress={onInstall}
+                      startContent={<Rocket size={16} />}
+                    >
+                      {t('update.installNow')}
+                    </Button>
+                  )}
+                  {checkButton}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Facts. Two up from the smallest breakpoint — they are short. */}
-        <div className='grid gap-4 sm:grid-cols-2 min-w-0'>
-          <div className='ui-card min-w-0'>
-            <div className='flex flex-col gap-1 p-4 sm:p-5'>
+          <div className='grid min-w-0 gap-3 border-t border-line p-4 sm:grid-cols-2 sm:px-6'>
+            <div className='min-w-0'>
               <FieldLabel>{t('update.installedVersion')}</FieldLabel>
               {/* Versions are identifiers — always Latin, always LTR. */}
               <div
-                className='font-mono text-xl font-bold ink truncate'
+                className='mt-0.5 truncate font-mono text-base font-bold ink'
                 dir='ltr'
               >
                 v{currentVersion || '—'}
               </div>
             </div>
-          </div>
-
-          <div className='ui-card min-w-0'>
-            <div className='flex flex-col gap-1 p-4 sm:p-5'>
+            <div className='min-w-0'>
               <FieldLabel>{t('update.lastChecked')}</FieldLabel>
-              <div className='text-base font-semibold ink'>
+              <div className='mt-0.5 text-base font-semibold ink'>
                 {lastCheckedText}
               </div>
             </div>
           </div>
         </div>
 
-        {/* The two explainers sit side by side only once there is genuinely
-            room for two columns of prose. */}
-        <div className='grid gap-4 xl:grid-cols-2 min-w-0'>
+        {view.notes && (
           <div className='ui-card min-w-0'>
-            <div className='flex flex-col gap-4 p-4 sm:p-5'>
-              <SectionTitle>{t('update.howItWorks')}</SectionTitle>
-
-              <div className='grid gap-3 sm:grid-cols-3 xl:grid-cols-1 min-w-0'>
-                {steps.map(([n, Icon, title, help]) => {
-                  const done = stage >= n;
-                  return (
-                    <div
-                      key={n}
-                      className={`rounded-[16px] border p-3 min-w-0 ${
-                        done ? 'border-primary' : 'border-line'
-                      }`}
-                    >
-                      <div className='flex items-center gap-2 min-w-0'>
-                        <div
-                          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${
-                            done
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-[var(--hover)] ink-2'
-                          }`}
-                        >
-                          <Icon size={15} />
-                        </div>
-                        <span className='font-semibold ink truncate'>
-                          {title}
-                        </span>
-                      </div>
-                      <p className='mt-2 text-sm leading-5 text-default-700'>
-                        {help}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
+            <div className='flex flex-col gap-2 p-4 sm:p-5'>
+              <SectionTitle>{t('update.releaseNotes')}</SectionTitle>
+              <pre className='max-h-56 overflow-auto rounded-[11px] border border-line bg-surface-2 p-3 text-sm whitespace-pre-wrap'>
+                {view.notes}
+              </pre>
             </div>
           </div>
+        )}
 
-          <div className='ui-card min-w-0'>
-            <div className='flex flex-col gap-4 p-4 sm:p-5'>
-              <div className='flex flex-wrap items-center justify-between gap-2'>
-                <SectionTitle>{t('update.beforeRestart')}</SectionTitle>
-                <span className='ui-chip ui-chip-green'>
-                  <ShieldCheck size={14} strokeWidth={1.8} />
-                  {t('update.safeBadge')}
-                </span>
-              </div>
-
-              <div className='space-y-3'>
-                {tips.map(([Icon, text]) => (
-                  <div
-                    key={text}
-                    className='flex gap-3 text-sm text-default-700 min-w-0'
+        <div className='ui-card min-w-0'>
+          <div className='flex flex-col gap-3 p-4 sm:p-5'>
+            <SectionTitle>{t('update.howItWorks')}</SectionTitle>
+            <ol className='grid min-w-0 gap-3 sm:grid-cols-3'>
+              {steps.map(([n, Icon, title, help]) => {
+                const current = stage === n;
+                const past = stage > n;
+                return (
+                  <li
+                    key={n}
+                    aria-current={current ? 'step' : undefined}
+                    className={`min-w-0 rounded-[16px] border p-3 ${
+                      current ? 'border-primary' : 'border-line'
+                    }`}
                   >
-                    <Icon
-                      className='mt-0.5 shrink-0 ink-2' strokeWidth={1.8}
-                      size={18}
-                    />
-                    <span className='min-w-0'>{text}</span>
-                  </div>
-                ))}
-              </div>
-
-              <p className='text-sm leading-5 text-default-700 border-t border-line pt-3'>
-                {t('update.autoNote')}
-              </p>
-            </div>
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <div
+                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${
+                          current
+                            ? 'bg-primary text-primary-foreground'
+                            : past
+                            ? 'bg-[var(--ink)] text-[var(--surface)]'
+                            : 'bg-[var(--hover)] ink-2'
+                        }`}
+                      >
+                        <Icon size={15} strokeWidth={1.8} />
+                      </div>
+                      <span
+                        className={`truncate font-semibold ${
+                          current || past ? 'ink' : 'ink-2'
+                        }`}
+                      >
+                        {title}
+                      </span>
+                    </div>
+                    <p className='mt-2 text-sm leading-5 ink-2'>{help}</p>
+                  </li>
+                );
+              })}
+            </ol>
           </div>
         </div>
+
+        <div className='ui-card min-w-0'>
+          <div className='flex flex-col gap-3 p-4 sm:p-5'>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <SectionTitle>{t('update.beforeRestart')}</SectionTitle>
+              <span className='ui-chip ui-chip-green'>
+                <ShieldCheck size={14} strokeWidth={1.8} />
+                {t('update.safeBadge')}
+              </span>
+            </div>
+            <ul className='space-y-2'>
+              {tips.map(([Icon, text]) => (
+                <li key={text} className='flex min-w-0 gap-3 text-sm ink'>
+                  <Icon
+                    className='mt-0.5 shrink-0 ink-2'
+                    strokeWidth={1.8}
+                    size={18}
+                  />
+                  <span className='min-w-0'>{text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <p className='max-w-prose px-1 text-xs ink-2'>{t('update.autoNote')}</p>
       </div>
     </PageShell>
   );
@@ -407,7 +425,7 @@ function describe(
 
     case 'disabled':
       return {
-        tone: 'warning',
+        tone: 'neutral',
         Icon: Ban,
         title: t('update.disabledTitle'),
         hint: t(`update.disabled.${state.reason}` as any),

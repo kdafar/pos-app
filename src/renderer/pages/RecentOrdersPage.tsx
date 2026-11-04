@@ -1,13 +1,32 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { Printer, QrCode, Eye } from 'lucide-react';
-import { Button, DatePicker, Input, Select, SelectItem } from '@heroui/react';
+import type { ReactElement } from 'react';
+import { Printer, QrCode, Eye, MoreHorizontal, CreditCard, CalendarDays } from 'lucide-react';
+import {
+  Button,
+  DatePicker,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+  Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalHeader,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Select,
+  SelectItem,
+} from '@heroui/react';
 import { parseDate } from '@internationalized/date';
 import { Hint } from '../components/Hint';
-import { OrderStatusCell } from './OrderStatusCell';
+import { useOrderStatusFlow } from './OrderStatusCell';
 import { useToast } from '../components/ToastProvider'; // adjust path if needed
 import { PaymentMethodCell } from './PaymentMethodCell';
 import { OrderDetailModal } from './OrderDetailModal';
 import { MarkPaidControl } from '../components/MarkPaidControl';
+import { paymentStateOf } from '../components/PaymentBadge';
 import { SYNCED_EVENT } from '../utils/syncEvents';
 import { OrderCard } from '../components/OrderCard';
 import { PaymentLinkModal } from './pos/components/PaymentLinkModal';
@@ -125,9 +144,270 @@ const bestUpdatedMs = (row: Order) => {
   return 0;
 };
 
+type Group = 'live' | 'done' | 'cancelled';
+const GROUP_RANK: Record<Group, number> = { live: 0, done: 1, cancelled: 2 };
+
+/** Live = still moving; Done = closed / completed; Cancelled = cancelled, rejected, failed, refunded. */
+function groupOf(o: Order): Group {
+  const code = Number(o.status_code);
+  const hasCode = o.status_code != null && Number.isFinite(code);
+  const st = String(o.status ?? '').trim().toLowerCase();
+  if (
+    (hasCode && [5, 6, 8, 9].includes(code)) ||
+    st.startsWith('cancel') ||
+    st.startsWith('reject')
+  )
+    return 'cancelled';
+  if ((hasCode && code === 4) || ['closed', 'completed', 'done'].includes(st))
+    return 'done';
+  return 'live';
+}
+
+/** Same paid logic as PaymentBadge / MarkPaidControl (a collected counter sale counts as paid). */
+function isPaidOrder(o: Order): boolean {
+  return ['paid', 'paid_hand', 'paid_queued', 'collected'].includes(
+    paymentStateOf(o as any)
+  );
+}
+
+/** A choice kept for the session (survives leaving and reopening the screen). */
+function useSessionChoice<T extends string>(
+  key: string,
+  initial: T,
+  allowed: readonly T[]
+) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const v = sessionStorage.getItem(key) as T | null;
+      if (v && allowed.includes(v)) return v;
+    } catch {
+      /* storage unavailable: fall back to the default */
+    }
+    return initial;
+  });
+  const set = useCallback(
+    (v: T) => {
+      setValue(v);
+      try {
+        sessionStorage.setItem(key, v);
+      } catch {
+        /* ignore */
+      }
+    },
+    [key]
+  );
+  return [value, set] as const;
+}
+
+type CardProps = {
+  o: Order;
+  canChangeStatus: boolean;
+  canViewDetail: boolean;
+  timeText: string;
+  onChanged: () => void;
+  onOpenDetail: (id: string) => void;
+  onPrint: (id?: string) => void;
+  onShowQr: (id: string) => void;
+  onPaymentLink: (
+    o: Order,
+    link: { url: string; mobile: string | null; delivery?: any }
+  ) => void;
+};
+
+/**
+ * One order card. The footer carries a single next-step button (the order's
+ * own status flow) and a print button; everything else — the other status
+ * choices, change payment method, payment QR, details — is in the "more" menu.
+ */
+function TodayOrderCard({
+  o,
+  canChangeStatus,
+  canViewDetail,
+  timeText,
+  onChanged,
+  onOpenDetail,
+  onPrint,
+  onShowQr,
+  onPaymentLink,
+}: CardProps) {
+  const { t, money } = useI18n();
+  const typeLabel = useOrderTypeLabel();
+  const [payOpen, setPayOpen] = useState(false);
+  const id = o.id ? String(o.id) : null;
+  const label = o.reference_no || o.number;
+  const flow = useOrderStatusFlow({
+    orderId: String(o.id),
+    status: o.status,
+    statusCode: o.status_code,
+    onChanged,
+  });
+  const settled =
+    ['closed', 'completed', 'cancelled'].includes(
+      String(o.status ?? '').toLowerCase()
+    ) || [4, 5, 6, 8, 9].includes(Number(o.status_code));
+  const canOpen = canViewDetail && !!id;
+
+  const next = canChangeStatus ? flow.next : null;
+  const stepItems = canChangeStatus ? flow.others : [];
+  const canPay = !!id && !settled;
+  const canQr = canViewDetail && !!id && !!(o as any).payment_link_url;
+
+  const items: ReactElement[] = [];
+  for (const f of stepItems) {
+    const cancel = f.value === 'cancelled_client';
+    items.push(
+      <DropdownItem
+        key={`st:${f.value}`}
+        color={cancel ? 'danger' : 'default'}
+        className={cancel ? 'text-danger' : ''}
+        onPress={() => void flow.change(f.value)}
+      >
+        {t(f.key)}
+      </DropdownItem>
+    );
+  }
+  if (canPay) {
+    items.push(
+      <DropdownItem
+        key='pay'
+        startContent={<CreditCard size={16} strokeWidth={1.8} />}
+        onPress={() => setPayOpen(true)}
+      >
+        {t('admin.orders.changePayment')}
+      </DropdownItem>
+    );
+  }
+  if (canQr) {
+    items.push(
+      <DropdownItem
+        key='qr'
+        startContent={<QrCode size={16} strokeWidth={1.8} />}
+        onPress={() => onShowQr(id!)}
+      >
+        {t('admin.orders.showQr')}
+      </DropdownItem>
+    );
+  }
+  if (canOpen) {
+    items.push(
+      <DropdownItem
+        key='view'
+        startContent={<Eye size={16} strokeWidth={1.8} />}
+        onPress={() => onOpenDetail(id!)}
+      >
+        {t('admin.orders.viewDetail')}
+      </DropdownItem>
+    );
+  }
+
+  const rowBtnCls = 'ui-icon-btn ui-icon-btn-outline';
+  return (
+    <OrderCard
+      header={shortOrderLabel(o as any)}
+      type={<span className='ui-chip ui-chip-outline'>{typeLabel(o.order_type)}</span>}
+      time={<span className='ui-chip ui-chip-outline money'>{timeText}</span>}
+      meta={[o.full_name || '—', o.mobile].filter(Boolean).join(' · ')}
+      money={money(o.grand_total as number)}
+      payment={
+        <MarkPaidControl order={o as any} onChanged={onChanged} trigger='badge' />
+      }
+      status={<StatusBadge order={o} />}
+      onOpen={canOpen ? () => onOpenDetail(id!) : undefined}
+      footer={
+        next ? (
+          <button
+            type='button'
+            className='ui-btn ui-btn-primary ui-btn-sm'
+            disabled={flow.busy}
+            onClick={() => void flow.change(next.value)}
+          >
+            {/* An action, like the portal and the kitchen screen ("Start
+                preparing", "Mark ready", "Complete order"); other targets keep
+                their status name. */}
+            {next.value === 'prepared'
+              ? t('kitchen.start')
+              : next.value === 'ready'
+              ? t('kitchen.markReady')
+              : next.value === 'closed'
+              ? t('kitchen.complete')
+              : t(next.key)}
+          </button>
+        ) : null
+      }
+      actions={
+        <>
+          {items.length > 0 && (
+            <Dropdown
+              classNames={{ content: 'ui-popup min-w-[12rem]' }}
+              placement='bottom-end'
+            >
+              <DropdownTrigger>
+                <button
+                  type='button'
+                  className={rowBtnCls}
+                  aria-label={t('admin.orders.view.more')}
+                >
+                  <MoreHorizontal size={16} strokeWidth={1.8} />
+                </button>
+              </DropdownTrigger>
+              <DropdownMenu aria-label={t('admin.orders.view.more')}>{items}</DropdownMenu>
+            </Dropdown>
+          )}
+          {canViewDetail && (
+            <Hint content={t('admin.orders.printReceipt')} placement='top'>
+              <button
+                type='button'
+                className={rowBtnCls}
+                onClick={() => onPrint(o.id)}
+                aria-label={t('admin.orders.printReceipt')}
+              >
+                <Printer size={16} strokeWidth={1.8} />
+              </button>
+            </Hint>
+          )}
+          {canPay && (
+            <Modal
+              isOpen={payOpen}
+              onOpenChange={setPayOpen}
+              placement='center'
+              backdrop='opaque'
+              classNames={{
+                wrapper: 'p-2 sm:p-4',
+                base: 'ui-popup !rounded-[24px] m-0 w-full max-w-sm',
+                backdrop: 'bg-black/50',
+              }}
+            >
+              <ModalContent>
+                <ModalHeader className='text-lg font-semibold ink'>
+                  {t('admin.orders.changePayment')}
+                </ModalHeader>
+                <ModalBody className='pb-5'>
+                  <PaymentMethodCell
+                    wide
+                    orderId={id!}
+                    slug={(o as any).payment_method_slug}
+                    mobile={o.mobile}
+                    amount={Number(o.grand_total ?? 0)}
+                    orderNumber={label}
+                    onChanged={() => {
+                      setPayOpen(false);
+                      onChanged();
+                    }}
+                    onPaymentLink={(link) => onPaymentLink(o, link)}
+                  />
+                </ModalBody>
+              </ModalContent>
+            </Modal>
+          )}
+        </>
+      }
+    />
+  );
+}
+
 export default function TodayOrdersReport() {
   const theme = useRootTheme();
-  const { t, money, lang } = useI18n();
+  const { t, lang } = useI18n();
   const typeLabel = useOrderTypeLabel();
   const [rows, setRows] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
@@ -140,6 +420,19 @@ export default function TodayOrdersReport() {
   // so the main process picks it and the pickers are filled from its answer.
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+
+  // view filters, on the rows already loaded; kept for the session
+  const [group, setGroup] = useSessionChoice<'all' | Group>(
+    'orders.view.group',
+    'all',
+    ['all', 'live', 'done', 'cancelled']
+  );
+  const [paidView, setPaidView] = useSessionChoice<'all' | 'paid' | 'unpaid'>(
+    'orders.view.paid',
+    'all',
+    ['all', 'paid', 'unpaid']
+  );
+  const [datesOpen, setDatesOpen] = useState(false);
 
   // table state
   const [pageSize, setPageSize] = useState(25);
@@ -176,8 +469,6 @@ export default function TodayOrdersReport() {
     [t, toast]
   );
 
-  // small icon button for row actions (44px on touch via .ui-icon-btn)
-  const rowBtnCls = 'ui-icon-btn ui-icon-btn-outline';
   const selectClasses = {
     trigger: 'ui-input min-h-10 px-3 shadow-none',
     value: 'text-sm ink',
@@ -283,17 +574,46 @@ export default function TodayOrdersReport() {
     return () => window.removeEventListener(SYNCED_EVENT, onSynced);
   }, []);
 
-  const filtered = useMemo(() => {
+  // Search + order type, then the two view filters. Each seg's counts apply
+  // the other seg's choice, so the numbers match what a tap would show.
+  const base = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    return (rows || []).filter((r) => {
-      if (type !== 'all' && String(r.order_type ?? '') !== type) return false;
-      if (!qq) return true;
-      const hay = `${r.reference_no ?? ''}|${r.number}|${r.status ?? ''}|${typeLabel(
-        r.order_type
-      )}|${r.full_name ?? ''}|${r.mobile ?? ''}`.toLowerCase();
-      return hay.includes(qq);
-    });
+    return (rows || [])
+      .filter((r) => {
+        if (type !== 'all' && String(r.order_type ?? '') !== type) return false;
+        if (!qq) return true;
+        const hay = `${r.reference_no ?? ''}|${r.number}|${r.status ?? ''}|${typeLabel(
+          r.order_type
+        )}|${r.full_name ?? ''}|${r.mobile ?? ''}`.toLowerCase();
+        return hay.includes(qq);
+      })
+      .map((o) => ({ o, g: groupOf(o), paid: isPaidOrder(o) }));
   }, [rows, q, type, typeLabel]);
+
+  const matchPaid = (paid: boolean) =>
+    paidView === 'all' || (paidView === 'paid' ? paid : !paid);
+  const matchGroup = (g: Group) => group === 'all' || group === g;
+
+  const groupCounts = useMemo(() => {
+    const c = { all: 0, live: 0, done: 0, cancelled: 0 };
+    for (const x of base) {
+      if (!matchPaid(x.paid)) continue;
+      c.all++;
+      c[x.g]++;
+    }
+    return c;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [base, paidView]);
+  const paidCounts = useMemo(() => {
+    const c = { all: 0, paid: 0, unpaid: 0 };
+    for (const x of base) {
+      if (!matchGroup(x.g)) continue;
+      c.all++;
+      c[x.paid ? 'paid' : 'unpaid']++;
+    }
+    return c;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [base, group]);
 
   const handlePrint = useCallback(
     async (orderId?: string) => {
@@ -330,128 +650,72 @@ export default function TodayOrdersReport() {
       : '—';
   };
 
-  // Same default order the table had: last update first.
+  // Live orders first, then done, then cancelled; newest first inside each.
   const sorted = useMemo(
-    () => [...filtered].sort((a, b) => bestUpdatedMs(b) - bestUpdatedMs(a)),
-    [filtered]
+    () =>
+      base
+        .filter((x) => matchGroup(x.g) && matchPaid(x.paid))
+        .sort(
+          (a, b) =>
+            GROUP_RANK[a.g] - GROUP_RANK[b.g] ||
+            bestUpdatedMs(b.o) - bestUpdatedMs(a.o)
+        )
+        .map((x) => x.o),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [base, group, paidView]
   );
   const [pageIndex, setPageIndex] = useState(0);
-  const resetKey = `${q}|${type}|${fromDate}|${toDate}|${pageSize}`;
+  const resetKey = `${q}|${type}|${fromDate}|${toDate}|${pageSize}|${group}|${paidView}`;
   useEffect(() => setPageIndex(0), [resetKey]);
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const page = Math.min(pageIndex, pageCount - 1);
   const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize);
 
-  const renderCard = (o: Order) => {
-    const id = o.id ? String(o.id) : null;
-    const label = o.reference_no || o.number;
-    const settled =
-      ['closed', 'completed', 'cancelled'].includes(
-        String(o.status ?? '').toLowerCase()
-      ) || [4, 5, 6, 8, 9].includes(Number(o.status_code));
-    const canOpen = canViewDetail && !!id;
-    return (
-      <OrderCard
-        key={id ?? o.number}
-        header={shortOrderLabel(o as any)}
-        type={<span className='ui-chip ui-chip-outline'>{typeLabel(o.order_type)}</span>}
-        time={<span className='ui-chip ui-chip-outline money'>{timeText(o)}</span>}
-        meta={[o.full_name || '—', o.mobile].filter(Boolean).join(' · ')}
-        money={money(o.grand_total as number)}
-        payment={
-          <MarkPaidControl order={o as any} onChanged={() => refreshRef.current()} trigger='badge' />
-        }
-        // The Update status control below already shows the status to anyone
-        // who may change it; the chip is for everyone else.
-        status={canChangeStatus ? undefined : <StatusBadge order={o} />}
-        onOpen={canOpen ? () => setDetailId(id!) : undefined}
-        footer={
-          <>
-            <OrderStatusCell
-              orderId={String(o.id)}
-              status={o.status}
-              statusCode={o.status_code}
-              disabled={!canChangeStatus}
-              onChanged={() => refreshRef.current()}
-            />
-            {id && !settled ? (
-              <PaymentMethodCell
-                orderId={id}
-                slug={(o as any).payment_method_slug}
-                mobile={o.mobile}
-                amount={Number(o.grand_total ?? 0)}
-                orderNumber={label}
-                onChanged={() => refreshRef.current()}
-                onPaymentLink={({ url, mobile, delivery }) => {
-                  toast({
-                    tone: 'success',
-                    title: t('admin.orders.payLinkSent'),
-                    message: t('admin.orders.payLinkDelivery', {
-                      sms: delivery?.sms?.sent ? t('common.yes') : t('common.no'),
-                      whatsapp: delivery?.whatsapp?.sent
-                        ? t('common.yes')
-                        : t('common.no'),
-                    }),
-                  });
-                  setQrOrder({
-                    url,
-                    mobile,
-                    amount: Number(o.grand_total ?? 0),
-                    label,
-                    orderId: id,
-                  });
-                }}
-              />
-            ) : (
-              <span className='text-sm ink-2'>
-                {(o as any).payment_method_slug || '—'}
-              </span>
-            )}
-          </>
-        }
-        actions={
-          canViewDetail ? (
-            <>
-              {id && (
-                <Hint content={t('admin.orders.viewDetail')} placement='top'>
-                  <button
-                    className={rowBtnCls}
-                    onClick={() => setDetailId(id)}
-                    aria-label={t('admin.orders.viewDetail')}
-                  >
-                    <Eye size={16} strokeWidth={1.8} />
-                  </button>
-                </Hint>
-              )}
-              <Hint content={t('admin.orders.printReceipt')} placement='top'>
-                <button
-                  className={rowBtnCls}
-                  onClick={() => handlePrint(o.id)}
-                  aria-label={t('admin.orders.printReceipt')}
-                >
-                  <Printer size={16} strokeWidth={1.8} />
-                </button>
-              </Hint>
-              {(o as any).payment_link_url && id && (
-                <Hint content={t('admin.orders.showQr')} placement='top'>
-                  <button
-                    className={rowBtnCls}
-                    onClick={() => showPaymentQr(id)}
-                    aria-label={t('admin.orders.showQr')}
-                  >
-                    <QrCode size={16} strokeWidth={1.8} />
-                  </button>
-                </Hint>
-              )}
-            </>
-          ) : null
-        }
-      />
+  const renderCard = (o: Order) => (
+    <TodayOrderCard
+      key={o.id ? String(o.id) : o.number}
+      o={o}
+      canChangeStatus={canChangeStatus}
+      canViewDetail={canViewDetail}
+      timeText={timeText(o)}
+      onChanged={() => refreshRef.current()}
+      onOpenDetail={setDetailId}
+      onPrint={handlePrint}
+      onShowQr={showPaymentQr}
+      onPaymentLink={(order, { url, mobile, delivery }) => {
+        toast({
+          tone: 'success',
+          title: t('admin.orders.payLinkSent'),
+          message: t('admin.orders.payLinkDelivery', {
+            sms: delivery?.sms?.sent ? t('common.yes') : t('common.no'),
+            whatsapp: delivery?.whatsapp?.sent ? t('common.yes') : t('common.no'),
+          }),
+        });
+        setQrOrder({
+          url,
+          mobile,
+          amount: Number(order.grand_total ?? 0),
+          label: order.reference_no || order.number,
+          orderId: String(order.id),
+        });
+      }}
+    />
+  );
+
+  // "04 Nov – 06 Nov" for the compact date button.
+  const dayText = (v: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) return '—';
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(
+      lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB',
+      { day: '2-digit', month: 'short' }
     );
   };
-
-
-
+  const rangeText =
+    fromDate && toDate && fromDate === toDate
+      ? dayText(fromDate)
+      : `${dayText(fromDate)} – ${dayText(toDate)}`;
+  const viewFiltered = group !== 'all' || paidView !== 'all';
 
   return (
     <div className='mx-auto w-full max-w-[110rem] p-3 sm:p-4'>
@@ -466,78 +730,151 @@ export default function TodayOrdersReport() {
           </div>
         </div>
 
-        {/* Toolbar: wraps on narrow screens, controls have minimum widths. */}
+        {/* Toolbar: one row from md up; on phones search is full width and
+            the rest sits in one compact row. */}
         <div className='flex flex-wrap items-center gap-2'>
           <Input
             value={q}
             onValueChange={setQ}
             placeholder={t('admin.orders.searchPlaceholder')}
             aria-label={t('admin.orders.searchPlaceholder')}
-            classNames={{ base: 'basis-full sm:basis-auto min-w-[12rem] flex-1 sm:max-w-sm', inputWrapper: 'ui-input' }}
-          />
-
-          <Select
-            aria-label={t('admin.orders.orderTypeFilter')}
-            selectedKeys={[type]}
-            disallowEmptySelection
-            onSelectionChange={(keys) => {
-              const next = Array.from(keys)[0];
-              if (next != null) setType(String(next) as any);
+            classNames={{
+              base: 'min-w-0 basis-full md:min-w-[14rem] md:flex-1 md:basis-0',
+              inputWrapper: 'ui-input',
             }}
-            className='flex-1 sm:flex-none sm:w-36 min-w-[8.5rem]'
-            classNames={selectClasses}
-          >
-            <SelectItem key='all'>{t('admin.orders.allTypes')}</SelectItem>
-            <SelectItem key='1'>{typeLabel(1)}</SelectItem>
-            <SelectItem key='2'>{typeLabel(2)}</SelectItem>
-            <SelectItem key='3'>{typeLabel(3)}</SelectItem>
-          </Select>
-
-          <DatePicker
-            aria-label={t('admin.orders.fromDate')}
-            value={toCalendar(fromDate)}
-            onChange={(v) => setFromDate(v ? v.toString() : '')}
-            className='flex-1 sm:flex-none sm:w-44 min-w-[9.5rem]'
-            classNames={dateClasses}
           />
 
-          <DatePicker
-            aria-label={t('admin.orders.toDate')}
-            value={toCalendar(toDate)}
-            minValue={toCalendar(fromDate) ?? undefined}
-            onChange={(v) => setToDate(v ? v.toString() : '')}
-            className='flex-1 sm:flex-none sm:w-44 min-w-[9.5rem]'
-            classNames={dateClasses}
-          />
-
-          <Button
-            color='primary'
-            size='lg'
-            className='font-semibold'
-            onPress={() => refresh()}
-            isDisabled={loading}
-            aria-label={t('admin.refresh')}
-          >
-            {loading ? t('admin.refreshing') : t('admin.orders.filter')}
-          </Button>
-
-          <div className='flex items-center gap-2'>
-            <span className='text-sm font-semibold ink-2'>{t('admin.rows')}</span>
+          <div className='flex w-full min-w-0 items-center gap-2 md:w-auto'>
             <Select
-              aria-label={t('admin.rows')}
-              selectedKeys={[String(pageSize)]}
+              aria-label={t('admin.orders.orderTypeFilter')}
+              selectedKeys={[type]}
               disallowEmptySelection
               onSelectionChange={(keys) => {
                 const next = Array.from(keys)[0];
-                if (next != null) setPageSize(Number(next));
+                if (next != null) setType(String(next) as any);
               }}
-              className='w-24 min-w-[5.5rem]'
+              className='min-w-0 flex-1 md:w-36 md:flex-none'
               classNames={selectClasses}
             >
-              {[10, 25, 50, 100].map((n) => (
-                <SelectItem key={String(n)}>{String(n)}</SelectItem>
-              ))}
+              <SelectItem key='all'>{t('admin.orders.allTypes')}</SelectItem>
+              <SelectItem key='1'>{typeLabel(1)}</SelectItem>
+              <SelectItem key='2'>{typeLabel(2)}</SelectItem>
+              <SelectItem key='3'>{typeLabel(3)}</SelectItem>
             </Select>
+
+            <Popover
+              isOpen={datesOpen}
+              onOpenChange={setDatesOpen}
+              placement='bottom'
+              classNames={{ content: 'ui-popup p-3' }}
+            >
+              <PopoverTrigger>
+                <button
+                  type='button'
+                  className='ui-btn ui-btn-outline min-w-0 shrink'
+                  aria-label={t('admin.orders.view.dates')}
+                >
+                  <CalendarDays size={16} strokeWidth={1.8} />
+                  <span className='money min-w-0 truncate'>{rangeText}</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent>
+                <div className='flex w-[min(19rem,calc(100vw-2rem))] flex-col gap-3'>
+                  <DatePicker
+                    label={t('admin.orders.fromDate')}
+                    labelPlacement='outside'
+                    aria-label={t('admin.orders.fromDate')}
+                    value={toCalendar(fromDate)}
+                    onChange={(v) => setFromDate(v ? v.toString() : '')}
+                    classNames={dateClasses}
+                  />
+                  <DatePicker
+                    label={t('admin.orders.toDate')}
+                    labelPlacement='outside'
+                    aria-label={t('admin.orders.toDate')}
+                    value={toCalendar(toDate)}
+                    minValue={toCalendar(fromDate) ?? undefined}
+                    onChange={(v) => setToDate(v ? v.toString() : '')}
+                    classNames={dateClasses}
+                  />
+                  <button
+                    type='button'
+                    className='ui-btn ui-btn-primary'
+                    disabled={loading}
+                    onClick={() => {
+                      setDatesOpen(false);
+                      void refresh();
+                    }}
+                  >
+                    {t('admin.orders.filter')}
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Button
+              color='primary'
+              size='lg'
+              className='shrink-0 font-semibold'
+              onPress={() => refresh()}
+              isDisabled={loading}
+              aria-label={t('admin.refresh')}
+            >
+              {loading ? t('admin.refreshing') : t('admin.orders.filter')}
+            </Button>
+          </div>
+        </div>
+
+        {/* View filters: client-side, on the rows already loaded. */}
+        <div className='flex flex-wrap items-center gap-2'>
+          <div className='min-w-0 max-w-full overflow-x-auto chip-scroll'>
+            <div className='ui-seg' role='group' aria-label={t('admin.orders.view.statusGroup')}>
+              {(
+                [
+                  ['all', t('common.all')],
+                  ['live', t('admin.orders.view.live')],
+                  ['done', t('admin.orders.view.done')],
+                  ['cancelled', t('status.cancelled')],
+                ] as const
+              ).map(([k, text]) => (
+                <button
+                  key={k}
+                  type='button'
+                  className='ui-seg-item'
+                  aria-pressed={group === k}
+                  onClick={() => setGroup(k)}
+                >
+                  {text}
+                  <span className={`ui-count ${group === k ? 'ui-chip-brand' : ''}`}>
+                    {groupCounts[k]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className='min-w-0 max-w-full overflow-x-auto chip-scroll'>
+            <div className='ui-seg' role='group' aria-label={t('admin.orders.view.paymentGroup')}>
+              {(
+                [
+                  ['all', t('common.all')],
+                  ['paid', t('pay.paid')],
+                  ['unpaid', t('pay.unpaid')],
+                ] as const
+              ).map(([k, text]) => (
+                <button
+                  key={k}
+                  type='button'
+                  className='ui-seg-item'
+                  aria-pressed={paidView === k}
+                  onClick={() => setPaidView(k)}
+                >
+                  {text}
+                  <span className={`ui-count ${paidView === k ? 'ui-chip-brand' : ''}`}>
+                    {paidCounts[k]}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -548,7 +885,7 @@ export default function TodayOrdersReport() {
         <div className='py-12 text-center text-base ink-2'>{t('common.loading')}</div>
       ) : sorted.length === 0 ? (
         <div className='rounded-[20px] border border-dashed border-line-strong py-12 text-center text-base ink-2'>
-          {q || type !== 'all'
+          {q || type !== 'all' || viewFiltered
             ? t('admin.orders.noneFiltered')
             : t('admin.orders.noneToday')}
         </div>
@@ -557,26 +894,46 @@ export default function TodayOrdersReport() {
           <div className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 sm:gap-4'>
             {pageRows.map(renderCard)}
           </div>
-          <div className='mt-4 flex flex-wrap items-center justify-center gap-3'>
-            <button
-              type='button'
-              className='ui-btn ui-btn-outline ui-btn-sm'
-              disabled={page <= 0}
-              onClick={() => setPageIndex(page - 1)}
-            >
-              {t('admin.prev')}
-            </button>
-            <span className='text-sm ink-2'>
-              {t('admin.pageOf', { page: page + 1, pages: pageCount })}
-            </span>
-            <button
-              type='button'
-              className='ui-btn ui-btn-outline ui-btn-sm'
-              disabled={page >= pageCount - 1}
-              onClick={() => setPageIndex(page + 1)}
-            >
-              {t('admin.next')}
-            </button>
+          <div className='mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2'>
+            <div className='flex items-center gap-3'>
+              <button
+                type='button'
+                className='ui-btn ui-btn-outline ui-btn-sm'
+                disabled={page <= 0}
+                onClick={() => setPageIndex(page - 1)}
+              >
+                {t('admin.prev')}
+              </button>
+              <span className='text-sm ink-2'>
+                {t('admin.pageOf', { page: page + 1, pages: pageCount })}
+              </span>
+              <button
+                type='button'
+                className='ui-btn ui-btn-outline ui-btn-sm'
+                disabled={page >= pageCount - 1}
+                onClick={() => setPageIndex(page + 1)}
+              >
+                {t('admin.next')}
+              </button>
+            </div>
+            <div className='flex items-center gap-2'>
+              <span className='text-sm font-semibold ink-2'>{t('admin.rows')}</span>
+              <Select
+                aria-label={t('admin.orders.view.rows')}
+                selectedKeys={[String(pageSize)]}
+                disallowEmptySelection
+                onSelectionChange={(keys) => {
+                  const next = Array.from(keys)[0];
+                  if (next != null) setPageSize(Number(next));
+                }}
+                className='w-24 min-w-[5.5rem]'
+                classNames={selectClasses}
+              >
+                {[10, 25, 50, 100].map((n) => (
+                  <SelectItem key={String(n)}>{String(n)}</SelectItem>
+                ))}
+              </Select>
+            </div>
           </div>
         </>
       )}

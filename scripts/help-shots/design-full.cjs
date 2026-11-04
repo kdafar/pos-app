@@ -105,7 +105,7 @@ const ROUTES = [
       await sleep(400);
     });
     await safe('sign in', async () => {
-      await win.getByText('Huda Manager', { exact: true }).first().click();
+      await win.getByText('Noor Admin', { exact: true }).first().click();
       await win.getByPlaceholder(t.pw).fill('demo1234');
       await btn(t.signIn).click();
       await win.waitForURL(/#\/$/, { timeout: 15000 });
@@ -161,10 +161,6 @@ const ROUTES = [
 
     await go('/'); await sleep(1200);
     await safe('order screen', () => shot('10-order-dinein'));
-    await safe('approval', async () => {
-      await btn(t.remove, false).last().click(); await sleep(800);
-      await shot('11-approval-dialog'); await esc();
-    });
     await safe('table picker', async () => {
       await win.locator('button:has(svg.lucide-table-2), button:has(svg.lucide-table)').first().click(); await sleep(800);
       await shot('12-table-picker'); await esc();
@@ -220,6 +216,18 @@ const ROUTES = [
       await go('/help?from=%2F'); await sleep(1300); await shot('51-help-step');
     });
     await safe('sign out', async () => {
+      await go('/logout'); await win.waitForURL(/#\/login/, { timeout: 15000 }); await sleep(1200);
+    });
+    // Manager approval only opens for someone without the right: the cashier.
+    await safe('approval as cashier', async () => {
+      await win.getByText('Sara Cashier', { exact: true }).first().click();
+      await win.getByPlaceholder(t.pw).fill('demo1234');
+      await btn(t.signIn).click();
+      await win.waitForURL(/#\/$/, { timeout: 15000 }); await sleep(1500);
+      await win.locator('header button').filter({ hasText: t.dineIn }).first().click(); await sleep(900);
+      await btn(t.remove, false).last().click(); await sleep(900);
+      await shot('11-approval-dialog');
+      await btn(t.cancel, true).last().click().catch(() => esc()); await sleep(400);
       await go('/logout'); await win.waitForURL(/#\/login/, { timeout: 15000 }); await sleep(1200);
     });
   }

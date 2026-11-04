@@ -657,4 +657,12 @@ export const adminStrings = {
     en: 'Some settings could not be loaded',
     ar: 'تعذّر تحميل بعض الإعدادات',
   },
+  /* ---------- Today's Orders: view filters and card menu ---------- */
+  'admin.orders.view.live': { en: 'Live', ar: 'جارية' },
+  'admin.orders.view.done': { en: 'Done', ar: 'منتهية' },
+  'admin.orders.view.statusGroup': { en: 'Order status', ar: 'حالة الطلب' },
+  'admin.orders.view.paymentGroup': { en: 'Payment', ar: 'الدفع' },
+  'admin.orders.view.dates': { en: 'Dates', ar: 'التواريخ' },
+  'admin.orders.view.more': { en: 'More actions', ar: 'خيارات أكثر' },
+  'admin.orders.view.rows': { en: 'Rows per page', ar: 'عدد الصفوف بالصفحة' },
 } as const;

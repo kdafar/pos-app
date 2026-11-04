@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Autocomplete, Button, SelectItem, Spinner, Switch } from '@heroui/react';
-import { AlertTriangle, CheckCircle2, Info, RotateCcw, Save, ShieldCheck, Users } from 'lucide-react';
+import { Button, Spinner, Switch } from '@heroui/react';
+import { AlertTriangle, CheckCircle2, Info, Lock, RotateCcw, Save, ShieldCheck, Users } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { PERMISSIONS } from '../../shared/permissions';
 import { useI18n, type StringKey } from '../i18n';
@@ -117,130 +117,183 @@ export default function PermissionsPage() {
 
   const roleLabel = (key: string) => key.replace(/_/g, ' ');
 
-  return (
-    <PageShell title={t('permissions.title')} subtitle={t('permissions.subtitle')}>
-      <div className='mx-auto max-w-6xl space-y-4'>
-        <div className='ui-card grid gap-4 p-4 sm:p-5 lg:grid-cols-2'>
-          <Autocomplete
-            label={t('permissions.selectRole')}
-            placeholder={t('permissions.chooseRole')}
-            selectedKey={selected || null}
-            menuTrigger='focus'
-            onSelectionChange={(key) => key && choose(String(key))}
-          >
-            {roles.map((item) => (
-              <SelectItem key={item.role} textValue={item.role}>
-                <span className='capitalize'>{roleLabel(item.role)}</span>
-                {item.is_own_role ? ' — ' + t('permissions.yourRole') : ''}
-              </SelectItem>
-            ))}
-          </Autocomplete>
-          {role ? (
-            <div className='flex items-center justify-between gap-4 rounded-[16px] border border-line bg-surface-2 px-4 py-3'>
-              <div className='flex min-w-0 items-center gap-3'>
-                <div className='flex h-10 w-10 items-center justify-center rounded-full bg-surface ink-2 border border-line'>
-                  <ShieldCheck size={20} strokeWidth={1.8} />
-                </div>
-                <div className='min-w-0'>
-                  <p className='font-semibold capitalize'>{roleLabel(role.role)}</p>
-                  <p className='truncate text-xs ink-2'>
-                    {role.users.length
-                      ? t('permissions.appliesTo', { n: role.users.length })
-                      : t('permissions.appliesToNobody')}
-                  </p>
-                </div>
-              </div>
-              <div className='text-end'>
-                <span className='ui-chip ui-chip-brand'>
-                  {t('permissions.enabled', {
-                    allowed: allowed.size,
-                    total: PERMISSIONS.length,
-                  })}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className='rounded-[20px] border border-dashed border-line-strong p-4 text-sm ink-2'>
-              {t('permissions.noRoles')}
+  const roleCount = (item: Role) =>
+    item.role === selected && !locked ? allowed.size : item.permissions.length;
+
+  const applyDefaults = () => {
+    setAllowed(new Set(defaults));
+    setSaved(false);
+  };
+
+  const notices = role ? (
+    <>
+      {serverManaged ? (
+        <div className='ui-notice px-4 py-3 text-sm'>
+          <Info size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 ink-2' />
+          <span>{t('permissions.serverManaged')}</span>
+        </div>
+      ) : (
+        <>
+          {/* Stated plainly, because the opposite assumption — that
+              this reaches every till — is the one shops actually
+              make, and it is wrong until the back office owns them. */}
+          <div className='ui-notice px-4 py-3 text-sm'>
+            <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-amber)]' />
+            <span>{t('permissions.localOnly')}</span>
+          </div>
+          {role.is_own_role && (
+            <div className='ui-notice px-4 py-3 text-sm'>
+              <Lock size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 ink-2' />
+              <span>{t('permissions.ownRoleReadOnly')}</span>
             </div>
           )}
-        </div>
+        </>
+      )}
+    </>
+  ) : null;
 
+  return (
+    <PageShell title={t('permissions.title')} subtitle={t('permissions.subtitle')}>
+      <div className='mx-auto max-w-6xl'>
         {busy && !role ? (
           <div className='flex justify-center py-16'>
             <Spinner />
           </div>
+        ) : !role ? (
+          <div className='rounded-[20px] border border-dashed border-line-strong p-6 text-center text-sm ink-2'>
+            {t('permissions.noRoles')}
+          </div>
         ) : (
-          role && (
-            <>
-              {serverManaged ? (
-                <div className='ui-notice px-4 py-3 text-sm'>
-                  <Info size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 ink-2' />
-                  <span>{t('permissions.serverManaged')}</span>
+          <div className='grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start'>
+            {/* Role picker: scrolling segmented control on small screens... */}
+            <div className='min-w-0 lg:hidden'>
+              <p className='mb-1.5 text-xs font-semibold uppercase tracking-wide ink-2'>
+                {t('permissions.selectRole')}
+              </p>
+              <div className='chip-scroll overflow-x-auto'>
+                <div className='ui-seg' role='group' aria-label={t('permissions.selectRole')}>
+                  {roles.map((item) => (
+                    <button
+                      key={item.role}
+                      type='button'
+                      aria-pressed={item.role === selected}
+                      className='ui-seg-item capitalize'
+                      onClick={() => choose(item.role)}
+                    >
+                      {roleLabel(item.role)}
+                      <span className='ui-count'>{roleCount(item)}</span>
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  {/* Stated plainly, because the opposite assumption — that
-                      this reaches every till — is the one shops actually
-                      make, and it is wrong until the back office owns them. */}
-                  <div className='ui-notice px-4 py-3 text-sm'>
-                    <AlertTriangle size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 text-[var(--st-amber)]' />
-                    <span>{t('permissions.localOnly')}</span>
-                  </div>
-                  {role?.is_own_role && (
-                    <div className='ui-notice px-4 py-3 text-sm'>
-                      <Info size={18} strokeWidth={1.8} className='mt-0.5 shrink-0 ink-2' />
-                      <span>{t('permissions.ownRoleReadOnly')}</span>
-                    </div>
-                  )}
-                </>
-              )}
+              </div>
+            </div>
 
-              {/* Who this actually changes. The point of moving off per-user
-                  permissions is that the blast radius is visible before saving. */}
-              {role.users.length > 0 && (
-                <div className='ui-card p-4'>
-                  <div className='mb-2 flex items-center gap-2 text-sm font-semibold'>
-                    <Users size={16} strokeWidth={1.8} className='ink-2' />
-                    {t('permissions.membersLabel')}
-                  </div>
-                  <div className='flex flex-wrap gap-1.5'>
-                    {role.users.map((u) => (
-                      <span key={u.id} className='ui-chip ui-chip-gray'>
-                        {u.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className='grid gap-4 lg:grid-cols-2'>
-                {GROUPS.map((group) => (
-                  <section
-                    key={group.title}
-                    className='ui-card min-w-0 p-4 sm:p-5'
+            {/* ...and a list of selectable rows beside the role on large ones. */}
+            <nav
+              aria-label={t('permissions.selectRole')}
+              className='ui-card hidden min-w-0 p-2 lg:sticky lg:top-0 lg:block'
+            >
+              <p className='px-3 pb-1.5 pt-2 text-xs font-semibold uppercase tracking-wide ink-2'>
+                {t('permissions.selectRole')}
+              </p>
+              <div className='space-y-1'>
+                {roles.map((item) => (
+                  <button
+                    key={item.role}
+                    type='button'
+                    aria-current={item.role === selected ? 'page' : undefined}
+                    className='ui-nav flex min-h-14 w-full items-center gap-3 px-3 py-2 text-start'
+                    onClick={() => choose(item.role)}
                   >
-                    <div className='mb-3 flex justify-between gap-2'>
-                      <div>
-                        <h2 className='text-xs font-semibold uppercase tracking-wide ink-2'>{t(group.title)}</h2>
-                        <p className='text-xs ink-3 mt-0.5'>{t(group.help)}</p>
-                      </div>
-                      <ShieldCheck size={19} strokeWidth={1.8} className='shrink-0 ink-3' />
+                    <span className='min-w-0 flex-1'>
+                      <span className='block truncate text-sm font-semibold capitalize'>
+                        {roleLabel(item.role)}
+                        {item.is_own_role ? ' — ' + t('permissions.yourRole') : ''}
+                      </span>
+                      <span className='block truncate text-xs opacity-80'>
+                        {item.users.length
+                          ? t('permissions.appliesTo', { n: item.users.length })
+                          : t('permissions.appliesToNobody')}
+                      </span>
+                    </span>
+                    <span className='ui-count'>{roleCount(item)}</span>
+                  </button>
+                ))}
+              </div>
+            </nav>
+
+            <div className='min-w-0 space-y-4'>
+              {/* Role header: who this actually changes. The point of moving
+                  off per-user permissions is that the blast radius is
+                  visible before saving. */}
+              <div className='ui-card space-y-3 p-4 sm:p-5'>
+                <div className='flex flex-wrap items-center justify-between gap-3'>
+                  <div className='flex min-w-0 items-center gap-3'>
+                    <div className='flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 ink-2'>
+                      <ShieldCheck size={22} strokeWidth={1.8} />
                     </div>
-                    <div className='space-y-1'>
+                    <div className='min-w-0'>
+                      <h2 className='truncate text-xl font-semibold capitalize'>{roleLabel(role.role)}</h2>
+                      <p className='truncate text-sm ink-2'>
+                        {role.users.length
+                          ? t('permissions.appliesTo', { n: role.users.length })
+                          : t('permissions.appliesToNobody')}
+                      </p>
+                    </div>
+                  </div>
+                  <span className='ui-chip ui-chip-brand'>
+                    {t('permissions.enabled', {
+                      allowed: allowed.size,
+                      total: PERMISSIONS.length,
+                    })}
+                  </span>
+                </div>
+                {role.users.length > 0 && (
+                  <div>
+                    <div className='mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ink-2'>
+                      <Users size={16} strokeWidth={1.8} />
+                      {t('permissions.membersLabel')}
+                    </div>
+                    <div className='flex flex-wrap gap-1.5'>
+                      {role.users.map((u) => (
+                        <span key={u.id} className='ui-chip ui-chip-outline'>
+                          {u.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {notices && <div className='space-y-2'>{notices}</div>}
+              </div>
+
+              {GROUPS.map((group) => {
+                const on = group.keys.filter((k) => allowed.has(k)).length;
+                return (
+                  <section key={group.title} className='ui-card min-w-0 p-3 sm:p-4'>
+                    <div className='mb-2 flex flex-wrap items-start justify-between gap-2 px-1 sm:px-2'>
+                      <div className='min-w-0'>
+                        <h2 className='text-xs font-semibold uppercase tracking-wide ink-2'>{t(group.title)}</h2>
+                        <p className='mt-0.5 text-xs ink-3'>{t(group.help)}</p>
+                      </div>
+                      <span className='ui-chip ui-chip-outline'>
+                        {t('permissions.enabled', { allowed: on, total: group.keys.length })}
+                      </span>
+                    </div>
+                    <div className='divide-y divide-[var(--line)]'>
                       {group.keys.map((key) => {
                         const label = t(('permissions.' + key) as StringKey);
                         return (
                           <label
                             key={key}
                             className={
-                              'flex min-h-11 items-center justify-between gap-3 rounded-[11px] px-3 py-2.5 ' +
+                              'flex min-h-[44px] w-full items-center justify-between gap-3 rounded-[11px] px-2 py-2.5 sm:px-3 ' +
                               (locked
-                                ? 'cursor-default opacity-70'
+                                ? 'cursor-default opacity-60'
                                 : 'cursor-pointer hover:bg-[var(--hover)]')
                             }
                           >
-                            <span className='text-sm font-medium'>{label}</span>
+                            <span className='min-w-0 flex-1 text-sm font-medium'>{label}</span>
+                            {locked && <Lock size={14} strokeWidth={1.8} className='shrink-0 ink-3' />}
                             <Switch
                               aria-label={label}
                               isDisabled={locked}
@@ -252,47 +305,62 @@ export default function PermissionsPage() {
                       })}
                     </div>
                   </section>
-                ))}
-              </div>
+                );
+              })}
 
-              <div className='ui-card sticky bottom-3 flex flex-wrap items-center justify-between gap-2 p-3 sm:p-4 shadow-[var(--shadow-2)]'>
-                {saved ? (
-                  <span className='flex items-center gap-2 text-sm font-medium text-success'>
-                    <CheckCircle2 size={17} strokeWidth={1.8} />
-                    {t('permissions.saved')}
-                  </span>
-                ) : (
-                  <span className='text-sm ink-2'>
-                    {changed ? t('permissions.unsaved') : t('permissions.current')}
-                  </span>
-                )}
-                <div className='flex gap-2'>
+              {/* Opaque save bar while there is something to save (or just
+                  saved); otherwise the current-state text sits quietly. */}
+              {changed || saved ? (
+                <div className='sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-t-[16px] border-t border-line bg-surface p-3 shadow-[var(--shadow-2)] sm:p-4'>
+                  {saved ? (
+                    <span className='flex items-center gap-2 text-sm font-medium text-success'>
+                      <CheckCircle2 size={17} strokeWidth={1.8} />
+                      {t('permissions.saved')}
+                    </span>
+                  ) : (
+                    <span className='text-sm font-medium'>{t('permissions.unsaved')}</span>
+                  )}
+                  <div className='flex flex-wrap gap-2'>
+                    <Button
+                      variant='bordered'
+                      size='lg'
+                      className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
+                      isDisabled={locked}
+                      startContent={<RotateCcw size={16} strokeWidth={1.8} />}
+                      onPress={applyDefaults}
+                    >
+                      {t('permissions.defaults')}
+                    </Button>
+                    <Button
+                      color='primary'
+                      size='lg'
+                      className='font-semibold'
+                      isDisabled={!changed || locked}
+                      isLoading={busy}
+                      startContent={busy ? undefined : <Save size={16} strokeWidth={1.8} />}
+                      onPress={save}
+                    >
+                      {t('permissions.save')}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className='flex flex-wrap items-center justify-between gap-2 px-1'>
+                  <span className='text-sm ink-2'>{t('permissions.current')}</span>
                   <Button
                     variant='bordered'
+                    size='lg'
                     className='border border-[var(--line-strong)] bg-[var(--surface)] font-semibold'
                     isDisabled={locked}
                     startContent={<RotateCcw size={16} strokeWidth={1.8} />}
-                    onPress={() => {
-                      setAllowed(new Set(defaults));
-                      setSaved(false);
-                    }}
+                    onPress={applyDefaults}
                   >
                     {t('permissions.defaults')}
                   </Button>
-                  <Button
-                    color='primary'
-                    className='font-semibold'
-                    isDisabled={!changed || locked}
-                    isLoading={busy}
-                    startContent={busy ? undefined : <Save size={16} strokeWidth={1.8} />}
-                    onPress={save}
-                  >
-                    {t('permissions.save')}
-                  </Button>
                 </div>
-              </div>
-            </>
-          )
+              )}
+            </div>
+          </div>
         )}
       </div>
     </PageShell>

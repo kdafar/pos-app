@@ -93,6 +93,7 @@ db.transaction(() => {
     { id: 101, name: 'Sara Cashier', role: 'pos' },
     { id: 102, name: 'Omar Kitchen', role: 'kitchen' },
     { id: 103, name: 'Huda Manager', role: 'manager', approval: true },
+    { id: 104, name: 'Noor Admin', role: 'admin', approval: true },
   ];
   for (const s of staff)
     put('pos_users', {
