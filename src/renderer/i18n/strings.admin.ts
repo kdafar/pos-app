@@ -14,7 +14,6 @@ export const adminStrings = {
   'kitchen.preparing': { en: 'Preparing', ar: 'قيد التحضير' },
   'kitchen.ready': { en: 'Ready', ar: 'جاهز' },
   'kitchen.refresh': { en: 'Refresh', ar: 'تحديث' },
-  'kitchen.localOrder': { en: 'Local order', ar: 'طلب محلي' },
   'kitchen.minutes': { en: '{n} min', ar: '{n} د' },
   'kitchen.item': { en: 'Item', ar: 'صنف' },
   'kitchen.itemsMissing': { en: 'Items are not stored on this terminal.', ar: 'الأصناف غير محفوظة على هذا الجهاز.' },

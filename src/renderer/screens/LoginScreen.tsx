@@ -16,6 +16,7 @@ import { BrandHeader } from '../components/BrandHeader';
 import { LanguageToggle } from '../components/LanguageToggle';
 import { Wifi, WifiOff, Link2, RefreshCcw } from 'lucide-react';
 import { unpairDevice, useConfirmUnpair } from '../components/useConfirmUnpair';
+import { HelpButton } from '../help/HelpButton';
 import { useI18n } from '../i18n';
 
 import { useErrorLine } from '../utils/posError';
@@ -267,6 +268,7 @@ export function LoginScreen() {
 
           <div className='flex flex-wrap gap-2 justify-end items-center'>
             <LanguageToggle theme='light' compact />
+            <HelpButton />
             <Chip
               variant='bordered'
               color={mode === 'live' ? 'success' : 'warning'}

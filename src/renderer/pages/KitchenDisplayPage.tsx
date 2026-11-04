@@ -3,6 +3,7 @@ import { Button, Chip, Spinner } from '@heroui/react';
 import { ChefHat, Clock3, RefreshCw, UtensilsCrossed } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { useI18n, useOrderTypeLabel, type StringKey } from '../i18n';
+import { shortOrderLabel } from '../utils/orderLabel';
 
 type Ticket = { order: any; lines: any[] };
 const LANES = [
@@ -53,12 +54,18 @@ export default function KitchenDisplayPage() {
           const order = ticket.order;
           const elapsed = Math.max(0, Math.floor((now - timeValue(order.opened_at || order.created_at)) / 60000));
           const border = elapsed >= 20 ? 'border-danger' : lane.key === 'placed' ? 'border-primary' : lane.key === 'prepared' ? 'border-warning' : 'border-success';
-          const orderNumber = String(order.order_number || order.local_number || order.reference_no || '');
-          const displayNumber = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(orderNumber) || !orderNumber ? t('kitchen.localOrder') : orderNumber;
+          // The same label the order panel and the receipt show (#0008 once the
+          // server has numbered it, the short till number before). This read
+          // order_number / local_number, which no order row has, so every till
+          // order showed "#Local order" and could not be matched to its receipt.
+          const displayNumber = shortOrderLabel(order);
+          // The checkout "Order Notes" are stored as `note`; `order_notes` is
+          // only the alias the receipt query gives it.
+          const orderNote = String(order.note ?? order.order_notes ?? '').trim();
           return <article key={order.id} className={`overflow-hidden rounded-xl border-2 bg-content1 shadow-sm ${border}`}>
-            <div className='flex items-start justify-between gap-3 border-b border-default-300 px-4 py-3'><div className='min-w-0'><p className='truncate text-xl font-black'>#{displayNumber}</p><p className='text-sm font-semibold text-default-700'>{orderTypeLabel(order.order_type)}{order.table_name ? ` · ${order.table_name}` : ''}</p></div><Chip className='shrink-0 font-bold' size='sm' color={elapsed >= 20 ? 'danger' : elapsed >= 10 ? 'warning' : lane.tone} variant='solid' startContent={<Clock3 size={12}/>}>{t('kitchen.minutes', { n: elapsed })}</Chip></div>
+            <div className='flex items-start justify-between gap-3 border-b border-default-300 px-4 py-3'><div className='min-w-0'><p className='truncate text-xl font-black'><span className='money'>{displayNumber}</span></p><p className='text-sm font-semibold text-default-700'>{orderTypeLabel(order.order_type)}{order.table_name ? ` · ${order.table_name}` : ''}</p></div><Chip className='shrink-0 font-bold' size='sm' color={elapsed >= 20 ? 'danger' : elapsed >= 10 ? 'warning' : lane.tone} variant='solid' startContent={<Clock3 size={12}/>}>{t('kitchen.minutes', { n: elapsed })}</Chip></div>
             <div className='space-y-3 px-4 py-3'>{ticket.lines.length ? ticket.lines.map((line: any, index: number) => <div key={line.id || index} className='flex items-start gap-3'><b className='min-w-10 rounded-md bg-primary px-2 py-1 text-center text-sm font-black text-primary-foreground'>{Number(line.qty || line.quantity || 1)}×</b><div><p className='text-base font-bold text-foreground'>{name({ name: line.item_name || line.name || line.product_name, name_ar: line.name_ar || line.item_name_ar }) || t('kitchen.item')}</p>{(line.variation_name || line.notes) && <p className='text-sm font-medium text-default-700'>{line.variation_name || line.notes}</p>}</div></div>) : <p className='text-sm font-medium text-default-700'>{t('kitchen.itemsMissing')}</p>}</div>
-            {order.order_notes && <div className='mx-4 mb-3 rounded-lg bg-warning p-2 text-xs font-bold text-warning-foreground'>{order.order_notes}</div>}
+            {orderNote && <div className='mx-4 mb-3 rounded-lg bg-warning p-2 text-xs font-bold text-warning-foreground'>{orderNote}</div>}
             <div className='border-t border-default-300 p-3'><Button fullWidth size='lg' className='font-bold' color={lane.key === 'placed' ? 'primary' : lane.key === 'prepared' ? 'warning' : 'success'} variant='solid' isLoading={busy === String(order.id)} startContent={busy === String(order.id) ? undefined : <UtensilsCrossed size={16}/>} onPress={() => advance(ticket)}>{t(lane.key === 'placed' ? 'kitchen.start' : lane.key === 'prepared' ? 'kitchen.markReady' : 'kitchen.complete')}</Button></div>
           </article>;
         })}{!grouped[lane.key].length && <div className='rounded-xl border border-dashed border-default-400 py-10 text-center text-sm font-semibold text-default-700'>{t('kitchen.empty')}</div>}</div>

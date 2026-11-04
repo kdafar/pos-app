@@ -13,6 +13,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { BrandHeader } from '../components/BrandHeader';
 import { LanguageToggle } from '../components/LanguageToggle';
+import { HelpButton } from '../help/HelpButton';
 import { useI18n } from '../i18n';
 import { unpairDevice, useConfirmUnpair } from '../components/useConfirmUnpair';
 
@@ -312,7 +313,10 @@ export default function PairScreen() {
               subtitle={t('pair.paired')}
               align='left'
             />
-            <LanguageToggle compact />
+            <div className='flex items-center gap-2'>
+              <LanguageToggle compact />
+              <HelpButton />
+            </div>
           </CardHeader>
 
           <Divider />
@@ -392,7 +396,10 @@ export default function PairScreen() {
           {/* No "go to login" here: this form only shows on an unpaired till,
               and a paired one is sent to login before it ever renders. */}
           <div className='flex items-center gap-3'>
-            <LanguageToggle compact />
+            <div className='flex items-center gap-2'>
+              <LanguageToggle compact />
+              <HelpButton />
+            </div>
           </div>
         </CardHeader>
 

@@ -25,6 +25,7 @@ import PaymentMethodsPage from './pages/PaymentMethodsPage';
 import LocationsPage from './pages/LocationsPage';
 import PermissionsPage from './pages/PermissionsPage';
 import KitchenDisplayPage from './pages/KitchenDisplayPage';
+import HelpPage from './help/HelpPage';
 
 function PermissionRoute({ permission, children }: { permission: string; children: React.ReactNode }) {
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -49,6 +50,9 @@ function App() {
       <Route path="/pair" element={<PairScreen />} />
       <Route path="/login" element={<LoginScreen />} />
       <Route path="/logout" element={<LogoutRoute />} />
+      {/* The guide before sign-in (from the "?" on the sign-in and pair
+          screens): no sidebar, and only the steps that need no screen. */}
+      <Route path="/start-help" element={<div className='min-h-screen bg-background'><HelpPage /></div>} />
 
       {/* Protected app */}
       <Route element={<AuthedGate />}>
@@ -66,6 +70,10 @@ function App() {
 
           {/* Dine-in */}
           <Route path="tables" element={<PermissionRoute permission='tables.manage'><TablesPage /></PermissionRoute>} />
+
+          {/* Help: everyone. The page itself shows only the steps for the
+              screens this user has in the sidebar. */}
+          <Route path="help" element={<HelpPage />} />
 
           {/* System */}
           <Route path="payment-methods" element={<PermissionRoute permission='payments.manage'><PaymentMethodsPage /></PermissionRoute>} />

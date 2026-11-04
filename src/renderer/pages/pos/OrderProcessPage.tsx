@@ -28,6 +28,7 @@ import {
 } from './types';
 
 import { OrderTypePicker } from './components/OrderTypePicker';
+import { HelpButton } from '../../help/HelpButton';
 import { useDeliveryEnabled } from '../../hooks/useDeliveryEnabled';
 import { TableQuickBar } from './components/TableQuickBar';
 
@@ -545,6 +546,8 @@ export default function OrderProcessPage() {
                   allowDelivery={deliveryEnabled}
                 />
               )}
+              <div className='w-px h-7 bg-default-200' />
+              <HelpButton />
             </div>
           </div>
         </div>

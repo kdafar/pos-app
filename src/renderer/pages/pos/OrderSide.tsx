@@ -694,7 +694,7 @@ export default function OrderSide({
                   orderLines.length > 0
                     ? t('cart.tipRelease')
                     : orderLines.length > 0
-                    ? t('cart.tipCancel')
+                    ? t('cart.tipClose')
                     : t('cart.tipDeleteEmpty')
                 }
               >

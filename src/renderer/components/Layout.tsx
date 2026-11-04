@@ -32,6 +32,7 @@ import {
   ShieldCheck,
   ChefHat,
   LogOut,
+  CircleHelp,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -638,6 +639,14 @@ export function Layout() {
             </button>
           )}
 
+          {/* Help is for everyone, so it is not under System/Settings. */}
+          <NavLink
+            to='/help'
+            text={t('nav.help')}
+            icon={CircleHelp}
+            collapsed={collapsed}
+            active={location.pathname === '/help'}
+          />
           <NavLink
             to='/logout'
             text={t('auth.logout')}

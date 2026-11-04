@@ -58,3 +58,6 @@ Thumbs.db
 *.dmg
 *.AppImage
 *.deb
+
+# help-guide screenshot script: failure screenshots
+scripts/help-shots/debug/

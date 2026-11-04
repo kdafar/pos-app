@@ -14,6 +14,7 @@ import { useRootTheme } from './pos/useRootTheme';
 import { usePermissions } from '../hooks/usePermissions';
 import { useI18n, useOrderTypeLabel, useStatusLabel } from '../i18n';
 import type { StringKey } from '../i18n';
+import { HelpButton } from '../help/HelpButton';
 
 declare global {
   interface Window {
@@ -543,8 +544,10 @@ export default function TodayOrdersReport() {
 
   return (
     <div className='mx-auto w-full max-w-[110rem] p-3 sm:p-4'>
-      {/* Header + Toolbar */}
-      <div className='mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between'>
+      {/* Header + Toolbar, with the guide's "?" in the top-end corner like
+          every other screen. */}
+      <div className='mb-4 flex items-start gap-3'>
+      <div className='flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-end md:justify-between'>
         <div>
           <h1 className='text-2xl font-bold'>{t('admin.orders.title')}</h1>
           <div className='text-sm font-medium text-default-700'>
@@ -616,6 +619,8 @@ export default function TodayOrdersReport() {
             </select>
           </div>
         </div>
+      </div>
+      <HelpButton />
       </div>
 
       <DataTable

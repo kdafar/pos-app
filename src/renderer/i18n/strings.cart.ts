@@ -65,7 +65,9 @@ export const cartStrings = {
     en: 'Finish and release table',
     ar: 'إنهاء الطلب وتحرير الطاولة',
   },
-  'cart.tipCancel': { en: 'Cancel this order', ar: 'إلغاء هذا الطلب' },
+  // This button finishes the sale (prints if never printed, then closes). It
+  // said "Cancel this order", which is the opposite of what it does.
+  'cart.tipClose': { en: 'Finish and close this order', ar: 'إنهاء الطلب وإغلاقه' },
   'cart.tipDeleteEmpty': {
     en: 'Delete this empty order',
     ar: 'حذف هذا الطلب الفارغ',

@@ -10,6 +10,7 @@
 export const navStrings = {
   'nav.kitchen': { en: 'Kitchen display', ar: 'شاشة المطبخ' },
   'nav.permissions': { en: 'Permissions', ar: 'الصلاحيات' },
+  'nav.help': { en: 'Help', ar: 'المساعدة' },
   /* ---------- sidebar section labels ---------- */
   'nav.section.catalog': { en: 'Catalog', ar: 'القائمة' },
   'nav.section.system': { en: 'System', ar: 'النظام' },

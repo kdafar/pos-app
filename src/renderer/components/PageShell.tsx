@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Button, Chip, Input, Select, SelectItem, Spinner } from '@heroui/react';
 import { AlertCircle, Inbox, RotateCw, Search, type LucideIcon } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { HelpButton } from '../help/HelpButton';
 
 /**
  * The frame every admin page shares — deliberately not a copy of the one they
@@ -88,6 +89,7 @@ export function PageShell({
             </Button>
           )}
           {primaryAction}
+          <HelpButton />
         </div>
       </header>
 
