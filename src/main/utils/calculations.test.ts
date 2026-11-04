@@ -7,6 +7,7 @@ import {
   variationEffectivePrice,
   resolveDeliveryFee,
   computePromoDiscount,
+  promoIsLive,
   type PromoRow,
 } from './calculations';
 
@@ -213,5 +214,26 @@ describe('resolveDeliveryFee', () => {
     expect(resolveDeliveryFee({ order_type: 1 }, NaN)).toBe(0);
     expect(resolveDeliveryFee({ order_type: 1 }, -1)).toBe(0);
     expect(resolveDeliveryFee(null, AREA)).toBe(0);
+  });
+});
+
+describe('promoIsLive', () => {
+  // 4 Nov 2026, noon, local time.
+  const now = new Date(2026, 10, 4, 12, 0, 0).getTime();
+
+  it('reads the server text dates as times (they used to vanish in SQL)', () => {
+    expect(promoIsLive({ start_at: '2026-01-01 00:00:00', end_at: '2030-12-31 23:59:59' }, now)).toBe(true);
+  });
+  it('is not live before its start or after its end', () => {
+    expect(promoIsLive({ start_at: '2026-12-01 00:00:00', end_at: null }, now)).toBe(false);
+    expect(promoIsLive({ start_at: null, end_at: '2026-11-01 00:00:00' }, now)).toBe(false);
+  });
+  it('treats missing or unreadable dates as no limit', () => {
+    expect(promoIsLive({}, now)).toBe(true);
+    expect(promoIsLive({ start_at: '', end_at: null }, now)).toBe(true);
+    expect(promoIsLive({ start_at: 'not a date', end_at: 'also not' }, now)).toBe(true);
+  });
+  it('accepts ISO dates too', () => {
+    expect(promoIsLive({ start_at: '2026-11-01T00:00:00Z', end_at: '2026-11-30T23:59:59Z' }, now)).toBe(true);
   });
 });

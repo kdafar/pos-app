@@ -125,7 +125,7 @@ export default function PromosPage() {
     setLoading(true);
     setError(null);
     try {
-      const promos = await window.api.invoke('catalog:listPromos');
+      const promos = await window.api.invoke('catalog:listAllPromos');
       setData(promos || []);
     } catch (e) {
       // Was swallowed, leaving an empty table indistinguishable from a shop

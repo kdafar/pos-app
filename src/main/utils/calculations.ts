@@ -116,6 +116,26 @@ export function calcLineTotal(row: any): number {
 
 /* --------------------- Promo & delivery helpers --------------------- */
 
+/**
+ * Is a promo inside its date window right now?
+ *
+ * Dates arrive from the server as text ("2026-01-01 00:00:00"). They must be
+ * compared as times here, never in SQL against a number: SQLite ranks every
+ * TEXT above every INTEGER, so `start_at <= ?` was always false and every
+ * dated promo vanished from the lists. A date that does not parse counts as
+ * no limit, as it always has at checkout.
+ */
+export function promoIsLive(
+  p: { start_at?: string | null; end_at?: string | null },
+  now: number = Date.now()
+): boolean {
+  const start = p.start_at ? new Date(p.start_at).getTime() : NaN;
+  const end = p.end_at ? new Date(p.end_at).getTime() : NaN;
+  const startsOk = !p.start_at || Number.isNaN(start) || start <= now;
+  const endsOk = !p.end_at || Number.isNaN(end) || end >= now;
+  return startsOk && endsOk;
+}
+
 export function resolvePromoByCode(
   services: MainServices,
   code: string | null
@@ -135,11 +155,7 @@ export function resolvePromoByCode(
 
   if (!row) return null;
 
-  const now = Date.now();
-  const startsOk = !row.start_at || new Date(row.start_at).getTime() <= now;
-  const endsOk = !row.end_at || new Date(row.end_at).getTime() >= now;
-
-  return startsOk && endsOk ? row : null;
+  return promoIsLive(row) ? row : null;
 }
 
 export function computePromoDiscount(

@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron';
 import db from '../db';
+import { promoIsLive } from '../utils/calculations';
 
 type CatalogListItemsFilter = {
   q?: string | null;
@@ -335,25 +336,39 @@ export function registerCatalogHandlers(ipcMain: IpcMain) {
   );
 
   // 🎟 List active promos
+  // Promos a cashier can use right now (order screen: "Available Promo Codes").
+  // The date window is checked in JS — see promoIsLive for why not in SQL.
   ipcMain.handle('catalog:listPromos', async () => {
     try {
-      const now = Date.now();
-      return db
+      const rows = db
         .prepare(
           `
-          SELECT id, code, type, value, min_total, max_discount, start_at, end_at
+          SELECT id, code, type, value, min_total, max_discount, start_at, end_at, active
           FROM promos
           WHERE active = 1
-            AND (start_at IS NULL OR start_at <= ?)
-            AND (end_at   IS NULL OR end_at   >   ?)
           ORDER BY code ASC
         `
         )
-        .all(now, now);
+        .all() as Array<{ start_at?: string | null; end_at?: string | null }>;
+      return rows.filter((p) => promoIsLive(p));
     } catch (e: any) {
       console.error('Failed to list promos:', e.message);
       return [];
     }
+  });
+
+  // Every promo with its real switch, for the Promos screen: its Disabled /
+  // Upcoming / Expired filters need the rows the order screen leaves out.
+  ipcMain.handle('catalog:listAllPromos', async () => {
+    return db
+      .prepare(
+        `
+        SELECT id, code, type, value, min_total, max_discount, start_at, end_at, active
+        FROM promos
+        ORDER BY code ASC
+      `
+      )
+      .all();
   });
 
   // 🍟 List variations (sizes/options) for an item
