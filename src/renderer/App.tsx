@@ -28,19 +28,30 @@ import KitchenDisplayPage from './pages/KitchenDisplayPage';
 import HelpPage from './help/HelpPage';
 
 function PermissionRoute({ permission, children }: { permission: string; children: React.ReactNode }) {
-  const [allowed, setAllowed] = useState<boolean | null>(null);
-  const [fallback, setFallback] = useState('/');
+  // The answer is stored WITH the permission it answers. React reuses this
+  // component when one guarded route replaces another, so a bare `allowed`
+  // carried the previous screen's "yes" into the next one: going from Updates
+  // to Permissions as a manager mounted the Permissions page for a moment, its
+  // load was refused by the main process ("Could not load this page"), and only
+  // then did the redirect happen. An answer for another permission is no answer.
+  const [answer, setAnswer] = useState<{ permission: string; allowed: boolean; fallback: string } | null>(null);
   useEffect(() => {
+    let live = true;
     window.api.invoke('auth:whoami').then((user) => {
       const permissions: string[] = user?.permissions || [];
-      setFallback(permissions.includes('orders.create') ? '/' : permissions.includes('orders.kitchen_view') ? '/kitchen' : permissions.includes('reports.view') ? '/reports/closing' : '/login');
+      const fallback = permissions.includes('orders.create') ? '/' : permissions.includes('orders.kitchen_view') ? '/kitchen' : permissions.includes('reports.view') ? '/reports/closing' : '/login';
       // `permissions` is already the effective role defaults plus per-user
       // overrides. Adding `is_admin` here made every explicit denial a no-op.
-      setAllowed(permissions.includes(permission));
-    }).catch(() => setAllowed(false));
+      if (live) setAnswer({ permission, allowed: permissions.includes(permission), fallback });
+    }).catch(() => {
+      if (live) setAnswer({ permission, allowed: false, fallback: '/' });
+    });
+    return () => {
+      live = false;
+    };
   }, [permission]);
-  if (allowed === null) return null;
-  return allowed ? <>{children}</> : <Navigate to={fallback} replace />;
+  if (!answer || answer.permission !== permission) return null;
+  return answer.allowed ? <>{children}</> : <Navigate to={answer.fallback} replace />;
 }
 
 function App() {
