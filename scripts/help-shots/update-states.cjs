@@ -43,6 +43,13 @@ const STATES = {
       await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-update-${name}.png`) });
       console.log('  ', lang, theme, w, name);
     }
+    // Settings: one long page; top, then scrolled down to check the side list follows.
+    await win.evaluate(() => { location.hash = '#/settings'; }); await sleep(1500);
+    await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-settings-top.png`) });
+    await win.mouse.move(w / 2, h / 2);
+    for (let i = 0; i < 6; i++) { await win.mouse.wheel(0, 500); await sleep(150); }
+    await sleep(800);
+    await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-settings-scrolled.png`) });
     await win.evaluate(() => { location.hash = '#/logout'; }); await sleep(1500);
   }
   await app.close();

@@ -140,8 +140,19 @@ const PAPER_PRESETS = [
 ];
 
 type SectionId = 'till' | 'printing' | 'maintenance' | 'diagnostics';
-const SECTION_KEY = 'settings.section';
 const SECTION_IDS: SectionId[] = ['till', 'printing', 'maintenance', 'diagnostics'];
+
+/** A section heading that is also the scroll target for the section list. */
+function SectionHeading({ id, label }: { id: string; label: string }) {
+  return (
+    <h2
+      id={`settings-${id}`}
+      className='scroll-mt-16 lg:scroll-mt-4 pt-2 text-xs font-semibold uppercase tracking-wide ink-2 first:pt-0'
+    >
+      {label}
+    </h2>
+  );
+}
 
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
@@ -149,15 +160,8 @@ export function SettingsPage() {
   const [textScale, setTextScale] = useState<TextScaleId>(() =>
     normalizeTextScale(document.documentElement.dataset.textScale)
   );
-  // Remembered for the session only; the URL hash is left alone.
-  const [section, setSection] = useState<SectionId>(() => {
-    try {
-      const v = sessionStorage.getItem(SECTION_KEY) as SectionId | null;
-      return v && SECTION_IDS.includes(v) ? v : 'till';
-    } catch {
-      return 'till';
-    }
-  });
+  // Which section the list highlights; follows the scroll.
+  const [section, setSection] = useState<SectionId>('till');
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -589,26 +593,61 @@ export function SettingsPage() {
     { id: 'diagnostics', label: t('settings.secDiagnostics'), icon: <Activity size={20} strokeWidth={1.8} /> },
   ];
 
+  const sectionLabel = (id: SectionId) => sections.find((x) => x.id === id)?.label ?? '';
+
+  // One page, every section on it: the list jumps to a section and the
+  // highlight follows the scroll, so no section is ever a near-empty page.
+  // While a jump is scrolling, the highlight stays on the picked section.
+  const jumpingUntil = useRef(0);
   const pickSection = (id: SectionId) => {
     setSection(id);
-    try {
-      sessionStorage.setItem(SECTION_KEY, id);
-    } catch {
-      /* session memory is a convenience only */
-    }
+    jumpingUntil.current = Date.now() + 900;
+    document
+      .getElementById(`settings-${id}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+
+  // Highlight the last section whose heading has reached the top area; at the
+  // very bottom of the page, the last section (it may never reach the top).
+  useEffect(() => {
+    const onScroll = (e: Event) => {
+      if (Date.now() < jumpingUntil.current) return;
+      const scroller = e.target instanceof HTMLElement ? e.target : null;
+      if (!scroller || !scroller.querySelector('#settings-till')) return;
+      let current: SectionId = SECTION_IDS[0];
+      const atBottom =
+        scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4;
+      if (atBottom) current = SECTION_IDS[SECTION_IDS.length - 1];
+      else
+        for (const id of SECTION_IDS) {
+          const el = document.getElementById(`settings-${id}`);
+          if (el && el.getBoundingClientRect().top <= 160) current = id;
+        }
+      setSection(current);
+    };
+    document.addEventListener('scroll', onScroll, true);
+    return () => document.removeEventListener('scroll', onScroll, true);
+  }, []);
+
+  // Phones: keep the highlighted chip visible in the sideways switcher.
+  useEffect(() => {
+    document
+      .querySelector(`[data-settings-chip='${section}']`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [section]);
 
   return (
     <PageShell title={t('settings.pageTitle')} subtitle={t('settings.pageSubtitle')}>
       <div className='flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:gap-6'>
         {/* < lg: a switcher that scrolls sideways; >= lg: a sticky side list. */}
-        <div className='min-w-0 max-w-full overflow-x-auto chip-scroll lg:hidden'>
+        <div className='sticky top-0 z-10 -mx-1 min-w-0 max-w-full overflow-x-auto chip-scroll bg-canvas px-1 py-1 lg:hidden'>
           <div className='ui-seg' role='group' aria-label={t('settings.pageTitle')}>
             {sections.map((s) => (
               <button
                 key={s.id}
                 type='button'
                 className='ui-seg-item gap-2'
+                data-settings-chip={s.id}
                 aria-pressed={section === s.id}
                 onClick={() => pickSection(s.id)}
               >
@@ -637,7 +676,8 @@ export function SettingsPage() {
         </nav>
 
         <div className='flex min-w-0 flex-1 flex-col gap-4'>
-          {section === 'till' && (
+          <SectionHeading id='till' label={sectionLabel('till')} />
+          {(
             <SettingsCard>
               {/* Language lives here rather than behind a menu: shifts hand the
                   till over mid-service and the switch has to be findable in one
@@ -684,7 +724,8 @@ export function SettingsPage() {
             </SettingsCard>
           )}
 
-          {section === 'printing' && (
+          <SectionHeading id='printing' label={sectionLabel('printing')} />
+          {(
             <>
               {/* Receipt printer. This is the one setting on the page that is
                   written rather than displayed: which printer a till uses is
@@ -779,7 +820,8 @@ export function SettingsPage() {
                                 });
                               }}
                             >
-                              {preset.label}
+                              {/* Sizes are Latin units: keep "80 mm" in that order in Arabic too. */}
+                              <bdi dir='ltr'>{preset.label}</bdi>
                             </button>
                           ))}
                         </div>
@@ -929,7 +971,8 @@ export function SettingsPage() {
             </>
           )}
 
-          {section === 'maintenance' && (
+          <SectionHeading id='maintenance' label={sectionLabel('maintenance')} />
+          {(
             <SettingsCard>
               <SettingRow label={t('settings.invoiceLogo')} hint={t('settings.invoiceLogoHint')}>
                 <Button
@@ -966,7 +1009,8 @@ export function SettingsPage() {
             </SettingsCard>
           )}
 
-          {section === 'diagnostics' && (
+          <SectionHeading id='diagnostics' label={sectionLabel('diagnostics')} />
+          {(
             <>
               <div className='ui-notice items-center text-sm'>
                 <Lock size={18} strokeWidth={1.8} className='shrink-0 text-warning' />
