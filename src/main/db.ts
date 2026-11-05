@@ -831,7 +831,7 @@ export function repairUnsentReleasedTables() {
         ? db
             .prepare(
               `UPDATE orders
-                  SET closed_at = COALESCE(${hasCompletedAt ? 'completed_at, ' : ''}updated_at)
+                  SET closed_at = ${hasCompletedAt ? 'COALESCE(completed_at, updated_at)' : 'updated_at'}
                 WHERE order_type = 3 AND status = 'completed' AND closed_at IS NULL`
             )
             .run().changes
