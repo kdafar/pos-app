@@ -142,3 +142,12 @@ Server to-do, in order of impact:
 
 dev.trebianco.com runs the same server code as live Trebianco and is the place for the
 two-till test.
+
+## Two-till test, dev.trebianco.com (2026-11-05)
+
+Two tills on Trebianco Grill, signed in as dev-till-1a / dev-till-1b. 17 of 19 checks
+passed: an order placed on one till reached the other with its table, guest count and
+note; the table showed busy, then free after the close, on both. The two failures were the
+status change: the test users have the cashier (`pos`) role, which may not change status,
+so that step was refused before anything synced. The server order on Table 1 showed busy
+on both tills from the first full download.
