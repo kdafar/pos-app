@@ -193,6 +193,12 @@ function safeBuildOrderPayload(orderId: string) {
     status: safePushStatus(o.status, o.status_code),
     local_status: o.status,
     order_type: o.order_type,
+    // Top level is where /push reads these (server, 2026-11-05). Left out when
+    // empty: a re-push without the key keeps what the server saved, while a
+    // null would wipe it.
+    ...(o.table_id == null ? {} : { table_id: o.table_id }),
+    ...(Number(o.covers) > 0 ? { covers: Math.trunc(Number(o.covers)) } : {}),
+    ...(o.note ? { note: String(o.note) } : {}),
     payments,
     customer: {
       full_name: o.full_name,
