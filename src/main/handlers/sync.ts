@@ -998,8 +998,12 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
           .pluck()
           .get() ?? 0
       ) > 0;
+    // A staff change on /pull (deactivation, role, new user) also brings a full
+    // bootstrap on the next run: /pull user rows carry no password_hash, so a
+    // changed password would otherwise keep working here until the 6 h refresh.
     const doBootstrap =
       getMeta('pos.locked') === '1' ||
+      getMeta('bootstrap.staff_changed') === '1' ||
       bootstrapDue({
         hasCursor,
         lastAt: Number(getMeta('bootstrap.last_at') || 0),
@@ -1016,6 +1020,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
 
       // ✅ Only here: we know we actually reached the server
       setMeta('bootstrap.last_at', String(Date.now()));
+      setMeta('bootstrap.staff_changed', '0');
       bootstrappedThisRun = true;
     } catch (err: any) {
       if (axios.isAxiosError(err) && err.response?.status === 423) {

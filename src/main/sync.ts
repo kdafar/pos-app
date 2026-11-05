@@ -2551,6 +2551,8 @@ async function pullPage(): Promise<boolean> {
         if (op === 'delete')
           db.prepare('UPDATE pos_users SET is_active = 0 WHERE id = ?').run(S(c.pk));
         else if (c.data) upUser.run(normUser(c.data));
+        // Passwords only come with /bootstrap: fetch it on the next sync.
+        setMeta('bootstrap.staff_changed', '1');
       } else if (
         tbl === 'role_permission' ||
         tbl === 'role_permissions' ||
