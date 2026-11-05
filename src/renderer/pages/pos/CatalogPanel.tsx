@@ -248,7 +248,7 @@ export default function CatalogPanel({
           auto-fill + minmax gives four cards there and eight on a 4K panel
           without a single breakpoint.
         */}
-        <div className='grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2.5 p-3 lg:p-4 items-start'>
+        <div className='grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2.5 p-3 lg:p-4'>
           {items.map((item) => (
             <ItemCard
               key={item.id}

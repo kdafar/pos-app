@@ -114,11 +114,11 @@ export function OrderLineItem({
     : [];
 
   return (
-    <div className='bg-surface border border-line rounded-[14px] p-3 min-w-0'>
-      {/* Top row: name + remove */}
-      <div className='flex items-start justify-between gap-2 mb-2'>
-        <div className='flex-1 min-w-0 pe-1'>
-          <h4 className={`font-semibold pos-base ${text} leading-snug line-clamp-2`}>
+    <div className='min-w-0 py-2.5'>
+      {/* Top row: the full name + the line total */}
+      <div className='flex items-start justify-between gap-3'>
+        <div className='flex-1 min-w-0'>
+          <h4 className={`font-semibold pos-base ${text} leading-snug break-words`}>
             {localName(line)}
           </h4>
 
@@ -153,32 +153,20 @@ export function OrderLineItem({
             </p>
 
             {hasNote && (
-              <p className={`pos-xs ${textMuted} italic line-clamp-2`}>
+              <p className={`pos-xs ${textMuted} italic break-words`}>
                 {t('cart.note')}: {line.notes}
               </p>
             )}
           </div>
         </div>
 
-        {/* A finger-sized target rather than a bare 16px glyph — this is the
-            control that deletes a line mid-order. */}
-        <Hint content={t('common.remove')} placement='top'>
-        <Button
-          isIconOnly
-          size='md'
-          variant='light'
-          color='danger'
-          onPress={remove}
-          aria-label={t('common.remove')}
-          className='shrink-0 text-danger'
-        >
-          <Trash2 size={18} strokeWidth={1.8} />
-        </Button>
-        </Hint>
+        <div className='pos-price shrink-0 font-semibold tabular-nums text-foreground'>
+          <span className='money'>{money(lineTotal)}</span>
+        </div>
       </div>
 
-      {/* Bottom row: qty controls + total */}
-      <div className='flex flex-wrap items-center justify-between gap-2'>
+      {/* Bottom row: quantity, and remove at the far end */}
+      <div className='mt-2 flex items-center justify-between gap-2'>
         <QtyStepper
           value={qty}
           min={1}
@@ -190,9 +178,21 @@ export function OrderLineItem({
           onChange={setQty}
         />
 
-        <div className='pos-price font-semibold tabular-nums text-foreground'>
-          <span className='money'>{money(lineTotal)}</span>
-        </div>
+        {/* A finger-sized target rather than a bare 16px glyph — this is the
+            control that deletes a line mid-order. */}
+        <Hint content={t('common.remove')} placement='top'>
+          <Button
+            isIconOnly
+            size='md'
+            variant='light'
+            color='danger'
+            onPress={remove}
+            aria-label={t('common.remove')}
+            className='shrink-0 text-danger'
+          >
+            <Trash2 size={18} strokeWidth={1.8} />
+          </Button>
+        </Hint>
       </div>
     </div>
   );

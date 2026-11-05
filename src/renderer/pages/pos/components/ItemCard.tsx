@@ -105,10 +105,11 @@ export function ItemCard({
 
       {/* TITLE */}
       <div className='mb-1'>
-        <h3 className='font-semibold text-foreground pos-sm leading-snug line-clamp-2'>
+        {/* Full names, never cut: a cashier must read the whole dish. */}
+        <h3 className='font-semibold text-foreground pos-sm leading-snug break-words'>
           {localName(item)}
         </h3>
-        <p className='pos-xs ink-2 line-clamp-1'>
+        <p className='pos-xs ink-2 leading-snug break-words'>
           {isRTL ? item.name : item.name_ar}
         </p>
       </div>

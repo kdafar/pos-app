@@ -131,6 +131,8 @@ db.transaction(() => {
     ['i8', 'c3', 'Water', 'ماء', 0.2, { barcode: '6200000000017' }],
     ['i9', 'c4', 'Kunafa', 'كنافة', 1.75, {}],
     ['i10', 'c4', 'Chocolate Cake', 'كيكة شوكولاتة', 1.5, { is_outofstock: 1 }],
+    // A long name, to check names are never cut off.
+    ['i11', 'c1', 'Grilled Chicken Shawarma Plate with Garlic Sauce', 'صحن شاورما دجاج مشوي مع صلصة الثوم', 3.25, {}],
   ];
   for (const [id, category_id, name, name_ar, price, extra] of items)
     put('items', {

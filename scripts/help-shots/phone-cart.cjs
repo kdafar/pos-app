@@ -8,8 +8,8 @@ const ROOT = path.resolve(__dirname, '../..');
 const OUT = process.argv[2];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = {
-  en: { lang: 'English', pw: 'Enter password', signIn: 'Sign in', NEW: 'NEW', juice: 'Orange Juice', view: 'View cart', place: 'Place order' },
-  ar: { lang: 'العربية', pw: 'أدخل كلمة المرور', signIn: 'تسجيل الدخول', NEW: 'جديد', juice: 'عصير برتقال', view: 'عرض السلة', place: 'تأكيد الطلب' },
+  en: { lang: 'English', pw: 'Enter password', signIn: 'Sign in', NEW: 'NEW', juice: 'Orange Juice', long: 'Grilled Chicken Shawarma Plate with Garlic Sauce', view: 'View cart', place: 'Place order', cancel: 'Cancel' },
+  ar: { lang: 'العربية', pw: 'أدخل كلمة المرور', signIn: 'تسجيل الدخول', NEW: 'جديد', juice: 'عصير برتقال', long: 'صحن شاورما دجاج مشوي مع صلصة الثوم', view: 'عرض السلة', place: 'تأكيد الطلب', cancel: 'إلغاء' },
 };
 (async () => {
   const env = { ...process.env, POS_PROFILE: 'demo' }; delete env.ELECTRON_RUN_AS_NODE;
@@ -32,6 +32,7 @@ const T = {
     await win.getByRole('button', { name: t.NEW }).first().click(); await sleep(700);
     await win.getByText(t.juice, { exact: true }).first().click(); await sleep(500);
     await win.getByText(t.juice, { exact: true }).first().click(); await sleep(600);
+    await win.getByText(t.long, { exact: true }).first().click(); await sleep(600);
     for (const [w, h] of [[412, 900], [360, 640]]) {
       await win.setViewportSize({ width: w, height: h }); await sleep(900);
       await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-cart-bar.png`) });
@@ -41,11 +42,12 @@ const T = {
         // Checkout must open on top of the sheet.
         await win.getByRole('button', { name: t.place }).last().click(); await sleep(900);
         await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-cart-checkout.png`) });
-        await win.keyboard.press('Escape'); await sleep(500);
+        // Checkout does not close on Escape (by design): use its Cancel button.
+        await win.getByRole('dialog').last().getByRole('button', { name: t.cancel, exact: true }).click(); await sleep(500);
       }
       await win.keyboard.press('Escape'); await sleep(400);
     }
-    for (const [w, h] of [[800, 1280], [1366, 768]]) {
+    for (const [w, h] of [[800, 1280], [1024, 600], [1366, 768]]) {
       await win.setViewportSize({ width: w, height: h }); await sleep(900);
       await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-order.png`) });
     }

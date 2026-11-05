@@ -606,7 +606,7 @@ export default function OrderProcessPage() {
         <div
           className={`min-h-0 min-w-0 ${
             cartOpen
-              ? 'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-8 max-md:z-50 max-md:flex max-md:flex-col max-md:overflow-hidden max-md:rounded-t-[20px] max-md:bg-[var(--surface)] max-md:shadow-[var(--shadow-2)]'
+              ? 'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:max-h-[calc(100dvh-2rem)] max-md:z-50 max-md:flex max-md:flex-col max-md:overflow-hidden max-md:rounded-t-[20px] max-md:bg-[var(--surface)] max-md:shadow-[var(--shadow-2)]'
               : 'max-md:hidden'
           }`}
           role={cartOpen ? 'dialog' : undefined}
@@ -626,7 +626,8 @@ export default function OrderProcessPage() {
               </button>
             </div>
           )}
-          <div className='h-full min-h-0 max-md:flex-1'>
+          {/* Phones: the sheet is as tall as the cart, up to nearly the full screen. */}
+          <div className='h-full min-h-0 max-md:flex max-md:h-auto max-md:flex-initial max-md:flex-col'>
         <OrderSide
           theme={theme}
           currentOrder={currentOrder}

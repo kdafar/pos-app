@@ -365,11 +365,10 @@ export default function OrderSide({
               {/* Left: order number + table button */}
               <div className='space-y-1.5 min-w-0'>
                 <div>
-                  <div className={`pos-xs font-medium ${textMuted}`}>
-                    {t('cart.orderNumber')}
-                  </div>
+                  {/* The number speaks for itself; the label is for screen readers. */}
+                  <span className='sr-only'>{t('cart.orderNumber')}</span>
                   <div
-                    className={`flex flex-wrap items-center gap-2 text-lg font-bold ${text}`}
+                    className={`flex flex-wrap items-center gap-2 text-lg font-bold leading-tight ${text}`}
                   >
                     {/* .money forces LTR digit order so the number never
                         mirrors in Arabic. */}
@@ -502,17 +501,14 @@ export default function OrderSide({
                     </span>
                   </div>
                   <Hint content={t('common.remove')} placement='top'>
-                    <Button
-                      isIconOnly
-                      size='md'
-                      variant='light'
-                      color='danger'
-                      className='shrink-0 text-danger'
+                    <button
+                      type='button'
+                      className='ui-icon-btn shrink-0 text-danger'
                       aria-label={t('common.remove')}
-                      onPress={onRemovePromo}
+                      onClick={onRemovePromo}
                     >
                       <X size={16} strokeWidth={1.8} />
-                    </Button>
+                    </button>
                   </Hint>
                 </div>
               ) : (
@@ -564,7 +560,7 @@ export default function OrderSide({
       {/* Body */}
       {currentOrder && (
         <>
-          <div className='grow min-h-0 overflow-y-auto nice-scroll p-3 lg:p-4'>
+          <div className='grow min-h-0 overflow-y-auto nice-scroll px-3 py-1 lg:px-4'>
             {orderLines.length === 0 ? (
               <div
                 className={`flex flex-col items-center justify-center min-h-[200px] ${textMuted}`}
@@ -577,7 +573,7 @@ export default function OrderSide({
                 </p>
               </div>
             ) : (
-              <div className='space-y-2.5'>
+              <div className='divide-y divide-[var(--line)]'>
                 {orderLines.map((line) => (
                   <OrderLineItem
                     key={line.id}
