@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import type { ReactElement } from 'react';
-import { Printer, QrCode, Eye, MoreHorizontal, CreditCard, CalendarDays } from 'lucide-react';
+import { Printer, QrCode, Eye, MoreHorizontal, CreditCard, CalendarDays, Search, RotateCw } from 'lucide-react';
 import {
-  Button,
   DatePicker,
   Dropdown,
   DropdownItem,
@@ -28,7 +27,6 @@ import { OrderDetailModal } from './OrderDetailModal';
 import { MarkPaidControl } from '../components/MarkPaidControl';
 import { paymentStateOf } from '../components/PaymentBadge';
 import { SYNCED_EVENT } from '../utils/syncEvents';
-import { OrderCard } from '../components/OrderCard';
 import { PaymentLinkModal } from './pos/components/PaymentLinkModal';
 import { useRootTheme } from './pos/useRootTheme';
 import { usePermissions } from '../hooks/usePermissions';
@@ -201,6 +199,7 @@ function useSessionChoice<T extends string>(
 
 type CardProps = {
   o: Order;
+  layout: 'row' | 'card';
   canChangeStatus: boolean;
   canViewDetail: boolean;
   timeText: string;
@@ -221,6 +220,7 @@ type CardProps = {
  */
 function TodayOrderCard({
   o,
+  layout,
   canChangeStatus,
   canViewDetail,
   timeText,
@@ -300,109 +300,171 @@ function TodayOrderCard({
     );
   }
 
-  const rowBtnCls = 'ui-icon-btn ui-icon-btn-outline';
-  return (
-    <OrderCard
-      header={shortOrderLabel(o as any)}
-      type={<span className='ui-chip ui-chip-outline'>{typeLabel(o.order_type)}</span>}
-      time={<span className='ui-chip ui-chip-outline money'>{timeText}</span>}
-      meta={[o.full_name || '—', o.mobile].filter(Boolean).join(' · ')}
-      money={money(o.grand_total as number)}
-      payment={
-        <MarkPaidControl order={o as any} onChanged={onChanged} trigger='badge' />
-      }
-      status={<StatusBadge order={o} />}
-      onOpen={canOpen ? () => onOpenDetail(id!) : undefined}
-      footer={
-        next ? (
+  const nextBtn = next ? (
+    <button
+      type='button'
+      className='ui-btn ui-btn-outline ui-btn-sm whitespace-nowrap'
+      disabled={flow.busy}
+      onClick={() => void flow.change(next.value)}
+    >
+      {/* An action, like the portal and the kitchen screen ("Start
+          preparing", "Mark ready", "Complete order"); other targets keep
+          their status name. */}
+      {next.value === 'prepared'
+        ? t('kitchen.start')
+        : next.value === 'ready'
+        ? t('kitchen.markReady')
+        : next.value === 'closed'
+        ? t('kitchen.complete')
+        : t(next.key)}
+    </button>
+  ) : null;
+
+  const rowBtnCls = 'ui-icon-btn';
+  const tools = (
+    <>
+      {items.length > 0 && (
+        <Dropdown classNames={{ content: 'ui-popup min-w-[12rem]' }} placement='bottom-end'>
+          <DropdownTrigger>
+            <button type='button' className={rowBtnCls} aria-label={t('admin.orders.view.more')}>
+              <MoreHorizontal size={16} strokeWidth={1.8} />
+            </button>
+          </DropdownTrigger>
+          <DropdownMenu aria-label={t('admin.orders.view.more')}>{items}</DropdownMenu>
+        </Dropdown>
+      )}
+      {canViewDetail && (
+        <Hint content={t('admin.orders.printReceipt')} placement='top'>
           <button
             type='button'
-            className='ui-btn ui-btn-primary ui-btn-sm'
-            disabled={flow.busy}
-            onClick={() => void flow.change(next.value)}
+            className={rowBtnCls}
+            onClick={() => onPrint(o.id)}
+            aria-label={t('admin.orders.printReceipt')}
           >
-            {/* An action, like the portal and the kitchen screen ("Start
-                preparing", "Mark ready", "Complete order"); other targets keep
-                their status name. */}
-            {next.value === 'prepared'
-              ? t('kitchen.start')
-              : next.value === 'ready'
-              ? t('kitchen.markReady')
-              : next.value === 'closed'
-              ? t('kitchen.complete')
-              : t(next.key)}
+            <Printer size={16} strokeWidth={1.8} />
           </button>
-        ) : null
-      }
-      actions={
-        <>
-          {items.length > 0 && (
-            <Dropdown
-              classNames={{ content: 'ui-popup min-w-[12rem]' }}
-              placement='bottom-end'
-            >
-              <DropdownTrigger>
-                <button
-                  type='button'
-                  className={rowBtnCls}
-                  aria-label={t('admin.orders.view.more')}
-                >
-                  <MoreHorizontal size={16} strokeWidth={1.8} />
-                </button>
-              </DropdownTrigger>
-              <DropdownMenu aria-label={t('admin.orders.view.more')}>{items}</DropdownMenu>
-            </Dropdown>
-          )}
-          {canViewDetail && (
-            <Hint content={t('admin.orders.printReceipt')} placement='top'>
-              <button
-                type='button'
-                className={rowBtnCls}
-                onClick={() => onPrint(o.id)}
-                aria-label={t('admin.orders.printReceipt')}
-              >
-                <Printer size={16} strokeWidth={1.8} />
-              </button>
-            </Hint>
-          )}
-          {canPay && (
-            <Modal
-              isOpen={payOpen}
-              onOpenChange={setPayOpen}
-              placement='center'
-              backdrop='opaque'
-              classNames={{
-                wrapper: 'p-2 sm:p-4',
-                base: 'ui-popup !rounded-[24px] m-0 w-full max-w-sm',
-                backdrop: 'bg-black/50',
-              }}
-            >
-              <ModalContent>
-                <ModalHeader className='text-lg font-semibold ink'>
-                  {t('admin.orders.changePayment')}
-                </ModalHeader>
-                <ModalBody className='pb-5'>
-                  <PaymentMethodCell
-                    wide
-                    orderId={id!}
-                    slug={(o as any).payment_method_slug}
-                    mobile={o.mobile}
-                    amount={Number(o.grand_total ?? 0)}
-                    orderNumber={label}
-                    onChanged={() => {
-                      setPayOpen(false);
-                      onChanged();
-                    }}
-                    onPaymentLink={(link) => onPaymentLink(o, link)}
-                  />
-                </ModalBody>
-              </ModalContent>
-            </Modal>
-          )}
-        </>
-      }
-    />
+        </Hint>
+      )}
+      {canPay && (
+        <Modal
+          isOpen={payOpen}
+          onOpenChange={setPayOpen}
+          placement='center'
+          backdrop='opaque'
+          classNames={{
+            wrapper: 'p-2 sm:p-4',
+            base: 'ui-popup !rounded-[24px] m-0 w-full max-w-sm',
+            backdrop: 'bg-black/50',
+          }}
+        >
+          <ModalContent>
+            <ModalHeader className='text-lg font-semibold ink'>
+              {t('admin.orders.changePayment')}
+            </ModalHeader>
+            <ModalBody className='pb-5'>
+              <PaymentMethodCell
+                wide
+                orderId={id!}
+                slug={(o as any).payment_method_slug}
+                mobile={o.mobile}
+                amount={Number(o.grand_total ?? 0)}
+                orderNumber={label}
+                onChanged={() => {
+                  setPayOpen(false);
+                  onChanged();
+                }}
+                onPaymentLink={(link) => onPaymentLink(o, link)}
+              />
+            </ModalBody>
+          </ModalContent>
+        </Modal>
+      )}
+    </>
   );
+
+  const open = canOpen ? () => onOpenDetail(id!) : undefined;
+  // Controls inside a tappable row must not also open the order.
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+  const payment = <MarkPaidControl order={o as any} onChanged={onChanged} trigger='badge' />;
+  const customer = [o.full_name, o.mobile].filter(Boolean).join(' · ') || '—';
+  const table = (o as any).table_name as string | undefined;
+  const typeText = `${typeLabel(o.order_type)}${table ? ` · ${table}` : ''}`;
+
+  // PC / tablet: one row of a table — everything about an order on one line.
+  if (layout === 'row') {
+    return (
+      <tr
+        className={`border-t border-line ${open ? 'cursor-pointer hover:bg-[var(--hover)]' : ''}`}
+        onClick={open}
+      >
+        <td className='py-1.5 ps-4 pe-2 font-semibold whitespace-nowrap'>
+          <span className='money'>{shortOrderLabel(o as any)}</span>
+        </td>
+        <td className='px-2 text-sm ink-2 whitespace-nowrap'>{typeText}</td>
+        <td className='px-2 text-sm ink-2 whitespace-nowrap'>
+          <span className='money'>{timeText}</span>
+        </td>
+        <td className='px-2 text-sm'>
+          <div className='max-w-[18rem] truncate'>{customer}</div>
+        </td>
+        <td className='px-2 text-end font-semibold whitespace-nowrap'>
+          <span className='money'>{money(o.grand_total as number)}</span>
+        </td>
+        <td className='px-2 whitespace-nowrap' onClick={stop}>
+          {payment}
+        </td>
+        <td className='px-2 whitespace-nowrap'>
+          <StatusBadge order={o} />
+        </td>
+        <td className='py-1.5 ps-2 pe-3' onClick={stop}>
+          <div className='flex items-center justify-end gap-1'>
+            {nextBtn}
+            {tools}
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  // Phone: a compact card — number, time and total; who; then status + actions.
+  return (
+    <div
+      className={`ui-card p-3 ${open ? 'cursor-pointer' : ''}`}
+      onClick={open}
+      role={open ? 'button' : undefined}
+      tabIndex={open ? 0 : undefined}
+    >
+      <div className='flex items-baseline gap-2'>
+        <span className='font-semibold money'>{shortOrderLabel(o as any)}</span>
+        <span className='min-w-0 truncate text-xs ink-2'>
+          {typeText} · <span className='money'>{timeText}</span>
+        </span>
+        <span className='ms-auto font-semibold money'>{money(o.grand_total as number)}</span>
+      </div>
+      <div className='mt-0.5 truncate text-sm ink-2'>{customer}</div>
+      <div className='mt-2 flex items-center gap-1.5' onClick={stop}>
+        {payment}
+        <StatusBadge order={o} />
+        <div className='ms-auto flex items-center gap-1'>
+          {nextBtn}
+          {tools}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** True while the window is at least `px` wide. */
+function useMinWidth(px: number): boolean {
+  const q = `(min-width: ${px}px)`;
+  const [ok, setOk] = useState(() => window.matchMedia(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia(q);
+    const on = () => setOk(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, [q]);
+  return ok;
 }
 
 export default function TodayOrdersReport() {
@@ -675,6 +737,7 @@ export default function TodayOrdersReport() {
     <TodayOrderCard
       key={o.id ? String(o.id) : o.number}
       o={o}
+      layout={wide ? 'row' : 'card'}
       canChangeStatus={canChangeStatus}
       canViewDetail={canViewDetail}
       timeText={timeText(o)}
@@ -716,169 +779,151 @@ export default function TodayOrdersReport() {
       ? dayText(fromDate)
       : `${dayText(fromDate)} – ${dayText(toDate)}`;
   const viewFiltered = group !== 'all' || paidView !== 'all';
+  // From 768px a table (one line per order); phones get compact cards.
+  const wide = useMinWidth(768);
+
+  const segBtn = (pressed: boolean, text: string, n: number, onClick: () => void, key: string) => (
+    <button key={key} type='button' className='ui-seg-item gap-1.5' aria-pressed={pressed} onClick={onClick}>
+      {text}
+      {/* A plain number, not a black pill: quieter, same information. */}
+      <span className={`money text-xs ${pressed ? 'ink-2' : 'ink-3'}`}>{n}</span>
+    </button>
+  );
 
   return (
     <div className='mx-auto w-full max-w-[110rem] p-3 sm:p-4'>
-      {/* Header + Toolbar, with the guide's "?" in the top-end corner like
-          every other screen. */}
-      <div className='mb-4 flex items-start gap-3'>
-      <div className='flex min-w-0 flex-1 flex-col gap-3'>
-        <div>
+      {/* Title, then ONE toolbar row (wraps on narrow screens): search, type,
+          dates, refresh, then the two view filters. The list is the page. */}
+      <div className='mb-3 flex items-start gap-3'>
+        <div className='min-w-0 flex-1'>
           <h1 className='text-xl font-semibold'>{t('admin.orders.title')}</h1>
-          <div className='text-sm ink-2'>
-            {t('admin.orders.subtitle')}
-          </div>
+          <div className='text-sm ink-2'>{t('admin.orders.subtitle')}</div>
         </div>
-
-        {/* Toolbar: one row from md up; on phones search is full width and
-            the rest sits in one compact row. */}
-        <div className='flex flex-wrap items-center gap-2'>
-          <Input
-            value={q}
-            onValueChange={setQ}
-            placeholder={t('admin.orders.searchPlaceholder')}
-            aria-label={t('admin.orders.searchPlaceholder')}
-            classNames={{
-              base: 'min-w-0 basis-full md:min-w-[14rem] md:flex-1 md:basis-0',
-              inputWrapper: 'ui-input',
-            }}
-          />
-
-          <div className='flex w-full min-w-0 items-center gap-2 md:w-auto'>
-            <Select
-              aria-label={t('admin.orders.orderTypeFilter')}
-              selectedKeys={[type]}
-              disallowEmptySelection
-              onSelectionChange={(keys) => {
-                const next = Array.from(keys)[0];
-                if (next != null) setType(String(next) as any);
-              }}
-              className='min-w-0 flex-1 md:w-36 md:flex-none'
-              classNames={selectClasses}
-            >
-              <SelectItem key='all'>{t('admin.orders.allTypes')}</SelectItem>
-              <SelectItem key='1'>{typeLabel(1)}</SelectItem>
-              <SelectItem key='2'>{typeLabel(2)}</SelectItem>
-              <SelectItem key='3'>{typeLabel(3)}</SelectItem>
-            </Select>
-
-            <Popover
-              isOpen={datesOpen}
-              onOpenChange={setDatesOpen}
-              placement='bottom'
-              classNames={{ content: 'ui-popup p-3' }}
-            >
-              <PopoverTrigger>
-                <button
-                  type='button'
-                  className='ui-btn ui-btn-outline min-w-0 shrink'
-                  aria-label={t('admin.orders.view.dates')}
-                >
-                  <CalendarDays size={16} strokeWidth={1.8} />
-                  <span className='money min-w-0 truncate'>{rangeText}</span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent>
-                <div className='flex w-[min(19rem,calc(100vw-2rem))] flex-col gap-3'>
-                  <DatePicker
-                    label={t('admin.orders.fromDate')}
-                    labelPlacement='outside'
-                    aria-label={t('admin.orders.fromDate')}
-                    value={toCalendar(fromDate)}
-                    onChange={(v) => setFromDate(v ? v.toString() : '')}
-                    classNames={dateClasses}
-                  />
-                  <DatePicker
-                    label={t('admin.orders.toDate')}
-                    labelPlacement='outside'
-                    aria-label={t('admin.orders.toDate')}
-                    value={toCalendar(toDate)}
-                    minValue={toCalendar(fromDate) ?? undefined}
-                    onChange={(v) => setToDate(v ? v.toString() : '')}
-                    classNames={dateClasses}
-                  />
-                  <button
-                    type='button'
-                    className='ui-btn ui-btn-primary'
-                    disabled={loading}
-                    onClick={() => {
-                      setDatesOpen(false);
-                      void refresh();
-                    }}
-                  >
-                    {t('admin.orders.filter')}
-                  </button>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            <Button
-              color='primary'
-              size='lg'
-              className='shrink-0 font-semibold'
-              onPress={() => refresh()}
-              isDisabled={loading}
-              aria-label={t('admin.refresh')}
-            >
-              {loading ? t('admin.refreshing') : t('admin.orders.filter')}
-            </Button>
-          </div>
-        </div>
-
-        {/* View filters: client-side, on the rows already loaded. */}
-        <div className='flex flex-wrap items-center gap-2'>
-          <div className='min-w-0 max-w-full overflow-x-auto chip-scroll'>
-            <div className='ui-seg' role='group' aria-label={t('admin.orders.view.statusGroup')}>
-              {(
-                [
-                  ['all', t('common.all')],
-                  ['live', t('admin.orders.view.live')],
-                  ['done', t('admin.orders.view.done')],
-                  ['cancelled', t('status.cancelled')],
-                ] as const
-              ).map(([k, text]) => (
-                <button
-                  key={k}
-                  type='button'
-                  className='ui-seg-item'
-                  aria-pressed={group === k}
-                  onClick={() => setGroup(k)}
-                >
-                  {text}
-                  <span className={`ui-count ${group === k ? 'ui-chip-brand' : ''}`}>
-                    {groupCounts[k]}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className='min-w-0 max-w-full overflow-x-auto chip-scroll'>
-            <div className='ui-seg' role='group' aria-label={t('admin.orders.view.paymentGroup')}>
-              {(
-                [
-                  ['all', t('common.all')],
-                  ['paid', t('pay.paid')],
-                  ['unpaid', t('pay.unpaid')],
-                ] as const
-              ).map(([k, text]) => (
-                <button
-                  key={k}
-                  type='button'
-                  className='ui-seg-item'
-                  aria-pressed={paidView === k}
-                  onClick={() => setPaidView(k)}
-                >
-                  {text}
-                  <span className={`ui-count ${paidView === k ? 'ui-chip-brand' : ''}`}>
-                    {paidCounts[k]}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <HelpButton />
       </div>
-      <HelpButton />
+
+      <div className='mb-3 flex flex-wrap items-center gap-2'>
+        <Input
+          value={q}
+          onValueChange={setQ}
+          placeholder={t('admin.orders.searchPlaceholder')}
+          aria-label={t('admin.orders.searchPlaceholder')}
+          isClearable
+          onClear={() => setQ('')}
+          startContent={<Search size={16} strokeWidth={1.8} className='ink-2' />}
+          classNames={{
+            base: 'min-w-0 basis-full sm:basis-auto sm:w-72',
+            inputWrapper: 'ui-input pointer-coarse:min-h-11',
+          }}
+        />
+
+        <Select
+          aria-label={t('admin.orders.orderTypeFilter')}
+          selectedKeys={[type]}
+          disallowEmptySelection
+          onSelectionChange={(keys) => {
+            const next = Array.from(keys)[0];
+            if (next != null) setType(String(next) as any);
+          }}
+          className='w-32 min-w-0'
+          classNames={selectClasses}
+          size='sm'
+        >
+          <SelectItem key='all'>{t('admin.orders.allTypes')}</SelectItem>
+          <SelectItem key='1'>{typeLabel(1)}</SelectItem>
+          <SelectItem key='2'>{typeLabel(2)}</SelectItem>
+          <SelectItem key='3'>{typeLabel(3)}</SelectItem>
+        </Select>
+
+        <Popover
+          isOpen={datesOpen}
+          onOpenChange={setDatesOpen}
+          placement='bottom'
+          classNames={{ content: 'ui-popup p-3' }}
+        >
+          <PopoverTrigger>
+            <button
+              type='button'
+              className='ui-btn ui-btn-outline ui-btn-sm min-w-0 shrink'
+              aria-label={t('admin.orders.view.dates')}
+            >
+              <CalendarDays size={16} strokeWidth={1.8} />
+              <span className='money min-w-0 truncate'>{rangeText}</span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent>
+            <div className='flex w-[min(19rem,calc(100vw-2rem))] flex-col gap-3'>
+              <DatePicker
+                label={t('admin.orders.fromDate')}
+                labelPlacement='outside'
+                aria-label={t('admin.orders.fromDate')}
+                value={toCalendar(fromDate)}
+                onChange={(v) => setFromDate(v ? v.toString() : '')}
+                classNames={dateClasses}
+              />
+              <DatePicker
+                label={t('admin.orders.toDate')}
+                labelPlacement='outside'
+                aria-label={t('admin.orders.toDate')}
+                value={toCalendar(toDate)}
+                minValue={toCalendar(fromDate) ?? undefined}
+                onChange={(v) => setToDate(v ? v.toString() : '')}
+                classNames={dateClasses}
+              />
+              <button
+                type='button'
+                className='ui-btn ui-btn-primary'
+                disabled={loading}
+                onClick={() => {
+                  setDatesOpen(false);
+                  void refresh();
+                }}
+              >
+                {t('admin.orders.filter')}
+              </button>
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        {/* Search and the filters apply as you type; this only re-reads the
+            till's database (a sync already does that on its own). */}
+        <Hint content={t('admin.refresh')} placement='bottom'>
+          <button
+            type='button'
+            className='ui-icon-btn'
+            onClick={() => refresh()}
+            disabled={loading}
+            aria-label={t('admin.refresh')}
+          >
+            <RotateCw size={16} strokeWidth={1.8} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </Hint>
+
+        <span className='mx-1 hidden h-5 w-px bg-[var(--line-strong)] lg:block' aria-hidden />
+
+        <div className='min-w-0 max-w-full overflow-x-auto chip-scroll'>
+          <div className='ui-seg' role='group' aria-label={t('admin.orders.view.statusGroup')}>
+            {(
+              [
+                ['all', t('common.all')],
+                ['live', t('admin.orders.view.live')],
+                ['done', t('admin.orders.view.done')],
+                ['cancelled', t('status.cancelled')],
+              ] as const
+            ).map(([k, text]) => segBtn(group === k, text, groupCounts[k], () => setGroup(k), k))}
+          </div>
+        </div>
+        <div className='min-w-0 max-w-full overflow-x-auto chip-scroll'>
+          <div className='ui-seg' role='group' aria-label={t('admin.orders.view.paymentGroup')}>
+            {(
+              [
+                ['all', t('common.all')],
+                ['paid', t('pay.paid')],
+                ['unpaid', t('pay.unpaid')],
+              ] as const
+            ).map(([k, text]) => segBtn(paidView === k, text, paidCounts[k], () => setPaidView(k), k))}
+          </div>
+        </div>
       </div>
 
       {loading && rows.length === 0 ? (
@@ -891,10 +936,31 @@ export default function TodayOrdersReport() {
         </div>
       ) : (
         <>
-          <div className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 sm:gap-4'>
-            {pageRows.map(renderCard)}
-          </div>
-          <div className='mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2'>
+          {wide ? (
+            <div className='ui-card overflow-x-auto p-0'>
+              <table className='w-full border-collapse text-start'>
+                <thead>
+                  <tr className='text-xs uppercase tracking-wide ink-2'>
+                    <th className='py-2 ps-4 pe-2 text-start font-semibold'>{t('admin.rep.colOrderNo')}</th>
+                    <th className='px-2 text-start font-semibold'>{t('admin.type')}</th>
+                    <th className='px-2 text-start font-semibold'>{t('admin.orders.view.colTime')}</th>
+                    <th className='px-2 text-start font-semibold'>{t('admin.orders.view.colCustomer')}</th>
+                    <th className='px-2 text-end font-semibold'>{t('admin.orders.view.colTotal')}</th>
+                    <th className='px-2 text-start font-semibold'>{t('admin.orders.view.paymentGroup')}</th>
+                    <th className='px-2 text-start font-semibold'>{t('admin.status')}</th>
+                    {/* Spare width goes here, so the order's facts stay together. */}
+                    <th className='w-full pe-3 ps-2'>
+                      <span className='sr-only'>{t('admin.actions')}</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>{pageRows.map(renderCard)}</tbody>
+              </table>
+            </div>
+          ) : (
+            <div className='flex flex-col gap-2'>{pageRows.map(renderCard)}</div>
+          )}
+          <div className='mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2'>
             <div className='flex items-center gap-3'>
               <button
                 type='button'

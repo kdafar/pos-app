@@ -665,4 +665,7 @@ export const adminStrings = {
   'admin.orders.view.dates': { en: 'Dates', ar: 'التواريخ' },
   'admin.orders.view.more': { en: 'More actions', ar: 'خيارات أكثر' },
   'admin.orders.view.rows': { en: 'Rows per page', ar: 'عدد الصفوف بالصفحة' },
+  'admin.orders.view.colTime': { en: 'Time', ar: 'الوقت' },
+  'admin.orders.view.colCustomer': { en: 'Customer', ar: 'العميل' },
+  'admin.orders.view.colTotal': { en: 'Total', ar: 'الإجمالي' },
 } as const;
