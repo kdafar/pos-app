@@ -114,15 +114,17 @@ export function OrderLineItem({
     : [];
 
   return (
-    <div className='min-w-0 py-2.5'>
-      {/* Top row: the full name + the line total */}
+    <div className='min-w-0 py-2'>
+      {/* Two rows: the full name + line total; then quantity, unit price
+          and remove. Options and notes sit under the name when present. */}
       <div className='flex items-start justify-between gap-3'>
         <div className='flex-1 min-w-0'>
           <h4 className={`font-semibold pos-base ${text} leading-snug break-words`}>
             {localName(line)}
           </h4>
 
-          {/* Variation + addons meta */}
+          {/* Variation + addons + note, only when there are any */}
+          {(hasVariation || addonPills.length > 0 || hasNote) && (
           <div className='mt-1 space-y-1'>
             {hasVariation && (
               <div className='flex flex-wrap items-center gap-1'>
@@ -147,17 +149,13 @@ export function OrderLineItem({
               </div>
             )}
 
-            <p className={`pos-xs ${textMuted} font-medium`}>
-              <span className='money'>{money(unitPrice)}</span> ×{' '}
-              <span className='money'>{qty}</span>
-            </p>
-
             {hasNote && (
               <p className={`pos-xs ${textMuted} italic break-words`}>
                 {t('cart.note')}: {line.notes}
               </p>
             )}
           </div>
+          )}
         </div>
 
         <div className='pos-price shrink-0 font-semibold tabular-nums text-foreground'>
@@ -165,18 +163,22 @@ export function OrderLineItem({
         </div>
       </div>
 
-      {/* Bottom row: quantity, and remove at the far end */}
-      <div className='mt-2 flex items-center justify-between gap-2'>
+      {/* Bottom row: quantity + unit price, remove at the far end */}
+      <div className='mt-1.5 flex items-center gap-2'>
         <QtyStepper
           value={qty}
           min={1}
           max={999}
-          size='md'
+          size='sm'
           disabled={busy}
           label={`${line.name} quantity`}
           decHint={t('cart.removeHint')}
           onChange={setQty}
         />
+        <span className={`pos-xs ${textMuted} font-medium min-w-0 truncate`}>
+          <span className='money'>{money(unitPrice)}</span> ×{' '}
+          <span className='money'>{qty}</span>
+        </span>
 
         {/* A finger-sized target rather than a bare 16px glyph — this is the
             control that deletes a line mid-order. */}
@@ -188,7 +190,7 @@ export function OrderLineItem({
             color='danger'
             onPress={remove}
             aria-label={t('common.remove')}
-            className='shrink-0 text-danger'
+            className='ms-auto shrink-0 text-danger'
           >
             <Trash2 size={18} strokeWidth={1.8} />
           </Button>
