@@ -407,16 +407,42 @@ export function Layout() {
         which branch the till was posting to. That is the one fact on this
         card that must never be ambiguous.
       */}
-      <div className='flex items-center justify-between gap-2 mb-1'>
-        <Hint placement='bottom' content={lastSyncExact}>
-          <div className='flex min-w-0 items-center gap-1 text-xs ink-2'>
-            <Timer size={14} strokeWidth={1.8} className='shrink-0' />
-            <span className='truncate'>{lastSyncText}</span>
+      {/* Two rows that fit a narrow menu: which branch + sync now; then
+          online/offline + when it last synced. The branch line is the one
+          fact that must never be ambiguous, so it gets the wide slot. */}
+      <div className='flex items-center justify-between gap-2'>
+        <Hint placement='bottom' content={sync?.branch_name || ''}>
+          <div className='flex min-w-0 items-center gap-1.5 text-xs ink'>
+            <GitBranch size={14} strokeWidth={1.8} className='shrink-0 ink-2' />
+            <span className='line-clamp-2 break-words font-medium'>
+              {sync?.branch_name || t('sync.noBranch')}
+            </span>
           </div>
         </Hint>
-
-        {/* RIGHT: status + sync button */}
-        <div className='flex items-center gap-2 shrink-0'>
+          <Hint
+            placement='bottom'
+            content={
+              sync?.mode === 'live' ? t('nav.sync') : t('sync.cannotSync')
+            }
+          >
+            <button
+              onClick={() => {
+                if (sync?.mode !== 'live' || syncing) return;
+                runSync();
+              }}
+              aria-disabled={sync?.mode !== 'live' || syncing}
+              aria-label={t('nav.sync')}
+              className='ui-icon-btn ui-icon-btn-outline aria-disabled:cursor-not-allowed aria-disabled:opacity-50'
+            >
+              <RefreshCw
+                size={16}
+                strokeWidth={1.8}
+                className={syncing ? 'animate-spin' : ''}
+              />
+            </button>
+          </Hint>
+      </div>
+      <div className='mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
           <Hint
             placement='bottom'
             content={
@@ -448,41 +474,13 @@ export function Layout() {
             </div>
           </Hint>
 
-          <Hint
-            placement='bottom'
-            content={
-              sync?.mode === 'live' ? t('nav.sync') : t('sync.cannotSync')
-            }
-          >
-            <button
-              onClick={() => {
-                if (sync?.mode !== 'live' || syncing) return;
-                runSync();
-              }}
-              aria-disabled={sync?.mode !== 'live' || syncing}
-              aria-label={t('nav.sync')}
-              className='ui-icon-btn ui-icon-btn-outline aria-disabled:cursor-not-allowed aria-disabled:opacity-50'
-            >
-              <RefreshCw
-                size={16}
-                strokeWidth={1.8}
-                className={syncing ? 'animate-spin' : ''}
-              />
-            </button>
-          </Hint>
-        </div>
+        <Hint placement='bottom' content={lastSyncExact}>
+          <div className='flex min-w-0 items-center gap-1 text-xs ink-2'>
+            <Timer size={14} strokeWidth={1.8} className='shrink-0' />
+            <span className='whitespace-nowrap'>{lastSyncText}</span>
+          </div>
+        </Hint>
       </div>
-
-      {/* Branch: the whole width of the card, and the whole name on
-          hover on the rare one that still outruns it. */}
-      <Hint placement='bottom' content={sync?.branch_name || ''}>
-        <div className='flex min-w-0 items-center gap-1.5 text-xs ink'>
-          <GitBranch size={14} strokeWidth={1.8} className='shrink-0 ink-2' />
-          <span className='truncate font-medium'>
-            {sync?.branch_name || t('sync.noBranch')}
-          </span>
-        </div>
-      </Hint>
 
       {!sync?.paired && (
         <button
@@ -644,7 +642,7 @@ export function Layout() {
   return (
     <div
       className='h-screen w-screen overflow-hidden grid bg-background transition-all duration-300 min-h-0 min-w-0'
-      style={{ gridTemplateColumns: rail ? '76px 1fr' : '264px 1fr' }}
+      style={{ gridTemplateColumns: rail ? '76px 1fr' : '224px 1fr' }}
     >
       {/* Sidebar */}
       <aside
@@ -668,33 +666,28 @@ export function Layout() {
 
           {!rail && (
             <div className='min-w-0 flex-1'>
-              <div className='truncate text-[0.9375rem] font-semibold ink'>
+              {/* A long restaurant name wraps to a second line rather than
+                  widening the menu for every till. */}
+              <div className='line-clamp-2 break-words text-[0.9375rem] font-semibold leading-snug ink'>
                 {storeName}
               </div>
-              <div className='truncate text-xs ink-2'>{userLine}</div>
+              <div className='line-clamp-2 break-words text-xs ink-2'>{userLine}</div>
             </div>
           )}
 
-          {/* Controls */}
-          <div className='flex flex-col gap-1 items-center'>
-            <Hint content={t('nav.toggleTheme')}>
-              <button
-                className={`${iconButtonClass} ${rail ? 'hidden' : ''}`}
-                onClick={toggleTheme}
-              >
-                {theme === 'light' ? (
-                  <IconMoon className='h-5 w-5' />
-                ) : (
-                  <IconSun className='h-5 w-5' />
-                )}
-              </button>
-            </Hint>
+          {/* Controls: collapse only; the theme switch sits by the language. */}
+          <div className='flex items-center'>
             <Hint
               content={
                 rail ? t('nav.expandSidebar') : t('nav.collapseSidebar')
               }
             >
-              <button className={iconButtonClass} onClick={toggleRail}>
+              <button
+                type='button'
+                className={iconButtonClass}
+                onClick={toggleRail}
+                aria-label={rail ? t('nav.expandSidebar') : t('nav.collapseSidebar')}
+              >
                 {rail ? (
                   <IconPanelRight className='h-5 w-5 flip-rtl' />
                 ) : (
@@ -721,7 +714,7 @@ export function Layout() {
                 aria-expanded={moreOpen}
                 aria-controls='nav-more-group'
                 onClick={() => setMoreOpen((v) => !v)}
-                className='ui-nav group relative mt-2 flex w-full min-h-11 items-center gap-3 px-3 text-sm'
+                className='ui-nav group relative mt-2 flex w-full min-h-11 [@media(pointer:fine)]:min-h-10 items-center gap-3 px-3 text-sm'
               >
                 <span className='relative flex-shrink-0 inline-flex items-center justify-center'>
                   <Ellipsis size={20} strokeWidth={1.8} />
@@ -798,8 +791,26 @@ export function Layout() {
         <div className='mt-1 pt-2 border-t border-line space-y-0.5'>
           {/* Language lives in the sidebar so it is reachable from every
               screen, not just the order screen. */}
-          <div className={rail ? 'pb-1' : ''}>
-            <LanguageToggle collapsed={rail} row={!rail} />
+          <div className={rail ? 'pb-1' : 'flex items-center gap-1'}>
+            <div className='min-w-0 flex-1'>
+              <LanguageToggle collapsed={rail} row={!rail} />
+            </div>
+            {!rail && (
+              <Hint content={t('nav.toggleTheme')}>
+                <button
+                  type='button'
+                  className={iconButtonClass}
+                  aria-label={t('nav.toggleTheme')}
+                  onClick={toggleTheme}
+                >
+                  {theme === 'light' ? (
+                    <IconMoon className='h-5 w-5' />
+                  ) : (
+                    <IconSun className='h-5 w-5' />
+                  )}
+                </button>
+              </Hint>
+            )}
           </div>
 
           {/* A downloaded update is announced to every operator, not just
@@ -946,7 +957,7 @@ function NavLink({
   const baseClasses = 'ui-nav group relative flex items-center text-sm';
   // Collapsed rows are square and centred so the icons form a straight column.
   const collapsedClasses = 'h-11 w-11 mx-auto justify-center';
-  const expandedClasses = 'w-full gap-3 px-3 min-h-11 nav-row';
+  const expandedClasses = 'w-full gap-3 px-3 min-h-11 [@media(pointer:fine)]:min-h-10 nav-row';
 
   return (
     // The label is the only thing identifying an icon once the rail is
