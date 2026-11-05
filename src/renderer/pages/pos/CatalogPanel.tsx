@@ -129,9 +129,11 @@ export default function CatalogPanel({
   return (
     <div className='flex flex-col overflow-hidden min-w-0'>
       {/* Filters */}
-      <div className='sticky top-0 z-10 bg-surface p-3 lg:p-4 border-b border-line'>
+      {/* Search and categories share one row from 768px: one row of height
+          back for the dishes. On a phone the search keeps its own row. */}
+      <div className='sticky top-0 z-10 flex flex-col gap-2 bg-surface px-3 py-2.5 lg:px-4 border-b border-line md:flex-row md:items-center md:gap-3'>
         {/* Search */}
-        <div className='mb-3'>
+        <div className='shrink-0 md:w-56 xl:w-72'>
           <Input
             value={searchQuery}
             onValueChange={(v) => {
@@ -140,10 +142,10 @@ export default function CatalogPanel({
             }}
             placeholder={t('pos.searchPlaceholder')}
             aria-label={t('pos.searchPlaceholder')}
-            // `lg`, not the default: this is the control a cashier hits most on
-            // the busiest screen in the app, and it is aimed at with a finger.
-            size='lg'
-            classNames={{ inputWrapper: 'ui-input' }}
+            // Compact on a mouse; the touch rule in portal.css keeps it
+            // finger-sized on touch screens.
+            size='md'
+            classNames={{ inputWrapper: 'ui-input pointer-coarse:min-h-11' }}
             isClearable
             onClear={() => setSearchQuery('')}
             startContent={<Search size={18} strokeWidth={1.8} className='ink-2' />}
@@ -151,7 +153,7 @@ export default function CatalogPanel({
         </div>
 
         {/* Categories */}
-        <div className='mb-3'>
+        <div className='min-w-0 flex-1'>
           {isSearching && (
             <div className='mb-1.5 pos-xs font-medium ink-2'>
               {t('pos.searchAllCategories')}
@@ -199,11 +201,10 @@ export default function CatalogPanel({
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Subcategories */}
+        {/* Subcategories: under the categories, in the same column */}
         {filteredSubcategories.length > 0 && (
-          <div className={segRow}>
+          <div className={`${segRow} mt-2`}>
             <button
               onClick={() => {
                 console.debug('[CatalogPanel] click All subcategories');
@@ -235,6 +236,7 @@ export default function CatalogPanel({
             ))}
           </div>
         )}
+        </div>
       </div>
 
       {/* Product grid */}
