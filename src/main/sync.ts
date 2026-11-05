@@ -1729,13 +1729,24 @@ export async function bootstrap(baseUrl: string) {
       });
     }
 
-    // cursor
-    db.prepare(
-      `
+    // cursor: adopt the snapshot's only when the till has none. A till that
+    // already has a position keeps it, so /pull still delivers everything
+    // after it — the snapshot has no dine-in orders, so jumping to its
+    // cursor would skip other tills' recent dine-in changes.
+    const haveCursor = Number(
+      db
+        .prepare(`SELECT value FROM sync_state WHERE key = 'cursor'`)
+        .pluck()
+        .get() ?? 0
+    );
+    if (!haveCursor) {
+      db.prepare(
+        `
       INSERT INTO sync_state(key,value) VALUES('cursor',?)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value
     `
-    ).run(String(data.cursor ?? 0));
+      ).run(String(data.cursor ?? 0));
+    }
   });
 
   tx();
@@ -2283,7 +2294,19 @@ export async function backfillPaymentMethods(
   };
 }
 
+/**
+ * Pull until the server says there is no more (it returns up to 5000 rows a
+ * page), at most MAX_PULL_PAGES per run. The cursor is saved after each page.
+ */
 export async function pullChanges() {
+  for (let page = 0; page < MAX_PULL_PAGES; page++) {
+    const more = await pullPage();
+    if (!more) break;
+  }
+}
+
+/** One /pull round trip. Returns true when the server has more to send. */
+async function pullPage(): Promise<boolean> {
   const cursorRow = db
     .prepare('SELECT value FROM sync_state WHERE key = ?')
     .pluck()
@@ -2291,11 +2314,21 @@ export async function pullChanges() {
   const cursor = Number(cursorRow ?? 0);
 
   const { data } = await api.post('/pull', { cursor });
+  const hasMore =
+    data?.has_more === true &&
+    Number(data?.cursor ?? cursor) > cursor; // no progress → don't spin
 
   const changedItemIds: string[] = [];
   let skipped = 0;
 
-  const apply = db.transaction((changes: any[]) => {
+  const apply = db.transaction((incoming: any[]) => {
+    // Changes that failed on an earlier pull go first, so anything newer in
+    // this page still wins over a stale retry.
+    const replay = loadFailedChanges(db);
+    const changes: Array<{ c: any; failedId?: number }> = [
+      ...replay.map((r) => ({ c: r.change, failedId: r.id })),
+      ...incoming.map((c) => ({ c })),
+    ];
     const upItem = db.prepare(`
       INSERT INTO items (
         id,
@@ -2623,7 +2656,15 @@ export async function pullChanges() {
         // A sale is never deleted locally off the feed: the till's own record
         // of what it sold outlives an admin removing the row upstream.
         if (op === 'delete') {
-          console.warn('[sync] ignoring order delete from feed', { pk: c.pk });
+          // Another till's / the web's order removed upstream: remove it here
+          // too. This till's own sale (UUID id) is never touched.
+          if (removeServerOrder(db, c.pk)) {
+            console.log('[sync] removed order deleted upstream', { pk: c.pk });
+          } else {
+            console.warn('[sync] ignoring order delete (own or unknown)', {
+              pk: c.pk,
+            });
+          }
         } else if (c.data) {
           const row = normPullOrder(c.data);
           const found = resolveLocalOrder(row.id, row.number || null);
@@ -2742,11 +2783,15 @@ export async function pullChanges() {
       // (extend for other tables if your /pull adds them)
     });
 
-    for (const c of changes) {
+    for (const { c, failedId } of changes) {
       try {
         applyOne(c);
+        if (failedId != null) settleReplay(db, failedId, null);
       } catch (err: any) {
         skipped++;
+        const msg = err?.message || String(err);
+        if (failedId != null) settleReplay(db, failedId, msg);
+        else recordFailedChange(db, c, msg);
         console.error('[sync] pull change skipped', {
           table: c?.table,
           op: c?.op,
@@ -2766,18 +2811,21 @@ export async function pullChanges() {
 
   apply(data.changes ?? []);
   if (skipped) {
-    console.warn(`[sync] ${skipped} pull change(s) skipped; the rest applied and the cursor moved on`);
+    console.warn(`[sync] ${skipped} pull change(s) failed; stored for retry, the cursor moved on`);
   }
   markSyncedNow();
 
   if (changedItemIds.length) {
     await prefetchItemImages([...new Set(changedItemIds)], 6);
   }
-  try {
-    await syncPosTime();
-  } catch (err) {
-    console.error('[SYNC] syncPosTime() failed during pullChanges:', err);
+  if (!hasMore) {
+    try {
+      await syncPosTime();
+    } catch (err) {
+      console.error('[SYNC] syncPosTime() failed during pullChanges:', err);
+    }
   }
+  return hasMore;
 }
 
 /* ---------- Push (orders/payments) ---------- */

@@ -378,6 +378,15 @@ export function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_lines_pending_order
       ON order_lines_pending(order_id);
+
+    -- Feed changes that failed to apply; retried at the start of each pull.
+    CREATE TABLE IF NOT EXISTS sync_failed_changes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      payload    TEXT NOT NULL,
+      attempts   INTEGER NOT NULL DEFAULT 1,
+      last_error TEXT,
+      created_at INTEGER NOT NULL
+    );
   `);
 
   // Per-user permission overrides are retired: permissions live on the role.
@@ -1060,6 +1069,7 @@ const RESTAURANT_TABLES = [
   'business_days',
   'day_close_actions',
   'order_lines_pending',
+  'sync_failed_changes',
   'order_lines',
   'active_orders',
   'orders',

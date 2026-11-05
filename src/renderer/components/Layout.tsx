@@ -227,7 +227,6 @@ export function Layout() {
 
     const id = window.setInterval(async () => {
       if (syncingRef.current) return;
-      if (typeof document !== 'undefined' && !document.hasFocus()) return;
 
       const last = Number(sync.last_sync_at || 0);
       if (last && Date.now() - last < AUTO_SYNC_MIN_INTERVAL) return;

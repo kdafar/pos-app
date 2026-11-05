@@ -53,6 +53,7 @@ import {
   posApi,
   applyServerOrder,
 } from '../sync';
+import { bootstrapDue } from '../pullRetry';
 
 import { prefetchItemImages } from '../imageCache';
 
@@ -258,6 +259,9 @@ export function paidDeps(): PaidDeps {
   };
 }
 
+/** True once a /bootstrap succeeded since this app started. */
+let bootstrappedThisRun = false;
+
 /** Deps for the business-day lookups and the End day outbox. */
 export function businessDayDeps(): BusinessDayDeps {
   return {
@@ -291,6 +295,58 @@ export async function pushOrderNowIfPending(orderId: string): Promise<boolean> {
   } catch (e) {
     console.warn('[paid] push before mark failed; the mark stays queued', (e as any)?.message);
     return false;
+  }
+}
+
+const PUSH_SOON_DELAY_MS = 3000;
+const pushSoonIds = new Set<string>();
+let pushSoonTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Push this till's own order shortly after a change (close, release, status,
+ * table) so other tills see it without waiting for the 60 s timer. Debounced:
+ * a burst of actions becomes one /push, at most one every few seconds, to stay
+ * under the shop's shared rate limit. Best-effort — never throws, and the
+ * timer sync remains the fallback.
+ */
+export function schedulePushSoon(orderId: string) {
+  try {
+    if (!orderId || !/[^0-9]/.test(String(orderId))) return; // own orders only
+    pushSoonIds.add(String(orderId));
+    if (pushSoonTimer) return;
+    pushSoonTimer = setTimeout(() => {
+      pushSoonTimer = null;
+      const ids = [...pushSoonIds];
+      pushSoonIds.clear();
+      void pushOrdersNow(ids);
+    }, PUSH_SOON_DELAY_MS);
+  } catch {
+    /* best effort */
+  }
+}
+
+async function pushOrdersNow(ids: string[]) {
+  try {
+    if ((getMeta('pos.mode') || 'live') !== 'live' || !posApi()) return;
+    if (Number(getMeta('sync.retry_after_at') || 0) > Date.now()) return;
+    const payloads: any[] = [];
+    for (const id of ids) {
+      const pending = db
+        .prepare(`SELECT COUNT(*) FROM orders WHERE id = ? AND ${PUSH_ELIGIBLE}`)
+        .pluck()
+        .get(id) as number;
+      if (!pending) continue;
+      const p = safeBuildOrderPayload(id);
+      if (p) payloads.push(p);
+    }
+    if (!payloads.length) return;
+    const result = await pushOutbox(
+      { client_msg_id: `pos-soon-${Date.now()}-${Math.random().toString(36).slice(2)}` },
+      { orders: payloads }
+    );
+    applyPushResult(result);
+  } catch (e) {
+    console.warn('[push-soon] failed; the timer sync will retry', (e as any)?.message);
   }
 }
 
@@ -859,6 +915,9 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
       tx(users);
     }
 
+    bootstrappedThisRun = true;
+    setMeta('bootstrap.last_at', String(Date.now()));
+
     // 4. Trigger Image Prefetch (NOW AWAITED & LOGGED)
     console.log('[sync] bootstrap completed, starting image prefetch...');
     try {
@@ -928,14 +987,36 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
 
     configureApi(base, { id: device_id, branch_id }, token);
 
-    console.log('[Sync] Manual sync: running FULL bootstrap…');
+    // /bootstrap is heavy and the server rate-limits a shop to 60 requests a
+    // minute across all its tills, so it runs only when due: no cursor yet,
+    // first sync since app start, then every 6 hours. A locked till also
+    // re-reads it every time — it is the only way to see an unlock.
+    const hasCursor =
+      Number(
+        db
+          .prepare(`SELECT value FROM sync_state WHERE key = 'cursor'`)
+          .pluck()
+          .get() ?? 0
+      ) > 0;
+    const doBootstrap =
+      getMeta('pos.locked') === '1' ||
+      bootstrapDue({
+        hasCursor,
+        lastAt: Number(getMeta('bootstrap.last_at') || 0),
+        now: Date.now(),
+        doneThisRun: bootstrappedThisRun,
+      });
 
-    let payload: any;
-    try {
+    let payload: any = null;
+    if (!doBootstrap) {
+      console.log('[Sync] Manual sync: bootstrap not due; pull + push only');
+    } else try {
+      console.log('[Sync] Manual sync: running FULL bootstrap…');
       payload = await bootstrap(base);
 
       // ✅ Only here: we know we actually reached the server
       setMeta('bootstrap.last_at', String(Date.now()));
+      bootstrappedThisRun = true;
     } catch (err: any) {
       if (axios.isAxiosError(err) && err.response?.status === 423) {
         const data = err.response.data as any;
@@ -1024,7 +1105,26 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     setMeta('bootstrap.done', '1');
 
     console.log('[Sync] Manual sync: running incremental pull…');
-    await pullChanges();
+    try {
+      await pullChanges();
+    } catch (err: any) {
+      // Bootstrap no longer runs every sync, so a lock or revoke is first
+      // seen here on most runs. Handle them as the bootstrap path does.
+      if (axios.isAxiosError(err) && err.response?.status === 423) {
+        const lockedAt = (err.response.data as any)?.locked_at;
+        setMeta('pos.locked', '1');
+        setMeta('pos.lock_reason', 'server_locked');
+        if (lockedAt) {
+          setMeta('pos.locked_at', String(new Date(lockedAt).getTime()));
+        }
+        return { ok: false, reason: 'locked' as const, locked_at: lockedAt };
+      }
+      if (classifyAuthFailure(err) === 'revoked') {
+        markDeviceRevoked();
+        return { ok: false, reason: 'revoked' as const };
+      }
+      throw err;
+    }
 
     prefetchItemImages(5).catch((err) => console.error('Prefetch error', err));
 

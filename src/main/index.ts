@@ -78,6 +78,9 @@ function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // The sync timer lives in the renderer; without this Chromium slows it
+      // to ~1/min (or stops it) while the window is hidden or covered.
+      backgroundThrottling: false,
     },
   });
 
