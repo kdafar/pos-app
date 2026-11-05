@@ -325,6 +325,16 @@ body {
     box-shadow: 0 0 0 4px var(--brand-ring) !important;
     outline: none !important;
   }
+  /* ...and none on the text field inside it: the browser's own focus outline
+     drew a second, inner ring around the typed text. */
+  .ui-input input,
+  .ui-input textarea,
+  .ui-input input:focus,
+  .ui-input input:focus-visible,
+  .ui-input textarea:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
 
   /* Notice: a surface with a thin border, never a tinted box. */
   .ui-notice {

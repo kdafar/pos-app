@@ -633,7 +633,7 @@ export default function OrderSide({
               <Button
                 size='lg'
                 color='primary'
-                className='flex-1 basis-32 h-auto min-h-12 py-2 whitespace-normal leading-tight font-semibold rounded-[13px]'
+                className='flex-1 basis-32 h-auto min-h-12 px-3 gap-1.5 py-2 whitespace-normal leading-tight font-semibold rounded-[13px]'
                 onPress={() =>
                   canQuickUpdate ? handleQuickUpdate() : setShowCheckout(true)
                 }
@@ -662,7 +662,7 @@ export default function OrderSide({
               <Button
                 size='lg'
                 variant='bordered'
-                className='flex-1 basis-32 h-auto min-h-12 py-2 whitespace-normal leading-tight font-semibold rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)]'
+                className='flex-1 basis-32 h-auto min-h-12 px-3 gap-1.5 py-2 whitespace-normal leading-tight font-semibold rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)]'
                 onPress={
                   currentOrder.order_type === 3 &&
                   currentOrder.table_id &&
