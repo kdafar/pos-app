@@ -1,5 +1,6 @@
 // src/renderer/screens/PairScreen.tsx
 import React, { useEffect, useMemo, useState } from 'react';
+import { announceSynced } from '../utils/syncEvents';
 import { Input, Button, Spinner } from '@heroui/react';
 import { CircleCheck, TriangleAlert } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -177,6 +178,8 @@ export default function PairScreen() {
 
       // 4) Optional: run full sync (incremental pull + push)
       await (window as any).api.invoke('sync:run');
+      // The shop's colour (and anything else listening) now that its data is in.
+      announceSynced();
 
       // 5) Check status, then say which shop this till turned out to belong to.
       //

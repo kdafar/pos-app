@@ -64,6 +64,7 @@ const Router =
 // (Optional) dev helper to catch root-relative fetch/xhr (see section 2)
 import './rootRelativeGuard';
 import { loadAndApplyBrandTheme } from './theme/brand';
+import { SYNCED_EVENT } from './utils/syncEvents';
 import { loadTextScale } from './theme/textScale';
 
 try {
@@ -76,6 +77,9 @@ try {
     // the till never flashes the fallback palette on the way to the real one;
     // it never rejects, so a shop with no branding still opens.
     await loadAndApplyBrandTheme();
+    // Again after every sync: a till's first full download (right after
+    // pairing) and a colour changed in admin used to show only after a restart.
+    window.addEventListener(SYNCED_EVENT, () => void loadAndApplyBrandTheme());
     createRoot(document.getElementById('root')!).render(
       <React.StrictMode>
         <ThemeProvider>

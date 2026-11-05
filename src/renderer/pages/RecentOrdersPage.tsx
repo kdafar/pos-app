@@ -110,13 +110,19 @@ const LOCAL_STATUS_CHIP: Record<string, string> = {
   cancelled_client: 'ui-chip-red',
 };
 
+const LOCAL_FINISHED = new Set(['closed', 'completed', 'cancelled', 'cancelled_client']);
+
 const StatusBadge = ({ order }: { order: Order }) => {
   const statusLabel = useStatusLabel();
   const serverLabel = useServerStatusLabel();
 
-  const code = Number(order.status_code);
-  const hasCode = Number.isFinite(code) && order.status_code != null;
   const k = String(order.status ?? '').toLowerCase();
+  // A finished local word wins over a leftover server code: the till closes
+  // or cancels by changing the word, and a code stored earlier (2, say) would
+  // otherwise keep a closed order showing "Preparing".
+  const code = Number(order.status_code);
+  const hasCode =
+    Number.isFinite(code) && order.status_code != null && !LOCAL_FINISHED.has(k);
 
   const chip = hasCode
     ? SERVER_STATUS_CHIP[code] ?? 'ui-chip-gray'
@@ -147,9 +153,9 @@ const GROUP_RANK: Record<Group, number> = { live: 0, done: 1, cancelled: 2 };
 
 /** Live = still moving; Done = closed / completed; Cancelled = cancelled, rejected, failed, refunded. */
 function groupOf(o: Order): Group {
-  const code = Number(o.status_code);
-  const hasCode = o.status_code != null && Number.isFinite(code);
   const st = String(o.status ?? '').trim().toLowerCase();
+  const code = Number(o.status_code);
+  const hasCode = o.status_code != null && Number.isFinite(code) && !LOCAL_FINISHED.has(st);
   if (
     (hasCode && [5, 6, 8, 9].includes(code)) ||
     st.startsWith('cancel') ||

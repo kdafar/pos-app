@@ -351,9 +351,9 @@ export function applyPushResult(result: any): {
   const getStatus = db.prepare(`SELECT status FROM orders WHERE id = ?`);
   // updated_at deliberately untouched: this is the server's state coming back,
   // not a local edit, and must not queue the order for another push.
-  const setServerStatus = db.prepare(
-    `UPDATE orders SET status = ?, status_code = ? WHERE id = ?`
-  );
+  // The word only, never status_code: a later local close or cancel updates
+  // the word alone, and a stored code 2 then outranked "closed" on the badge.
+  const setServerStatus = db.prepare(`UPDATE orders SET status = ? WHERE id = ?`);
   const dropPermanent = db.prepare(
     `UPDATE orders SET push_legacy = 1 WHERE id = ?`
   );
@@ -379,7 +379,7 @@ export function applyPushResult(result: any): {
           // a reply carrying an older state never moves the order back, and a
           // local close or cancel is never reopened.
           const next = resolveOwnOrderStatus(row.status, code, false);
-          if (next !== row.status) setServerStatus.run(next, code, tempId);
+          if (next !== row.status) setServerStatus.run(next, tempId);
         }
       }
     }

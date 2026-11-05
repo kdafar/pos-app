@@ -12,9 +12,8 @@ const fakeDb = {
         const id = a[a.length - 1];
         const r = rows.get(id);
         if (!r) return { changes: 0 };
-        if (s.startsWith('UPDATE orders SET status = ?, status_code = ?')) {
+        if (s.startsWith('UPDATE orders SET status = ? WHERE')) {
           r.status = a[0];
-          r.status_code = a[1];
         } else if (s.includes('synced_at')) {
           r.synced_at = 1;
           if (a[0] != null) r.server_id = a[0];
@@ -39,7 +38,7 @@ describe('applyPushResult statuses', () => {
   it('the placing till follows the automatic accept', () => {
     seed('a', 'placed');
     applyPushResult({ ack: { a: '9' }, statuses: { a: 2 } });
-    expect(rows.get('a')).toMatchObject({ status: 'prepared', status_code: 2, updated_at: 100 });
+    expect(rows.get('a')).toMatchObject({ status: 'prepared', status_code: null, updated_at: 100 });
   });
 
   it('never moves an order back', () => {
