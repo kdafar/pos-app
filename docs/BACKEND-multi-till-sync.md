@@ -151,3 +151,17 @@ note; the table showed busy, then free after the close, on both. The two failure
 status change: the test users have the cashier (`pos`) role, which may not change status,
 so that step was refused before anything synced. The server order on Table 1 showed busy
 on both tills from the first full download.
+
+Re-run with dev-till-1a as manager: **20 of 20 checks passed**, including a status
+change on one till (preparing, then ready) reaching the other.
+
+Gap found: when order acceptance is off, the server moves a new order from 1 to 2 as
+it is pushed. That change never reaches the till that placed the order: the /push reply
+has no status, and /pull does not send a till its own orders. The placing till shows
+"placed" while every other till and the website show "preparing", and its next step
+button is one behind.
+
+**Ask:** in the /push reply, add each order's status as the server now has it, e.g.
+`"statuses": {"<temp_id>": 2}` next to `ack`. (Or emit the auto-accept as a feed
+change that also goes to the pusher.) The till will apply it under the rule it already
+uses for later website changes to its own orders.
