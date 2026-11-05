@@ -23,13 +23,14 @@ export function HelpButton({ className = '' }: { className?: string }) {
     <Hint content={label} placement='bottom'>
       <Button
         isIconOnly
-        variant='bordered'
+        variant='light'
         radius='full'
-        className={`h-11 w-11 min-w-11 shrink-0 border border-[var(--line-strong)] bg-[var(--surface)] ink-2 ${className}`}
+        // A small quiet icon, not a button that competes with the screen's actions.
+        className={`h-8 w-8 min-w-8 pointer-coarse:h-10 pointer-coarse:w-10 pointer-coarse:min-w-10 shrink-0 ink-3 hover:ink ${className}`}
         aria-label={label}
         onPress={() => navigate(`${page}?from=${encodeURIComponent(pathname)}`)}
       >
-        <CircleHelp size={20} strokeWidth={1.8} />
+        <CircleHelp size={18} strokeWidth={1.8} />
       </Button>
     </Hint>
   );

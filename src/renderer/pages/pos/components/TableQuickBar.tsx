@@ -14,7 +14,8 @@ const STATUS_DOT: Record<TableInfo['status'], string> = {
   reserved: 'bg-[var(--st-amber)]',
   occupied: 'bg-[var(--st-red)]',
 };
-const ACTIVE_RING = 'border-[var(--brand)] ring-4 ring-[var(--brand-ring)]';
+// The table on screen is filled with the brand colour, like any selected item.
+const ACTIVE_FILL = 'border-[var(--brand)] bg-[var(--brand)] text-[var(--brand-ink)]';
 
 export function TableQuickBar({
   theme: _theme,
@@ -106,20 +107,22 @@ export function TableQuickBar({
               }}
               // Not faded when it cannot be tapped: a busy table still has to
               // read as busy from arm's length. The cursor says "not this one".
-              className={`inline-flex shrink-0 items-center gap-2 min-h-11 px-3.5 rounded-full text-sm font-semibold whitespace-nowrap border bg-[var(--surface)] text-[var(--ink)] transition disabled:cursor-not-allowed active:scale-[.98] ${
-                isActive ? ACTIVE_RING : 'border-[var(--line-strong)]'
+              className={`inline-flex shrink-0 items-center gap-1.5 min-h-9 pointer-coarse:min-h-11 px-3 rounded-full text-sm font-semibold whitespace-nowrap border transition disabled:cursor-not-allowed active:scale-[.98] ${
+                isActive ? ACTIVE_FILL : 'border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)]'
               }`}
             >
               <span
-                className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[t.status]}`}
+                className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[t.status]} ${
+                  isActive ? 'ring-2 ring-[var(--brand-ink)]' : ''
+                }`}
                 aria-hidden
               />
               {lang === 'ar' && t.name_ar ? t.name_ar : t.name}
               {t.seats ? (
-                <span className="text-xs font-medium ink-2 money">({t.seats})</span>
+                <span className={`text-xs font-medium money ${isActive ? 'opacity-80' : 'ink-2'}`}>({t.seats})</span>
               ) : null}
               {t.status === 'occupied' && (
-                <span className="text-xs font-semibold text-[var(--st-red)]">
+                <span className={`text-xs font-semibold ${isActive ? '' : 'text-[var(--st-red)]'}`}>
                   {translate('tables.occupied')}
                 </span>
               )}

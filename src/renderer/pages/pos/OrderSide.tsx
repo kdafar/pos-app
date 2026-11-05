@@ -573,7 +573,7 @@ export default function OrderSide({
                 </p>
               </div>
             ) : (
-              <div className='divide-y divide-[var(--line)]'>
+              <div className='@container divide-y divide-[var(--line)]'>
                 {orderLines.map((line) => (
                   <OrderLineItem
                     key={line.id}
@@ -633,7 +633,7 @@ export default function OrderSide({
               <Button
                 size='lg'
                 color='primary'
-                className='flex-1 basis-32 font-semibold rounded-[13px]'
+                className='flex-1 basis-32 h-auto min-h-12 py-2 whitespace-normal leading-tight font-semibold rounded-[13px]'
                 onPress={() =>
                   canQuickUpdate ? handleQuickUpdate() : setShowCheckout(true)
                 }
@@ -662,7 +662,7 @@ export default function OrderSide({
               <Button
                 size='lg'
                 variant='bordered'
-                className='flex-1 basis-32 font-semibold rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)]'
+                className='flex-1 basis-32 h-auto min-h-12 py-2 whitespace-normal leading-tight font-semibold rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)]'
                 onPress={
                   currentOrder.order_type === 3 &&
                   currentOrder.table_id &&

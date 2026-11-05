@@ -40,6 +40,7 @@ const T = {
       await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-cart-sheet.png`) });
       if (w === 412) {
         // Checkout must open on top of the sheet.
+        if (!(await win.getByRole('button', { name: t.place }).count())) { await win.keyboard.press('Escape'); await sleep(400); continue; }
         await win.getByRole('button', { name: t.place }).last().click(); await sleep(900);
         await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-cart-checkout.png`) });
         // Checkout does not close on Escape (by design): use its Cancel button.
@@ -47,10 +48,19 @@ const T = {
       }
       await win.keyboard.press('Escape'); await sleep(400);
     }
-    for (const [w, h] of [[800, 1280], [1024, 600], [1366, 768]]) {
+    for (const [w, h] of [[800, 1280], [1024, 600], [1366, 768], [1920, 1080]]) {
       await win.setViewportSize({ width: w, height: h }); await sleep(900);
       await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-order.png`) });
+      if (process.env.DEBUG_CART) console.log(w, await win.evaluate(() => { const c = document.querySelector('[class~="@container"]'); const l = c && c.firstElementChild; return c ? [c.getBoundingClientRect().width, getComputedStyle(c).containerType, getComputedStyle(l).gridTemplateColumns, l.className] : 'none'; }));
     }
+    // A table picked: the selected pill is filled with the brand colour.
+    try {
+      const pill = win.locator('button', { hasText: lang === 'en' ? 'T2' : '2' }).filter({ has: win.locator('span.rounded-full') }).first();
+      await pill.click({ timeout: 3000 }); await sleep(900);
+      if (await win.getByRole('dialog').count()) { await win.keyboard.press('Escape'); await sleep(600); }
+      await pill.click({ timeout: 3000 }); await sleep(900);
+    } catch (e) { console.log('   table step:', e.message.split(String.fromCharCode(10))[0]); }
+    await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-1366-table.png`) });
     console.log('  ', lang, 'done');
     await win.setViewportSize({ width: 1366, height: 768 });
     await win.evaluate(() => { location.hash = '#/logout'; }); await sleep(1500);
