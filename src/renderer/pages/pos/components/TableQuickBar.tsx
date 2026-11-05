@@ -15,6 +15,7 @@ const STATUS_DOT: Record<TableInfo['status'], string> = {
   occupied: 'bg-[var(--st-red)]',
 };
 // The table on screen is filled with the brand colour, like any selected item.
+const OCCUPIED_FILL = 'border-[var(--st-red)] bg-[var(--st-red)] text-white';
 const ACTIVE_FILL = 'border-[var(--brand)] bg-[var(--brand)] text-[var(--brand-ink)]';
 
 export function TableQuickBar({
@@ -92,6 +93,11 @@ export function TableQuickBar({
         {visible.map(t => {
           const isActive = !!currentTableId && t.id === currentTableId;
           const disabled = !isActive && !t.current_order_id && t.status !== 'available';
+          // Occupied = the whole pill red, no extra word: every pill stays the
+          // same size, so the row holds as many tables as possible.
+          const occupied = t.status === 'occupied';
+          const label = lang === 'ar' && t.name_ar ? t.name_ar : t.name;
+          const statusWord = occupied ? translate('tables.occupied') : '';
 
           return (
             <button
@@ -100,6 +106,7 @@ export function TableQuickBar({
               type="button"
               disabled={disabled}
               aria-current={isActive ? 'true' : undefined}
+              title={statusWord ? `${label} — ${statusWord}` : undefined}
               onClick={async () => {
                 if (isActive) return;
                 if (t.current_order_id) await onSelectOrder(t.current_order_id);
@@ -108,24 +115,27 @@ export function TableQuickBar({
               // Not faded when it cannot be tapped: a busy table still has to
               // read as busy from arm's length. The cursor says "not this one".
               className={`inline-flex shrink-0 items-center gap-1.5 min-h-9 pointer-coarse:min-h-11 px-3 rounded-full text-sm font-semibold whitespace-nowrap border transition disabled:cursor-not-allowed active:scale-[.98] ${
-                isActive ? ACTIVE_FILL : 'border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)]'
+                isActive
+                  ? ACTIVE_FILL
+                  : occupied
+                  ? OCCUPIED_FILL
+                  : 'border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)]'
               }`}
             >
-              <span
-                className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[t.status]} ${
-                  isActive ? 'ring-2 ring-[var(--brand-ink)]' : ''
-                }`}
-                aria-hidden
-              />
-              {lang === 'ar' && t.name_ar ? t.name_ar : t.name}
-              {t.seats ? (
-                <span className={`text-xs font-medium money ${isActive ? 'opacity-80' : 'ink-2'}`}>({t.seats})</span>
-              ) : null}
-              {t.status === 'occupied' && (
-                <span className={`text-xs font-semibold ${isActive ? '' : 'text-[var(--st-red)]'}`}>
-                  {translate('tables.occupied')}
-                </span>
+              {/* The dot only where the fill does not already say it. */}
+              {!(occupied && !isActive) && (
+                <span
+                  className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[t.status]} ${
+                    isActive ? 'ring-2 ring-[var(--brand-ink)]' : ''
+                  }`}
+                  aria-hidden
+                />
               )}
+              {label}
+              {t.seats ? (
+                <span className={`text-xs font-medium money ${isActive || occupied ? 'opacity-80' : 'ink-2'}`}>({t.seats})</span>
+              ) : null}
+              {statusWord && <span className='sr-only'>{statusWord}</span>}
             </button>
           );
         })}

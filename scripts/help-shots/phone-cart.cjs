@@ -58,6 +58,9 @@ const T = {
       const pill = win.locator('button', { hasText: lang === 'en' ? 'T2' : '2' }).filter({ has: win.locator('span.rounded-full') }).first();
       await pill.click({ timeout: 3000 }); await sleep(900);
       if (await win.getByRole('dialog').count()) { await win.keyboard.press('Escape'); await sleep(600); }
+      // Back to the pickup order: T2 is now occupied but not the one on screen.
+      await win.locator('header .ui-seg-item[aria-pressed=false]').first().click({ timeout: 3000 }).catch(() => {}); await sleep(700);
+      await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-1366-table-occupied.png`) });
       await pill.click({ timeout: 3000 }); await sleep(900);
     } catch (e) { console.log('   table step:', e.message.split(String.fromCharCode(10))[0]); }
     await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-1366-table.png`) });
