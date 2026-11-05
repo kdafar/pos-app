@@ -72,6 +72,52 @@ device still shows open on another, orders appear late.
     branch, pull now"? It would make devices update in about a second instead
     of 15–20 s.
 
+## Server answers (2026-11-05) and agreed work
+
+Summary of the reply:
+- **Q1:** pushed orders go to the other tills, not back to the pusher. Later website or
+  other-till changes do come back. Gaps: the customer-app cancel
+  (front/OrderController.php:880) and the old admin API update/assign
+  (Api/AdminController.php:242, :471) don't reach the feed.
+- **Q2:** today only `table_name` and `source` are sent (`kitchen_note` only for
+  web/partner orders). `table_id`, notes, address, user_id and external_source/id are
+  stored and easy to add. `covers` only exists where the column exists. There is no
+  `closed_at`.
+- **Q3:** a table is busy when a dine-in order on it has status 1–3 (Table.php:52).
+  Table changes are emitted on placing, moving, a status or type change, the bulk close,
+  and admin edits. **Agreed: the till uses 1–3 too.**
+- **Q4:**
+  - The cursor is one shared number, and each till keeps its own position.
+  - The `/bootstrap` cursor is safe to resume from.
+  - `/pull` returns at most 5000 rows, with `has_more`.
+  - Risk: a row committed late in a transaction can get an id below a cursor a till
+    has already passed.
+- **Q5:** no till endpoint exists. One can be added by reusing the portal's logic, with
+  codes POS_ORDER_NOT_FOUND, POS_PUSH_ORDER_FINALIZED, POS_PUSH_CANCEL_NOT_PERMITTED,
+  POS_PUSH_APPROVAL_INVALID and POS_PUSH_TABLE_INVALID.
+- **Q6:** holds don't exist. The proposed design fits.
+- **Q7:** admin delete is switched off. Driver or customer deletes remove orders
+  silently. The till treats a delete as "remove".
+- **Q8:** there is no customer feed (only order data plus `orders_seed`).
+- **Q9:**
+  - Bootstrap once, then only `/pull`. Re-bootstrapping loses other tills' dine-in
+    orders, because they aren't in `orders_seed`.
+  - **Rate limit: 60/min per IP, shared by all tills in a shop.**
+- **Q10:** no realtime channel. It would be a separate project.
+
+Server to-do, in order of impact:
+1. A per-device rate limit for `/api/pos/*`, like the printing PCs have. The till won't
+   sync faster than every 60 s until this is live.
+2. Add `table_id`, `covers`, notes, address, `user_id` and external_source/id to order
+   rows in `/pull` (and `closed_at` if added).
+3. Send the customer-app cancel and the old admin-app status/assign changes through the
+   change feed, including the table update.
+4. Fix the late-commit cursor risk. For example, assign the feed id after commit, or
+   let tills re-read a small overlap.
+5. `POST /api/pos/orders/{id}/status` (plus payment method and mobile), usable by any
+   till of the branch, with the refusal codes above.
+6. Table holds (Q6).
+
 ## What the till will change on its side (in progress)
 
 - Sync in the background even when the window is not focused, about every 15–20 s.
