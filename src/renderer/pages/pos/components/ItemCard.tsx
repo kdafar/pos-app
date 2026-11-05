@@ -55,7 +55,11 @@ export function ItemCard({
   };
 
   const optionsChip = needsOptions && (
-    <span className='ui-chip ui-chip-gray'>
+    <span
+      className={`ui-chip ${
+        hasVariations ? (hasAddons ? 'ui-chip-options' : 'ui-chip-sizes') : 'ui-chip-addons'
+      }`}
+    >
       {hasVariations ? (
         <Layers size={12} strokeWidth={1.8} />
       ) : (

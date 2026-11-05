@@ -286,6 +286,10 @@ body {
   .ui-chip-blue { background: var(--st-blue); }
   .ui-chip-red { background: var(--st-red); }
   .ui-chip-gray { background: var(--st-gray); }
+  /* Item kinds on the menu cards: hues no status uses, white text >= 4.5:1. */
+  .ui-chip-sizes { background: #0e7490; }
+  .ui-chip-addons { background: #6d28d9; }
+  .ui-chip-options { background: #be185d; }
   .ui-chip-outline {
     background: transparent;
     color: var(--ink-2);
