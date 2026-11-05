@@ -115,8 +115,8 @@ export const en: HelpWords = {
           steps: [
             'Look at the box at the top of the side menu. If the menu shows only icons, tap **Expand sidebar** (the panel button at the top) to open it.',
             'Read the branch name. It must be your shop.',
-            'Read the time next to the clock. It shows when the till last talked to the back office, for example **just now** or **2m ago**.',
-            'To send and get orders now, tap the round arrow button next to **Online**.',
+            'On the second line, read the time next to the clock. It shows when the till last talked to the back office, for example **just now** or **2m ago**.',
+            'To send and get orders now, tap the round arrow button next to the branch name.',
           ],
           next: [
             'The till sends your orders to the back office. It also gets menu changes from it.',
@@ -446,7 +446,7 @@ export const en: HelpWords = {
             'Take the payment on the card machine.',
             'Wait for the card machine slip.',
             'In the side menu, tap **Recent Orders**.',
-            'Find the order. Tap its **Unpaid** badge. For a table that is still open, you can tap **Mark paid** on the order instead.',
+            'Find the order. Tap **Mark paid** on its row. (On a narrow screen it is a small icon with the same name.) For a table that is still open, you can tap **Mark paid** on the order instead.',
             'Check that **Paid by** shows KNET.',
             'Type the **KNET slip reference** from the slip.',
             'Tap **Mark paid**.',
@@ -556,7 +556,7 @@ export const en: HelpWords = {
           steps: [
             'In the side menu, tap **Recent Orders**.',
             'Find the order.',
-            'In **Update status**, pick **Cancelled by customer**.',
+            'Tap the status badge. In the menu, pick **Cancelled by customer**.',
             'If the till asks for **Manager approval**, type your code.',
           ],
           next: ['The order is cancelled. It shows under **Cancelled Orders** in the closing report.'],
@@ -590,12 +590,12 @@ export const en: HelpWords = {
       steps: {
         find: {
           title: 'Find an order',
-          summary: 'All of today’s orders are in one list.',
+          summary: 'All of today’s orders are in one list, one row for each order.',
           steps: [
             'In the side menu, tap **Recent Orders**.',
-            'Type the order number, the name or the mobile in the search box.',
-            'Use **Order type** to show one kind only.',
-            'To see another day, pick the dates and tap **Filter**.',
+            'Type the order number, the name or the mobile in the search box. The list changes as you type.',
+            'Use **Order type** to show one kind only. The tabs **Live**, **Done** and **Cancelled**, and **Paid** and **Unpaid**, work the same way.',
+            'To see another day, tap the date button, pick the dates and tap **Filter**. The round arrow reads the list again.',
           ],
           next: ['Orders made on the website also show in this list.'],
           careful: ['Website orders are accepted in the back office, not on the till.'],
@@ -607,7 +607,7 @@ export const en: HelpWords = {
           summary: 'See the dishes and what happened to the order.',
           steps: [
             'Find the order.',
-            'Tap the eye button (**View details**).',
+            'Tap the row, or tap the eye button (**View details**).',
             'Read the dishes and the **History**.',
           ],
           next: ['Looking at an order does not change it.'],
@@ -618,10 +618,13 @@ export const en: HelpWords = {
           summary: 'Tell everyone where the order is.',
           steps: [
             'Find the order.',
-            'In **Update status**, pick the next step: **Prepared**, **Ready**, **Waiting for pickup** or **Closed**.',
+            'Tap the button on its row: **Start preparing**, **Mark ready** or **Complete order**. For another step, such as **Waiting for pickup**, tap the status badge and pick it from the menu.',
           ],
           next: ['The order moves to that step.'],
-          careful: ['You can only go forward. You cannot go back.'],
+          careful: [
+            'You can only go forward. You cannot go back.',
+            'An order that is still **Open** (not placed yet) has no status buttons.',
+          ],
           keywords: ['status', 'ready', 'prepared', 'closed'],
         },
       },
@@ -787,7 +790,7 @@ export const en: HelpWords = {
           summary: 'You do not have to wait. You can send them now.',
           steps: [
             'If the side menu shows only icons, tap **Expand sidebar** to open it.',
-            'At the top of the side menu, tap the round arrow button next to **Online**.',
+            'At the top of the side menu, tap the round arrow button next to the branch name.',
             'Wait a moment. The time changes to **just now**.',
           ],
           careful: [
@@ -915,7 +918,7 @@ export const en: HelpWords = {
           summary: 'These lists come from the back office. The till only shows them.',
           steps: [
             'Change the menu, prices, promo codes, payment methods or delivery areas in the back office.',
-            'On the till, tap the round arrow button next to **Online** to get the change.',
+            'On the till, tap the round arrow button next to the branch name to get the change.',
           ],
           next: ['The new menu shows on the till after it gets the change.'],
           keywords: ['menu', 'price', 'items', 'categories', 'locations', 'payment methods'],
@@ -981,7 +984,7 @@ export const en: HelpWords = {
           steps: [
             'Keep selling. Orders are saved on the till and sent later.',
             'Check the internet cable or the Wi-Fi.',
-            'When the sign says **Online** again, tap the round arrow button next to it.',
+            'When the sign says **Online** again, tap the round arrow button next to the branch name.',
             'If you see **Sync failed**, wait a few minutes and try again.',
             'If it stays **Offline** while the internet works, ask your manager to check that **Mode** is **Live (sync)** on the sign-in screen.',
           ],
@@ -991,7 +994,7 @@ export const en: HelpWords = {
           title: 'An order is missing on another till',
           summary: 'An order taken on one till does not show on another.',
           steps: [
-            'On the till that took the order, tap the round arrow button next to **Online**.',
+            'On the till that took the order, tap the round arrow button next to the branch name.',
             'Wait a minute. Then tap the same button on this till.',
             'Look for the order in **Recent Orders**.',
           ],
@@ -1003,7 +1006,7 @@ export const en: HelpWords = {
           steps: [
             'Tell your manager which dish is wrong.',
             'Your manager fixes it in the back office.',
-            'Then tap the round arrow button next to **Online**.',
+            'Then tap the round arrow button next to the branch name.',
           ],
           keywords: ['price', 'wrong price', 'missing dish', 'menu'],
         },

@@ -379,8 +379,8 @@ async function run(lang) {
     await shot('orders', {
       marks: [
         win.getByPlaceholder(t.search),
-        win.getByTitle(t.viewDetails).first(),
-        win.getByTitle(t.printReceipt).first(),
+        win.getByRole('button', { name: t.viewDetails, exact: true }).first(),
+        win.getByRole('button', { name: t.printReceipt, exact: true }).first(),
       ],
     });
   });
