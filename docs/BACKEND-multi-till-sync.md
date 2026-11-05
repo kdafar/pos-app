@@ -1,6 +1,6 @@
 # Multi-till sync: what the POS needs from the server
 
-Status: questions open (2026-11-05). Till branch: `fix/multi-till-sync`.
+Status: answered; server items 1–2 live (2026-11-05). Till branch: `fix/multi-till-sync`.
 
 ## The problem
 
@@ -129,3 +129,16 @@ Server to-do, in order of impact:
 - Until Q5 exists: block close, cancel and status changes on orders this device
   did not create, with a clear message, instead of changing them only locally.
   (Waiting for the operator's decision.)
+
+## Server status (2026-11-05, later)
+
+1. Per-till rate limit: **live** on every restaurant site, trebianco.com and the dev
+   copies, 240 requests a minute per till. The till now syncs every 15 s.
+2. Extra order fields: **live** (table, notes, address, staff member, till).
+   **Guest count and closing time are not there yet.** No live database has an orders
+   column for guest count, so the server drops `covers` on push and other tills get it
+   empty. Fix: one migration adding `covers` and `closed_at`.
+3–6. Not started.
+
+dev.trebianco.com runs the same server code as live Trebianco and is the place for the
+two-till test.

@@ -223,7 +223,8 @@ export function Layout() {
 
     if (!canAutoSync) return;
 
-    const AUTO_SYNC_MIN_INTERVAL = 60_000;
+    // The server allows 240 requests a minute per till (2026-11-05); a sync is ~3.
+    const AUTO_SYNC_MIN_INTERVAL = 15_000;
 
     const id = window.setInterval(async () => {
       if (syncingRef.current) return;
@@ -243,7 +244,7 @@ export function Layout() {
         syncingRef.current = false;
         setSyncing(false);
       }
-    }, 10_000) as unknown as number;
+    }, 5_000) as unknown as number;
 
     return () => clearInterval(id);
   }, [
