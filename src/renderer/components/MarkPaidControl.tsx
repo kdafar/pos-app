@@ -371,7 +371,7 @@ export function MarkPaidControl({
             <Button variant='bordered' size='lg' className='rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface)] font-semibold' onPress={() => setDialog(null)} isDisabled={busy}>
               {t('common.cancel')}
             </Button>
-            <Button color='danger' size='lg' className='rounded-[13px] font-semibold' onPress={submitUndo} isLoading={busy}>
+            <Button color='danger' size='lg' className='rounded-[13px] font-semibold' startContent={busy ? undefined : <Undo2 size={18} strokeWidth={1.8} />} onPress={submitUndo} isLoading={busy}>
               {t('paid.undo')}
             </Button>
           </ModalFooter>

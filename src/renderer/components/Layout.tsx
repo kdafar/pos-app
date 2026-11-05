@@ -640,12 +640,16 @@ export function Layout() {
 
           {!rail && (
             <div className='min-w-0 flex-1'>
-              {/* A long restaurant name wraps to a second line rather than
-                  widening the menu for every till. */}
-              <div className='line-clamp-2 break-words text-[0.9375rem] font-semibold leading-snug ink'>
-                {storeName}
-              </div>
-              <div className='line-clamp-2 break-words text-xs ink-2'>{userLine}</div>
+              {/* One line each, cut with an ellipsis; the full text is on the
+                  hover hint. Wrapping pushed menu items off short screens. */}
+              <Hint content={`${storeName} — ${userLine}`}>
+                <div className='min-w-0'>
+                  <div className='truncate text-[0.9375rem] font-semibold leading-snug ink'>
+                    {storeName}
+                  </div>
+                  <div className='truncate text-xs ink-2'>{userLine}</div>
+                </div>
+              </Hint>
             </div>
           )}
 
@@ -695,6 +699,7 @@ export function Layout() {
               <LanguageToggle collapsed={rail} row={!rail} />
             </div>
             {!rail && (
+              <>
               <Hint content={t('nav.toggleTheme')}>
                 <button
                   type='button'
@@ -709,6 +714,24 @@ export function Layout() {
                   )}
                 </button>
               </Hint>
+              {/* Help and sign-out share this row on the full sidebar: two
+                  rows of their own pushed menu items off a laptop screen. */}
+              <Hint content={t('nav.help')}>
+                <Link
+                  to='/help'
+                  className={iconButtonClass}
+                  aria-label={t('nav.help')}
+                  aria-current={path === '/help' ? 'page' : undefined}
+                >
+                  <CircleHelp size={20} strokeWidth={1.8} />
+                </Link>
+              </Hint>
+              <Hint content={t('auth.logout')}>
+                <Link to='/logout' className={iconButtonClass} aria-label={t('auth.logout')}>
+                  <LogOut size={20} strokeWidth={1.8} />
+                </Link>
+              </Hint>
+              </>
             )}
           </div>
 
@@ -716,7 +739,9 @@ export function Layout() {
               admins, because whoever closes the till is who applies it. */}
           {!rail && updateButton}
 
-          {/* Help is for everyone, so it is not under System/Settings. */}
+          {/* Help is for everyone, so it is not under System/Settings. On the
+              icon rail it keeps its own row; expanded it sits by the language. */}
+          {rail && (<>
           <NavLink
             to='/help'
             text={t('nav.help')}
@@ -731,6 +756,7 @@ export function Layout() {
             collapsed={rail}
             active={false}
           />
+          </>)}
           {/* Tiny version badge */}
           {!rail && versionLine}
 

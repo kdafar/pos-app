@@ -38,10 +38,13 @@ export function LanguageToggle({
         type='button'
         onClick={() => setLang(other.code)}
         lang={other.code}
-        className='ui-nav flex min-h-11 [@media(pointer:fine)]:min-h-10 w-full items-center gap-2.5 px-2.5 py-2 text-sm'
+        aria-label={other.label}
+        // A plain pill with the language's own name. It shares its row with
+        // the theme, help and sign-out icons, and the translate glyph beside
+        // the label left the name itself cut to one letter.
+        className='flex h-10 pointer-coarse:h-11 w-full items-center justify-center rounded-[11px] border border-[var(--line-strong)] bg-[var(--surface)] px-2 text-sm font-semibold ink whitespace-nowrap hover:bg-[var(--hover)] transition'
       >
-        <Languages size={18} strokeWidth={1.8} className='shrink-0' />
-        <span className='truncate'>{other.label}</span>
+        {other.label}
       </button>
     );
   }

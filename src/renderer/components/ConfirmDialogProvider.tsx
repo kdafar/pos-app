@@ -130,6 +130,11 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                   color={confirmColor}
                   size='lg'
                   className='rounded-[13px] font-semibold'
+                  // A risky confirm carries the warning icon, so it never reads
+                  // as a main button on a shop whose brand colour is red too.
+                  startContent={
+                    tone === 'danger' ? <Icon className='w-5 h-5' strokeWidth={1.8} /> : undefined
+                  }
                   onPress={() => handleClose(true)}
                 >
                   {options.confirmLabel ?? t('confirm.ok')}

@@ -1,5 +1,6 @@
 // components/TableQuickBar.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Check } from 'lucide-react';
 import { TableInfo } from '../types';
 import { useI18n } from '../../../i18n';
 import { floorsOf, initialFloor, NO_FLOOR, onFloor } from '../tableFloors';
@@ -14,9 +15,12 @@ const STATUS_DOT: Record<TableInfo['status'], string> = {
   reserved: 'bg-[var(--st-amber)]',
   occupied: 'bg-[var(--st-red)]',
 };
-// The table on screen is filled with the brand colour, like any selected item.
+// Busy is a solid red fill; the table on screen is an OUTLINE in the brand
+// colour with a tick. Told apart by shape, not hue: with a red brand a brand
+// fill looked exactly like a busy table, and a green one like the free dots.
 const OCCUPIED_FILL = 'border-[var(--st-red)] bg-[var(--st-red)] text-white';
-const ACTIVE_FILL = 'border-[var(--brand)] bg-[var(--brand)] text-[var(--brand-ink)]';
+const ACTIVE_FILL =
+  'border-2 border-[var(--brand)] bg-[var(--surface)] text-[var(--ink)] font-bold shadow-[0_0_0_3px_var(--brand-ring)]';
 
 export function TableQuickBar({
   theme: _theme,
@@ -123,17 +127,19 @@ export function TableQuickBar({
               }`}
             >
               {/* The dot only where the fill does not already say it. */}
-              {!(occupied && !isActive) && (
-                <span
-                  className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[t.status]} ${
-                    isActive ? 'ring-2 ring-[var(--brand-ink)]' : ''
-                  }`}
-                  aria-hidden
-                />
+              {isActive ? (
+                <Check size={16} strokeWidth={3} className='shrink-0 text-[var(--brand-strong)]' aria-hidden />
+              ) : (
+                !occupied && (
+                  <span
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[t.status]}`}
+                    aria-hidden
+                  />
+                )
               )}
               {label}
               {t.seats ? (
-                <span className={`text-xs font-medium money ${isActive || occupied ? 'opacity-80' : 'ink-2'}`}>({t.seats})</span>
+                <span className={`text-xs font-medium money ${occupied && !isActive ? 'opacity-80' : 'ink-2'}`}>({t.seats})</span>
               ) : null}
               {statusWord && <span className='sr-only'>{statusWord}</span>}
             </button>
