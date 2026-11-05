@@ -1667,6 +1667,7 @@ export async function bootstrap(baseUrl: string) {
     const findLocalByNumber = db.prepare(
       `SELECT id FROM orders WHERE number = ? LIMIT 1`
     );
+    const seedOps = orderSyncOps();
     for (const o of ordersSeed) {
       const row = normOrderSeed(o);
       if (!row.number) continue;
@@ -1687,6 +1688,12 @@ export async function bootstrap(baseUrl: string) {
         continue;
       }
       upOrderSeed.run(row);
+      // Dine-ins in progress come in the /pull shape (server, 2026-11-05):
+      // table, covers, notes. Written the way /pull writes them, or the seat
+      // stays red on the server's flag with no order behind it on this till.
+      if (o?.table_id != null || o?.table_name) {
+        writePulledOrder(seedOps, normPullOrder(o), row.id, null);
+      }
       applyServerPaid(db, row.id, o?.paid);
     }
 
