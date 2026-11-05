@@ -159,8 +159,12 @@ export default function ClosingReport() {
   const fmt = (n: number | undefined | null) => money(n);
   const cur = useCurrency();
   const withCur = (label: string) => `${label} (${cur})`;
+  // The Arabic locale embeds invisible direction marks (RLM/ALM) that
+  // scramble the digit runs on screen; stripped so the date reads in order.
   const fmtDateTime = (ms: number) =>
-    new Date(ms).toLocaleString(lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB');
+    new Date(ms)
+      .toLocaleString(lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB')
+      .replace(/[‎‏؜]/g, '');
 
   const user = useStore((s: any) => s.currentUser);
   const fetchWhoAmI = useStore((s: any) => s.actions.fetchWhoAmI);
@@ -266,7 +270,7 @@ export default function ClosingReport() {
       {
         accessorKey: 'order_number',
         header: () => t('admin.rep.colOrderNo'),
-        size: 150,
+        size: 110,
         meta: { nowrap: true },
         cell: (info) => (
           <span className='font-mono font-semibold' dir='ltr'>
@@ -277,22 +281,24 @@ export default function ClosingReport() {
       {
         accessorKey: 'full_name',
         header: () => t('admin.rep.colClient'),
-        size: 180,
+        size: 150,
         cell: (info) => String(info.getValue() ?? '') || '—',
       },
       {
         accessorKey: 'ts_ms',
         header: () => t('admin.rep.colDate'),
-        size: 165,
+        size: 150,
         meta: { nowrap: true },
         cell: (info) => (
-          <span className='money'>{fmtDateTime(info.getValue() as number)}</span>
+          // dir=ltr: inside an Arabic page the browser reordered the date's
+          // digit runs and left it unreadable ("5:54:16 ،2026/11/ 5p").
+          <span className='money' dir='ltr'>{fmtDateTime(info.getValue() as number)}</span>
         ),
       },
       {
         accessorKey: 'order_type',
         header: () => t('admin.type'),
-        size: 120,
+        size: 100,
         meta: { nowrap: true },
         cell: (info) =>
           Number(info.getValue()) === 4
@@ -302,7 +308,7 @@ export default function ClosingReport() {
       {
         accessorKey: 'status',
         header: () => t('admin.status'),
-        size: 130,
+        size: 100,
         meta: { nowrap: true },
         cell: ({ row }) => {
           const s = String(row.original.status);
@@ -335,7 +341,7 @@ export default function ClosingReport() {
       {
         accessorKey: 'operational_status',
         header: () => t('admin.rep.colOpStatus'),
-        size: 120,
+        size: 100,
         meta: { nowrap: true },
         cell: (info) => {
           const inside = info.getValue() === 'inside';

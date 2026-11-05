@@ -391,29 +391,29 @@ function TodayOrderCard({
         className={`border-t border-line ${open ? 'cursor-pointer hover:bg-[var(--hover)]' : ''}`}
         onClick={open}
       >
-        <td className='py-1.5 ps-3 pe-1.5 font-semibold whitespace-nowrap xl:ps-4 xl:pe-2'>
+        <td className='py-1.5 ps-3 pe-1.5 font-semibold whitespace-nowrap 2xl:ps-4 2xl:pe-2'>
           <span className='money'>{shortOrderLabel(o as any)}</span>
         </td>
-        <td className='px-1.5 xl:px-2 whitespace-nowrap'>{typeBadge}</td>
-        <td className='px-1.5 xl:px-2 text-sm ink-2 whitespace-nowrap'>
+        <td className='px-1.5 2xl:px-2 whitespace-nowrap'>{typeBadge}</td>
+        <td className='px-1.5 2xl:px-2 text-sm ink-2 whitespace-nowrap'>
           <span className='money'>{timeText}</span>
         </td>
-        <td className='px-1.5 xl:px-2 text-sm'>
-          <div className='max-w-[7.5rem] truncate xl:max-w-[18rem]'>{customer}</div>
+        <td className='px-1.5 2xl:px-2 text-sm'>
+          <div className='max-w-[7.5rem] truncate 2xl:max-w-[18rem]'>{customer}</div>
         </td>
-        <td className='px-1.5 xl:px-2 text-end font-semibold whitespace-nowrap'>
+        <td className='px-1.5 2xl:px-2 text-end font-semibold whitespace-nowrap'>
           <span className='money'>{money(o.grand_total as number)}</span>
           {/* Below 1280px the method rides under the total (no own column). */}
-          {payName && <div className='text-xs font-medium ink-2 xl:hidden'>{payName}</div>}
+          {payName && <div className='text-xs font-medium ink-2 2xl:hidden'>{payName}</div>}
         </td>
-        <td className='hidden px-1.5 xl:px-2 text-sm whitespace-nowrap xl:table-cell'>{payName || '—'}</td>
-        <td className='px-1.5 xl:px-2 whitespace-nowrap' onClick={stop}>
+        <td className='hidden px-1.5 2xl:px-2 text-sm whitespace-nowrap 2xl:table-cell'>{payName || '—'}</td>
+        <td className='px-1.5 2xl:px-2 whitespace-nowrap' onClick={stop}>
           {payment}
         </td>
-        <td className='px-1.5 xl:px-2 whitespace-nowrap' onClick={stop}>
+        <td className='px-1.5 2xl:px-2 whitespace-nowrap' onClick={stop}>
           {statusControl}
         </td>
-        <td className='py-1.5 ps-1 pe-2 xl:ps-2 xl:pe-3' onClick={stop}>
+        <td className='py-1.5 ps-1 pe-2 2xl:ps-2 2xl:pe-3' onClick={stop}>
           <div className='flex items-center justify-end gap-1'>
             {nextBtn}
             {tools}
@@ -958,16 +958,16 @@ export default function TodayOrdersReport() {
               <table className='w-full border-collapse text-start'>
                 <thead>
                   <tr className='text-xs uppercase tracking-wide whitespace-nowrap ink-2'>
-                    <th className='py-2 ps-3 pe-1.5 text-start font-semibold xl:ps-4 xl:pe-2'>{t('admin.rep.colOrderNo')}</th>
-                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.type')}</th>
-                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.orders.view.colTime')}</th>
-                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.orders.view.colCustomer')}</th>
-                    <th className='px-1.5 xl:px-2 text-end font-semibold'>{t('admin.orders.view.colTotal')}</th>
-                    <th className='hidden px-1.5 xl:px-2 text-start font-semibold xl:table-cell'>{t('admin.orders.view.colPaidBy')}</th>
-                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.orders.view.paymentGroup')}</th>
-                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.status')}</th>
+                    <th className='py-2 ps-3 pe-1.5 text-start font-semibold 2xl:ps-4 2xl:pe-2'>{t('admin.rep.colOrderNo')}</th>
+                    <th className='px-1.5 2xl:px-2 text-start font-semibold'>{t('admin.type')}</th>
+                    <th className='px-1.5 2xl:px-2 text-start font-semibold'>{t('admin.orders.view.colTime')}</th>
+                    <th className='px-1.5 2xl:px-2 text-start font-semibold'>{t('admin.orders.view.colCustomer')}</th>
+                    <th className='px-1.5 2xl:px-2 text-end font-semibold'>{t('admin.orders.view.colTotal')}</th>
+                    <th className='hidden px-1.5 2xl:px-2 text-start font-semibold 2xl:table-cell'>{t('admin.orders.view.colPaidBy')}</th>
+                    <th className='px-1.5 2xl:px-2 text-start font-semibold'>{t('admin.orders.view.paymentGroup')}</th>
+                    <th className='px-1.5 2xl:px-2 text-start font-semibold'>{t('admin.status')}</th>
                     {/* Spare width goes here, so the order's facts stay together. */}
-                    <th className='w-full pe-2 ps-1 xl:pe-3 xl:ps-2'>
+                    <th className='w-full pe-2 ps-1 2xl:pe-3 2xl:ps-2'>
                       <span className='sr-only'>{t('admin.actions')}</span>
                     </th>
                   </tr>

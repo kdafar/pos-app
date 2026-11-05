@@ -65,7 +65,7 @@ export function PageShell({
             )}
           </div>
           {subtitle && (
-            <p className='text-sm ink-2 mt-0.5'>
+            <p dir='auto' className='text-sm ink-2 mt-0.5 [text-align:match-parent]'>
               {subtitle}
             </p>
           )}

@@ -392,7 +392,7 @@ export function MarkPaidControl({
         <Hint content={t('paid.mark')} placement='top'>
           <button
             type='button'
-            className='ui-btn ui-btn-outline ui-btn-sm whitespace-nowrap max-xl:px-2'
+            className='ui-btn ui-btn-outline ui-btn-sm whitespace-nowrap max-2xl:px-2'
             aria-label={t('paid.mark')}
             onClick={(e) => {
               e.stopPropagation();
@@ -401,7 +401,7 @@ export function MarkPaidControl({
           >
             <HandCoins size={15} strokeWidth={1.8} />
             {/* The word from 1280px; an icon (with its tooltip) below. */}
-            <span className='hidden xl:inline'>{t('paid.mark')}</span>
+            <span className='hidden 2xl:inline'>{t('paid.mark')}</span>
           </button>
         </Hint>
         {dialogs}

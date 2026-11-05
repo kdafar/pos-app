@@ -644,10 +644,10 @@ export function Layout() {
                   hover hint. Wrapping pushed menu items off short screens. */}
               <Hint content={`${storeName} — ${userLine}`}>
                 <div className='min-w-0'>
-                  <div className='truncate text-[0.9375rem] font-semibold leading-snug ink'>
+                  <div dir='auto' className='truncate [text-align:match-parent] text-[0.9375rem] font-semibold leading-snug ink'>
                     {storeName}
                   </div>
-                  <div className='truncate text-xs ink-2'>{userLine}</div>
+                  <div dir='auto' className='truncate [text-align:match-parent] text-xs ink-2'>{userLine}</div>
                 </div>
               </Hint>
             </div>
