@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import type { ReactElement } from 'react';
-import { Printer, QrCode, Eye, ChevronDown, CreditCard, CalendarDays, Search, RotateCw } from 'lucide-react';
+import { Printer, QrCode, Eye, ChevronDown, CreditCard, CalendarDays, Search, RotateCw, Truck, ShoppingBag, UtensilsCrossed } from 'lucide-react';
 import {
   DatePicker,
   Dropdown,
@@ -200,6 +200,8 @@ function useSessionChoice<T extends string>(
 type CardProps = {
   o: Order;
   layout: 'row' | 'card';
+  /** The payment method's name in the current language ("Cash", "KNET"). */
+  payName: string;
   canChangeStatus: boolean;
   canViewDetail: boolean;
   timeText: string;
@@ -221,6 +223,7 @@ type CardProps = {
 function TodayOrderCard({
   o,
   layout,
+  payName,
   canChangeStatus,
   canViewDetail,
   timeText,
@@ -372,7 +375,14 @@ function TodayOrderCard({
   const payment = <PaymentBadge order={o as any} />;
   const customer = [o.full_name, o.mobile].filter(Boolean).join(' · ') || '—';
   const table = (o as any).table_name as string | undefined;
-  const typeText = `${typeLabel(o.order_type)}${table ? ` · ${table}` : ''}`;
+  const TypeIcon = [Truck, ShoppingBag, UtensilsCrossed][Number(o.order_type) - 1] ?? ShoppingBag;
+  const typeBadge = (
+    <span className='ui-chip ui-chip-outline whitespace-nowrap'>
+      <TypeIcon size={12} strokeWidth={1.8} />
+      {typeLabel(o.order_type)}
+      {table ? <span className='money'>· {table}</span> : null}
+    </span>
+  );
 
   // PC / tablet: one row of a table — everything about an order on one line.
   if (layout === 'row') {
@@ -381,26 +391,29 @@ function TodayOrderCard({
         className={`border-t border-line ${open ? 'cursor-pointer hover:bg-[var(--hover)]' : ''}`}
         onClick={open}
       >
-        <td className='py-1.5 ps-4 pe-2 font-semibold whitespace-nowrap'>
+        <td className='py-1.5 ps-3 pe-1.5 font-semibold whitespace-nowrap xl:ps-4 xl:pe-2'>
           <span className='money'>{shortOrderLabel(o as any)}</span>
         </td>
-        <td className='px-2 text-sm ink-2 whitespace-nowrap'>{typeText}</td>
-        <td className='px-2 text-sm ink-2 whitespace-nowrap'>
+        <td className='px-1.5 xl:px-2 whitespace-nowrap'>{typeBadge}</td>
+        <td className='px-1.5 xl:px-2 text-sm ink-2 whitespace-nowrap'>
           <span className='money'>{timeText}</span>
         </td>
-        <td className='px-2 text-sm'>
-          <div className='max-w-[18rem] truncate'>{customer}</div>
+        <td className='px-1.5 xl:px-2 text-sm'>
+          <div className='max-w-[7.5rem] truncate xl:max-w-[18rem]'>{customer}</div>
         </td>
-        <td className='px-2 text-end font-semibold whitespace-nowrap'>
+        <td className='px-1.5 xl:px-2 text-end font-semibold whitespace-nowrap'>
           <span className='money'>{money(o.grand_total as number)}</span>
+          {/* Below 1280px the method rides under the total (no own column). */}
+          {payName && <div className='text-xs font-medium ink-2 xl:hidden'>{payName}</div>}
         </td>
-        <td className='px-2 whitespace-nowrap' onClick={stop}>
+        <td className='hidden px-1.5 xl:px-2 text-sm whitespace-nowrap xl:table-cell'>{payName || '—'}</td>
+        <td className='px-1.5 xl:px-2 whitespace-nowrap' onClick={stop}>
           {payment}
         </td>
-        <td className='px-2 whitespace-nowrap' onClick={stop}>
+        <td className='px-1.5 xl:px-2 whitespace-nowrap' onClick={stop}>
           {statusControl}
         </td>
-        <td className='py-1.5 ps-2 pe-3' onClick={stop}>
+        <td className='py-1.5 ps-1 pe-2 xl:ps-2 xl:pe-3' onClick={stop}>
           <div className='flex items-center justify-end gap-1'>
             {nextBtn}
             {tools}
@@ -420,8 +433,10 @@ function TodayOrderCard({
     >
       <div className='flex items-baseline gap-2'>
         <span className='font-semibold money'>{shortOrderLabel(o as any)}</span>
+        {typeBadge}
         <span className='min-w-0 truncate text-xs ink-2'>
-          {typeText} · <span className='money'>{timeText}</span>
+          <span className='money'>{timeText}</span>
+          {payName ? ` · ${payName}` : ''}
         </span>
         <span className='ms-auto font-semibold money'>{money(o.grand_total as number)}</span>
       </div>
@@ -429,10 +444,11 @@ function TodayOrderCard({
       <div className='mt-2 flex flex-wrap items-center gap-1.5' onClick={stop}>
         {payment}
         {statusControl}
-        <div className='ms-auto flex flex-wrap items-center justify-end gap-1'>
-          {nextBtn}
-          {tools}
-        </div>
+      </div>
+      {/* Actions on their own row: next step first, the icons at the end. */}
+      <div className='mt-2 flex items-center gap-1 border-t border-line pt-2' onClick={stop}>
+        {nextBtn}
+        <div className='ms-auto flex items-center gap-1'>{tools}</div>
       </div>
     </div>
   );
@@ -540,6 +556,22 @@ export default function TodayOrdersReport() {
 
   // `quiet`: the re-read after a background sync. No spinner and no error
   // toast every minute; a failure keeps the rows already on screen.
+  // Payment method names by slug, for the "Paid by" column.
+  const [methods, setMethods] = useState<{ slug?: string; name_en?: string | null; name_ar?: string | null }[]>([]);
+  useEffect(() => {
+    window.api
+      .invoke('payments:listMethods')
+      .then((list: any) => setMethods(Array.isArray(list) ? list : []))
+      .catch(() => setMethods([]));
+  }, []);
+  const payNameOf = (slug: unknown) => {
+    const k = String(slug ?? '').toLowerCase();
+    if (!k) return '';
+    const m = methods.find((x) => String(x.slug ?? '').toLowerCase() === k);
+    if (!m) return String(slug);
+    return (lang === 'ar' ? m.name_ar || m.name_en : m.name_en || m.name_ar) || String(slug);
+  };
+
   const refresh = async (opts?: { quiet?: boolean }) => {
     const quiet = opts?.quiet === true;
     if (!quiet) setLoading(true);
@@ -722,6 +754,7 @@ export default function TodayOrdersReport() {
       key={o.id ? String(o.id) : o.number}
       o={o}
       layout={wide ? 'row' : 'card'}
+      payName={payNameOf((o as any).payment_method_slug)}
       canChangeStatus={canChangeStatus}
       canViewDetail={canViewDetail}
       timeText={timeText(o)}
@@ -924,16 +957,17 @@ export default function TodayOrdersReport() {
             <div className='ui-card overflow-x-auto p-0'>
               <table className='w-full border-collapse text-start'>
                 <thead>
-                  <tr className='text-xs uppercase tracking-wide ink-2'>
-                    <th className='py-2 ps-4 pe-2 text-start font-semibold'>{t('admin.rep.colOrderNo')}</th>
-                    <th className='px-2 text-start font-semibold'>{t('admin.type')}</th>
-                    <th className='px-2 text-start font-semibold'>{t('admin.orders.view.colTime')}</th>
-                    <th className='px-2 text-start font-semibold'>{t('admin.orders.view.colCustomer')}</th>
-                    <th className='px-2 text-end font-semibold'>{t('admin.orders.view.colTotal')}</th>
-                    <th className='px-2 text-start font-semibold'>{t('admin.orders.view.paymentGroup')}</th>
-                    <th className='px-2 text-start font-semibold'>{t('admin.status')}</th>
+                  <tr className='text-xs uppercase tracking-wide whitespace-nowrap ink-2'>
+                    <th className='py-2 ps-3 pe-1.5 text-start font-semibold xl:ps-4 xl:pe-2'>{t('admin.rep.colOrderNo')}</th>
+                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.type')}</th>
+                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.orders.view.colTime')}</th>
+                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.orders.view.colCustomer')}</th>
+                    <th className='px-1.5 xl:px-2 text-end font-semibold'>{t('admin.orders.view.colTotal')}</th>
+                    <th className='hidden px-1.5 xl:px-2 text-start font-semibold xl:table-cell'>{t('admin.orders.view.colPaidBy')}</th>
+                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.orders.view.paymentGroup')}</th>
+                    <th className='px-1.5 xl:px-2 text-start font-semibold'>{t('admin.status')}</th>
                     {/* Spare width goes here, so the order's facts stay together. */}
-                    <th className='w-full pe-3 ps-2'>
+                    <th className='w-full pe-2 ps-1 xl:pe-3 xl:ps-2'>
                       <span className='sr-only'>{t('admin.actions')}</span>
                     </th>
                   </tr>
