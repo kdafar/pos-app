@@ -34,7 +34,6 @@ import {
   LogOut,
   CircleHelp,
   Ellipsis,
-  ChevronDown,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -43,9 +42,6 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerBody,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
 } from '@heroui/react';
 
 type SyncStatus = {
@@ -197,20 +193,6 @@ export function Layout() {
     };
   }, []);
 
-  const hasAutoCollapsedRef = useRef(false);
-
-  useEffect(() => {
-    const onPosScreen = location.pathname === '/';
-
-    if (onPosScreen && !collapsed && !hasAutoCollapsedRef.current) {
-      toggleCollapsed();
-      hasAutoCollapsedRef.current = true;
-    }
-
-    if (!onPosScreen) {
-      hasAutoCollapsedRef.current = false;
-    }
-  }, [location.pathname, collapsed, toggleCollapsed]);
 
   useEffect(() => {
     if (!sync) return;
@@ -363,14 +345,6 @@ export function Layout() {
   const moreItems = [...catalogItems, ...systemItems];
   const inMore = moreItems.some((i) => i.to === path);
 
-  // Open by itself when the current screen is inside the group; the operator's
-  // own toggle is remembered for the session.
-  const [moreOpen, setMoreOpen] = useState(inMore);
-  useEffect(() => {
-    if (inMore) setMoreOpen(true);
-  }, [inMore]);
-  const [popupOpen, setPopupOpen] = useState(false);
-  useEffect(() => setPopupOpen(false), [path]);
 
   const { dir } = useI18n();
 
@@ -706,85 +680,10 @@ export function Layout() {
           <SectionLabel hidden={rail}>{t('nav.orders')}</SectionLabel>
           {mainItems.map((i) => renderItem(i))}
 
-          {moreItems.length > 0 && !rail && (
-            <>
-              <button
-                type='button'
-                id='nav-more-toggle'
-                aria-expanded={moreOpen}
-                aria-controls='nav-more-group'
-                onClick={() => setMoreOpen((v) => !v)}
-                className='ui-nav group relative mt-2 flex w-full min-h-11 [@media(pointer:fine)]:min-h-10 items-center gap-3 px-3 text-sm'
-              >
-                <span className='relative flex-shrink-0 inline-flex items-center justify-center'>
-                  <Ellipsis size={20} strokeWidth={1.8} />
-                  {updateReady && !moreOpen && (
-                    <span className='absolute -top-1 -end-1 h-2.5 w-2.5 rounded-full bg-[var(--st-green)] ring-2 ring-[var(--surface)]' />
-                  )}
-                </span>
-                <span className='truncate'>{t('nav.more')}</span>
-                <ChevronDown
-                  size={16}
-                  strokeWidth={1.8}
-                  className={`ms-auto shrink-0 transition-transform duration-150 ${
-                    moreOpen ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-              {moreOpen && (
-                <div
-                  id='nav-more-group'
-                  role='group'
-                  aria-labelledby='nav-more-toggle'
-                  className='space-y-0.5'
-                >
-                  {moreLinks()}
-                </div>
-              )}
-            </>
-          )}
-
-          {moreItems.length > 0 && rail && (
-            <>
-              <SectionLabel hidden />
-              <Hint content={t('nav.more')} isDisabled={popupOpen}>
-                <div className='mx-auto w-11'>
-                  <Popover
-                    isOpen={popupOpen}
-                    onOpenChange={setPopupOpen}
-                    placement={dir === 'rtl' ? 'left-start' : 'right-start'}
-                    offset={12}
-                  >
-                    <PopoverTrigger>
-                      <button
-                        type='button'
-                        aria-label={t('nav.more')}
-                        aria-current={inMore ? 'page' : undefined}
-                        aria-haspopup='menu'
-                        aria-expanded={popupOpen}
-                        className='ui-nav group relative flex h-11 w-11 items-center justify-center'
-                      >
-                        <span className='relative inline-flex items-center justify-center'>
-                          <Ellipsis size={20} strokeWidth={1.8} />
-                          {updateReady && (
-                            <span className='absolute -top-1 -end-1 h-2.5 w-2.5 rounded-full bg-[var(--st-green)] ring-2 ring-[var(--surface)]' />
-                          )}
-                        </span>
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className='ui-popup w-60 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto nice-scroll p-2 items-stretch'>
-                      <div className='space-y-0.5'>
-                        {moreLinks({
-                          collapsed: false,
-                          onClick: () => setPopupOpen(false),
-                        })}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </Hint>
-            </>
-          )}
+          {/* Every item in plain sight, grouped. The Catalog and System links used
+              to sit behind a "More" toggle (and a pop-up on the rail), which
+              hid half the app from the people who needed it. */}
+          {moreLinks()}
         </nav>
 
         {/* Footer / Language + Logout */}
@@ -957,7 +856,7 @@ function NavLink({
   const baseClasses = 'ui-nav group relative flex items-center text-sm';
   // Collapsed rows are square and centred so the icons form a straight column.
   const collapsedClasses = 'h-11 w-11 mx-auto justify-center';
-  const expandedClasses = 'w-full gap-3 px-3 min-h-11 [@media(pointer:fine)]:min-h-10 nav-row';
+  const expandedClasses = 'w-full gap-3 px-3 min-h-11 [@media(pointer:fine)]:min-h-9 nav-row';
 
   return (
     // The label is the only thing identifying an icon once the rail is
@@ -997,7 +896,7 @@ function SectionLabel({
       <div className='mx-auto my-2 h-px w-6 bg-[var(--line-strong)]' />
     );
   return (
-    <div className='mt-3 mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide ink-3 nav-section'>
+    <div className='mt-2 mb-0.5 px-3 text-[11px] font-semibold uppercase tracking-wide ink-3 nav-section'>
       {children}
     </div>
   );

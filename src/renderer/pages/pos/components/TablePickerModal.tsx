@@ -170,7 +170,13 @@ export function TablePickerModal({
 
               {floors.length > 0 && (
                 <Tabs
-                  classNames={{ base: 'max-w-full', tabList: 'max-w-full overflow-x-auto chip-scroll' }}
+                  color='primary'
+                  classNames={{
+                    base: 'max-w-full',
+                    tabList: 'max-w-full overflow-x-auto chip-scroll',
+                    tabContent:
+                      'ink-2 font-semibold group-data-[selected=true]:text-primary-foreground',
+                  }}
                   aria-label={t('tables.floor')}
                   selectedKey={floor}
                   onSelectionChange={(k) => setFloor(String(k))}

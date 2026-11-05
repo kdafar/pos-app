@@ -1,5 +1,5 @@
 // src/renderer/components/PageShell.tsx
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { Button, Input, Select, SelectItem, Spinner } from '@heroui/react';
 import { AlertCircle, Inbox, RotateCw, Search, type LucideIcon } from 'lucide-react';
 import { useI18n } from '../i18n';
@@ -300,7 +300,9 @@ export function StatCard({
 }: {
   label: string;
   value: ReactNode;
-  icon?: LucideIcon;
+  icon?:
+    | LucideIcon
+    | ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
   tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
 }) {
   // The accent is the icon only: a card carries one colour at most, and the

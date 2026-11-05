@@ -1,3 +1,4 @@
+import { Cur, CurrencyIcon, useCurrency } from '../../components/CurrencyIcon';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button, DatePicker, Tab, Tabs } from '@heroui/react';
@@ -5,7 +6,6 @@ import { parseDate } from '@internationalized/date';
 import {
   AlertTriangle,
   Clock,
-  DollarSign,
   FileSpreadsheet,
   Moon,
   MoonStar,
@@ -157,6 +157,8 @@ export default function ClosingReport() {
   const orderTypeLabel = useOrderTypeLabel();
 
   const fmt = (n: number | undefined | null) => money(n);
+  const cur = useCurrency();
+  const withCur = (label: string) => `${label} (${cur})`;
   const fmtDateTime = (ms: number) =>
     new Date(ms).toLocaleString(lang === 'ar' ? 'ar-KW-u-nu-latn' : 'en-GB');
 
@@ -346,7 +348,7 @@ export default function ClosingReport() {
       },
       {
         id: 'discount',
-        header: () => t('admin.rep.colDiscount'),
+        header: () => withCur(t('admin.rep.colDiscount')),
         size: 120,
         meta: { align: 'end', nowrap: true },
         accessorFn: (row) => row.discount_total ?? row.discount_amount ?? 0,
@@ -356,7 +358,7 @@ export default function ClosingReport() {
       },
       {
         accessorKey: 'grand_total',
-        header: () => t('common.total'),
+        header: () => withCur(t('common.total')),
         size: 130,
         meta: { align: 'end', nowrap: true },
         cell: (info) => (
@@ -366,7 +368,7 @@ export default function ClosingReport() {
         ),
       },
     ],
-    [t, orderTypeLabel, lang] // eslint-disable-line react-hooks/exhaustive-deps
+    [t, orderTypeLabel, lang, cur] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   /** Item / category / payment / order-type all share this shape. */
@@ -406,7 +408,7 @@ export default function ClosingReport() {
       },
       {
         accessorKey: 'total',
-        header: () => t('admin.rep.colTotalAmount'),
+        header: () => withCur(t('admin.rep.colTotalAmount')),
         size: 150,
         meta: { align: 'end', nowrap: true },
         cell: (info) => (
@@ -416,7 +418,7 @@ export default function ClosingReport() {
         ),
       },
     ],
-    [t, orderTypeLabel, lang] // eslint-disable-line react-hooks/exhaustive-deps
+    [t, orderTypeLabel, lang, cur] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const TABS: {
@@ -735,6 +737,7 @@ export default function ClosingReport() {
       >
         {negative ? '- ' : ''}
         {fmt(value)}
+        <Cur label={cur} />
       </span>
     </div>
   );
@@ -858,7 +861,7 @@ export default function ClosingReport() {
             <StatCard
               label={t('admin.rep.cardEarning')}
               value={fmt(f?.grand_total)}
-              icon={DollarSign}
+              icon={CurrencyIcon}
               tone='success'
             />
           </div>
@@ -885,7 +888,15 @@ export default function ClosingReport() {
             selectedKey={activeTab}
             onSelectionChange={(k) => setActiveTab(String(k))}
             className='no-print max-w-full'
-            classNames={{ tabList: 'max-w-full overflow-x-auto' }}
+            color='primary'
+            // Unselected tabs were HeroUI's pale grey on a grey track and hard
+            // to read; they now use the body ink, the selected one the brand.
+            classNames={{
+              tabList: 'max-w-full overflow-x-auto bg-[var(--surface-2)] border border-line',
+              tab: 'px-4',
+              tabContent:
+                'ink-2 font-semibold group-data-[selected=true]:text-primary-foreground',
+            }}
           >
             <Tab key='orders' title={t('admin.rep.tabDaily')}>
               <DataState
@@ -980,7 +991,7 @@ export default function ClosingReport() {
                       <span className='ink-2'>
                         {t('admin.rep.ordersCount', { n: line.count })}
                       </span>
-                      <span className='money ink'>{fmt(line.total)}</span>
+                      <span className='money ink'>{fmt(line.total)}<Cur label={cur} /></span>
                     </span>
                   </div>
                 ))}
