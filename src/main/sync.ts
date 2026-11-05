@@ -1942,17 +1942,6 @@ function orderSyncOps() {
 }
 
 /**
- * Store an `order` payload a paid endpoint answered with (contract §4.3:
- * "replace your local copy with it whatever the result").
- *
- * Same guards as the change feed: the header is written only for an order
- * this till does not own and has not finalised; the paid state always.
- */
-export function applyServerOrder(localId: string, o: any) {
-  if (!o || typeof o !== 'object') return;
-  const ops = orderSyncOps();
-  const row = normPullOrder(o);
-/**
  * Write one /pull order header. Shared by the change feed and applyServerOrder.
  *
  * `existing` is the local row it resolved to (null for a new order). An order
@@ -2002,6 +1991,17 @@ export function writePulledOrder(
   });
 }
 
+/**
+ * Store an `order` payload a paid endpoint answered with (contract §4.3:
+ * "replace your local copy with it whatever the result").
+ *
+ * Same guards as the change feed: the header is written only for an order
+ * this till does not own and has not finalised; the paid state always.
+ */
+export function applyServerOrder(localId: string, o: any) {
+  if (!o || typeof o !== 'object') return;
+  const ops = orderSyncOps();
+  const row = normPullOrder(o);
   const found = ops.resolveLocalOrder(row.id, row.number || null);
   const target = found.localId ?? localId;
   if (found.row && !found.isLocalOrigin && !isTerminalLocalOrder(found.row)) {

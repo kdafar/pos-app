@@ -622,6 +622,9 @@ export function migrate() {
   ensureColumn('items', 'image_mtime INTEGER', 'image_mtime');
 
   ensureColumn('orders', 'created_by_user_id TEXT', 'created_by_user_id');
+  // Origin of an order another till / the website sent us over /pull.
+  ensureColumn('orders', 'external_source TEXT', 'external_source');
+  ensureColumn('orders', 'external_id TEXT', 'external_id');
   ensureColumn('orders', 'completed_by_user_id TEXT', 'completed_by_user_id');
   ensureColumn('orders', 'printed_by_user_id TEXT', 'printed_by_user_id');
 
@@ -631,9 +634,6 @@ export function migrate() {
   ensureColumn(
     'orders',
     'payment_link_verified_at INTEGER',
-  // Origin of an order another till / the website sent us over /pull.
-  ensureColumn('orders', 'external_source TEXT', 'external_source');
-  ensureColumn('orders', 'external_id TEXT', 'external_id');
     'payment_link_verified_at'
   );
 
