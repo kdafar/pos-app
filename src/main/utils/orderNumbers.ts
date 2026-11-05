@@ -1,6 +1,7 @@
 // src/main/utils/orderNumbers.ts
 
 import db, { getMeta, setMeta } from '../db';
+import { resolveOwnOrderStatus } from './serverStatus';
 import { createSettingsService } from '../services/settings';
 import type {
   DatabaseService,
@@ -328,6 +329,13 @@ export function applyPushResult(result: any): {
   const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
   // Notices sit beside an ack: the order landed, but something in it did not.
   const notices = Array.isArray(result?.notices) ? result.notices : [];
+  // Each acked order's status as the server holds it after the push, read after
+  // its automatic accept (server, 2026-11-05). /pull never echoes a till's own
+  // orders, so without this the placing till stayed "placed" while every other
+  // till showed "preparing".
+  const statuses = (
+    result?.statuses && typeof result.statuses === 'object' ? result.statuses : {}
+  ) as Record<string, unknown>;
 
   const setSynced = db.prepare(
     `UPDATE orders
@@ -340,6 +348,12 @@ export function applyPushResult(result: any): {
     `UPDATE orders SET reference_no = ? WHERE id = ?`
   );
   const setNotice = db.prepare(`UPDATE orders SET push_notice = ? WHERE id = ?`);
+  const getStatus = db.prepare(`SELECT status FROM orders WHERE id = ?`);
+  // updated_at deliberately untouched: this is the server's state coming back,
+  // not a local edit, and must not queue the order for another push.
+  const setServerStatus = db.prepare(
+    `UPDATE orders SET status = ?, status_code = ? WHERE id = ?`
+  );
   const dropPermanent = db.prepare(
     `UPDATE orders SET push_legacy = 1 WHERE id = ?`
   );
@@ -356,6 +370,18 @@ export function applyPushResult(result: any): {
         tempId
       );
       acked++;
+
+      const code = Number(statuses[tempId]);
+      if (statuses[tempId] != null && Number.isInteger(code)) {
+        const row = getStatus.get(tempId) as { status?: string } | undefined;
+        if (row) {
+          // Forward-only, same rule as a later website change to an own order:
+          // a reply carrying an older state never moves the order back, and a
+          // local close or cancel is never reopened.
+          const next = resolveOwnOrderStatus(row.status, code, false);
+          if (next !== row.status) setServerStatus.run(next, code, tempId);
+        }
+      }
     }
 
     // A reference can arrive for an order that was already acked earlier.
