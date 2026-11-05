@@ -622,6 +622,9 @@ export function migrate() {
   ensureColumn(
     'orders',
     'payment_link_verified_at INTEGER',
+  // Origin of an order another till / the website sent us over /pull.
+  ensureColumn('orders', 'external_source TEXT', 'external_source');
+  ensureColumn('orders', 'external_id TEXT', 'external_id');
     'payment_link_verified_at'
   );
 

@@ -6,6 +6,15 @@ import { app } from 'electron';
 
 import { posError } from '../shared/errorCodes';
 import { applyServerPaid } from './paidState';
+import { matchTableByName } from './utils/pulledOrderTable';
+import { resolveOwnOrderStatus } from './utils/serverStatus';
+import {
+  MAX_PULL_PAGES,
+  loadFailedChanges,
+  recordFailedChange,
+  removeServerOrder,
+  settleReplay,
+} from './pullRetry';
 import { cacheBusinessDay, parseBusinessDay } from './businessDay';
 import {
   BRANCH_PROFILE_META_KEY,
@@ -833,6 +842,17 @@ export function normPullOrder(o: any) {
     promocode: S(tot.promocode),
     created_at: normalizeServerCreatedAt(o.created_at, o.created_at_ms),
     opened_at: parseServerTime(o.created_at_ms ?? o.created_at),
+    // Multi-till fields. All optional: an older server sends only table_name,
+    // and a missing field must stay null so it never wipes a known value.
+    table_id: S(o.table_id ?? o.table?.id),
+    table_name: S(o.table_name ?? o.table?.name ?? o.table?.label),
+    covers: NN(o.covers),
+    note: S(o.notes ?? o.kitchen_note ?? o.note),
+    address: typeof o.address === 'string' ? S(o.address) : null,
+    created_by_user_id: S(o.user_id),
+    external_source: S(o.external_source),
+    external_id: S(o.external_id),
+    closed_at: parseServerTime(o.closed_at_ms ?? o.closed_at),
   };
 }
 
@@ -1743,14 +1763,18 @@ function buildOrderSyncOps() {
       payment_method_slug, subtotal, discount_amount,
       discount_pr, delivery_fee, grand_total, amount_tendered, change_due,
       promocode, created_at,
-      opened_at, updated_at, server_id
+      opened_at, updated_at, server_id,
+      table_id, covers, note, address, created_by_user_id, external_source,
+      external_id, closed_at
     ) VALUES (
       @id, @number, @reference_no, @branch_id, @order_type, @status,
       @status_code, @full_name, @mobile, @email, @payment_type,
       @payment_method_id, @payment_method_slug, @subtotal,
       @discount_amount, @discount_pr, @delivery_fee, @grand_total,
       @amount_tendered, @change_due,
-      @promocode, @created_at, @opened_at, @updated_at, @server_id
+      @promocode, @created_at, @opened_at, @updated_at, @server_id,
+      @table_id, @covers, @note, @address, @created_by_user_id,
+      @external_source, @external_id, @closed_at
     )
     ON CONFLICT(id) DO UPDATE SET
       number          = excluded.number,
@@ -1779,7 +1803,24 @@ function buildOrderSyncOps() {
       promocode       = COALESCE(excluded.promocode, promocode),
       opened_at       = COALESCE(excluded.opened_at, opened_at),
       updated_at      = excluded.updated_at,
-      server_id       = excluded.server_id
+      server_id       = excluded.server_id,
+      -- Multi-till fields. Another till's order: the feed is the truth, but a
+      -- field it omits never wipes a known value. This till's own order
+      -- (@own = 1): the till is the truth, so the feed only fills blanks and
+      -- never moves or restores a table the cashier released or changed.
+      table_id = CASE WHEN @own = 1 THEN table_id
+                      ELSE COALESCE(excluded.table_id, table_id) END,
+      covers   = CASE WHEN @own = 1 THEN COALESCE(covers, excluded.covers)
+                      ELSE COALESCE(excluded.covers, covers) END,
+      note     = CASE WHEN @own = 1 THEN COALESCE(NULLIF(note, ''), excluded.note)
+                      ELSE COALESCE(excluded.note, note) END,
+      address  = CASE WHEN @own = 1 THEN COALESCE(NULLIF(address, ''), excluded.address)
+                      ELSE COALESCE(excluded.address, address) END,
+      created_by_user_id = COALESCE(created_by_user_id, excluded.created_by_user_id),
+      external_source = COALESCE(excluded.external_source, external_source),
+      external_id     = COALESCE(excluded.external_id, external_id),
+      closed_at = CASE WHEN @own = 1 THEN COALESCE(closed_at, excluded.closed_at)
+                       ELSE COALESCE(excluded.closed_at, closed_at) END
   `);
 
   const upPullLine = db.prepare(`
@@ -1900,15 +1941,60 @@ export function applyServerOrder(localId: string, o: any) {
   if (!o || typeof o !== 'object') return;
   const ops = orderSyncOps();
   const row = normPullOrder(o);
+/**
+ * Write one /pull order header. Shared by the change feed and applyServerOrder.
+ *
+ * `existing` is the local row it resolved to (null for a new order). An order
+ * this till rang up (UUID id) keeps its own status word unless the server moved
+ * it on; see resolveOwnOrderStatus. synced_at is deliberately never touched, so
+ * a status that merely followed the server is not pushed back.
+ */
+function resolvePulledTableId(row: any): string | null {
+  if (row.table_id) return String(row.table_id);
+  if (!row.table_name) return null;
+  const branch = row.branch_id || Number(getMeta('branch_id') || 0);
+  const tables = db
+    .prepare(
+      branch
+        ? 'SELECT id, label, number, label_ar FROM tables WHERE branch_id = ?'
+        : 'SELECT id, label, number, label_ar FROM tables'
+    )
+    .all(...(branch ? [branch] : [])) as any[];
+  return matchTableByName(tables, row.table_name);
+}
+
+export function writePulledOrder(
+  ops: { upPullOrder: { run: (p: any) => unknown } },
+  row: any,
+  target: string,
+  existing: any
+) {
+  const own = !!existing && /\D/.test(String(existing.id));
+  const status = own
+    ? resolveOwnOrderStatus(
+        existing.status,
+        row.status_code,
+        existing.synced_at == null || Number(existing.synced_at) === 0
+      )
+    : row.status;
+  const { table_name: _tn, ...rest } = row;
+  ops.upPullOrder.run({
+    ...rest,
+    status,
+    // Own order keeps its local code if the feed sent none.
+    status_code: row.status_code ?? existing?.status_code ?? null,
+    table_id: resolvePulledTableId(row),
+    own: own ? 1 : 0,
+    id: target,
+    updated_at: Date.now(),
+    server_id: row.id,
+  });
+}
+
   const found = ops.resolveLocalOrder(row.id, row.number || null);
   const target = found.localId ?? localId;
   if (found.row && !found.isLocalOrigin && !isTerminalLocalOrder(found.row)) {
-    ops.upPullOrder.run({
-      ...row,
-      id: target,
-      updated_at: Date.now(),
-      server_id: row.id,
-    });
+    writePulledOrder(ops, row, target, found.row);
   }
   applyServerPaid(db, target, o.paid);
 }
@@ -2553,12 +2639,7 @@ export async function pullChanges() {
             });
           } else {
             const target = found.localId ?? row.id;
-            upPullOrder.run({
-              ...row,
-              id: target,
-              updated_at: Date.now(),
-              server_id: row.id,
-            });
+            writePulledOrder({ upPullOrder }, row, target, found.row);
             drainPendingLines(target);
           }
           // Outside the terminal guard on purpose: a closed order is the

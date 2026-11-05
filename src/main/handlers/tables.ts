@@ -1,13 +1,12 @@
 // src/main/handlers/tables.ts
 import type { IpcMain } from 'electron';
 import db, { getMeta } from '../db';
-import { ACTIVE_STATUSES, sqlList } from '../utils/orderStatus';
+import { activeOrderSql } from '../utils/orderStatus';
 import { tableNumber } from '../sync';
 
 // The one shared list, not a copy: this one used to leave out `placed`, which
 // is what every dine-in order becomes on "Place order". A seated table then
 // lost its order — no active highlight, and a tap could not reopen it.
-const ACTIVE_SQL = sqlList(ACTIVE_STATUSES);
 
 export function registerTableHandlers(ipcMain: IpcMain) {
   ipcMain.handle('tables:list', async () => {
@@ -38,7 +37,7 @@ export function registerTableHandlers(ipcMain: IpcMain) {
             WHERE
               o.table_id   = t.id
               AND o.order_type = 3
-              AND o.status IN (${ACTIVE_SQL})
+              AND ${activeOrderSql("o")}
             ORDER BY o.opened_at DESC, o.created_at DESC
             LIMIT 1
           ) AS active_order_id,
@@ -50,7 +49,7 @@ export function registerTableHandlers(ipcMain: IpcMain) {
             WHERE
               o.table_id   = t.id
               AND o.order_type = 3
-              AND o.status IN (${ACTIVE_SQL})
+              AND ${activeOrderSql("o")}
             ORDER BY o.opened_at DESC, o.created_at DESC
             LIMIT 1
           ) AS active_order_status,
@@ -62,7 +61,7 @@ export function registerTableHandlers(ipcMain: IpcMain) {
             WHERE
               o.table_id   = t.id
               AND o.order_type = 3
-              AND o.status IN (${ACTIVE_SQL})
+              AND ${activeOrderSql("o")}
             ORDER BY o.opened_at DESC, o.created_at DESC
             LIMIT 1
           ) AS active_order_number

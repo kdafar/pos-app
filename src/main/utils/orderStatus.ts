@@ -69,3 +69,31 @@ export function isTerminal(status: unknown): boolean {
     String(status || '').toLowerCase()
   );
 }
+
+/**
+ * Server status codes that occupy a dine-in table and keep an order on the
+ * strip / kitchen board: RECEIVED, PREPARING, READY. This is the SAME rule the
+ * server uses for Table busy-ness (Table.php), so every device agrees.
+ */
+export const ACTIVE_SERVER_CODES = [1, 2, 3] as const;
+
+/**
+ * One definition of "active" for any order row, own or pulled:
+ *   - its local status word is an active one (own orders), OR
+ *   - the server says code 1-3 AND the word is not a finished one. The
+ *     terminal guard matters: a till-closed order keeps a stale code 1 until
+ *     the server acknowledges the close.
+ * `alias` is the orders table alias.
+ */
+export function activeOrderSql(alias = 'o'): string {
+  return `(${alias}.status IN (${sqlList(ACTIVE_STATUSES)}) OR (${alias}.status_code IN (${ACTIVE_SERVER_CODES.join(', ')}) AND ${alias}.status NOT IN (${sqlList(TERMINAL_STATUSES)})))`;
+}
+
+/** JS twin of activeOrderSql, for rows already in memory. */
+export function isActiveOrder(row: { status?: unknown; status_code?: unknown }): boolean {
+  const word = String(row?.status ?? '').toLowerCase();
+  if ((ACTIVE_STATUSES as readonly string[]).includes(word)) return true;
+  if ((TERMINAL_STATUSES as readonly string[]).includes(word)) return false;
+  const code = row?.status_code == null ? NaN : Number(row.status_code);
+  return (ACTIVE_SERVER_CODES as readonly number[]).includes(code);
+}

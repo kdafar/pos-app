@@ -128,7 +128,7 @@ export function pushStatusForLocal(localStatus: string): number {
  * after 4 (done), and the cancelled/rejected codes are not "further along" than
  * anything — they are simply final.
  */
-function progressRank(code: number): number {
+export function progressRank(code: number): number {
   if (TERMINAL_SERVER_STATUSES.includes(code) && code !== SERVER_STATUS.DONE) {
     return 99; // cancelled or rejected — nothing may move it
   }
@@ -194,4 +194,48 @@ export function isAllowedPosTransition(current: unknown, next: unknown): boolean
   if (!Number.isInteger(from) || !Number.isInteger(to)) return false;
   if (!(from in ALLOWED_POS_TRANSITIONS) || !(to in ALLOWED_POS_TRANSITIONS)) return false;
   return from === to || ALLOWED_POS_TRANSITIONS[from].includes(to);
+}
+
+/** Local lifecycle word for a server code, or null for 0 / unknown. */
+export function localWordForServerCode(code: unknown): string | null {
+  switch (Number(code)) {
+    case 1: return 'placed';
+    case 2: return 'prepared';
+    case 3: return 'ready';
+    case 4: return 'closed';
+    case 5: return 'cancelled_client';
+    case 6:
+    case 8:
+    case 9: return 'cancelled';
+    case 7: return 'awaiting_pickup';
+    default: return null;
+  }
+}
+
+const LOCAL_LIFECYCLE_WORDS = [
+  'open', 'pending', 'placed', 'prepared', 'ready', 'awaiting_pickup',
+  'closed', 'completed', 'cancelled', 'cancelled_client',
+];
+
+/**
+ * Status word to store when /pull updates an order THIS till rang up.
+ * Keeps the till's own word unless the server has moved the order on (the
+ * website or another till marked it ready/done/cancelled), in which case the
+ * word follows. Never regresses a word the till has not pushed yet.
+ */
+export function resolveOwnOrderStatus(
+  localWord: unknown,
+  serverCode: number | null,
+  pendingPush: boolean
+): string {
+  const word = String(localWord ?? '').toLowerCase();
+  const isLifecycle = LOCAL_LIFECYCLE_WORDS.includes(word);
+  const mapped = serverCode == null ? null : localWordForServerCode(serverCode);
+  if (!mapped) return isLifecycle ? word : String(localWord ?? '');
+  if (!isLifecycle) return mapped;
+  if (pendingPush) return word;
+  if (isTerminalServerStatus(serverCode)) return mapped;
+  return progressRank(serverCode as number) > progressRank(pushStatusForLocal(word))
+    ? mapped
+    : word;
 }

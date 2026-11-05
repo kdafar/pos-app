@@ -18,10 +18,12 @@ import {
 import { logAction } from '../utils/logging';
 import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
 import { reconcileOrderFromServer } from '../sync';
+import { schedulePushSoon } from './sync';
 import {
   ORDER_STATUS,
-  ACTIVE_STATUSES,
   TERMINAL_STATUSES,
+  ACTIVE_SERVER_CODES,
+  activeOrderSql,
   sqlList,
   isTerminal,
 } from '../utils/orderStatus';
@@ -165,7 +167,7 @@ export function registerOrdersHandlers(
   const releaseTableIfFree = (tableId: string) => {
     const stillSeated = rawDb
       .prepare(
-        `SELECT 1 FROM orders WHERE table_id = ? AND status IN (${sqlList(ACTIVE_STATUSES)}) LIMIT 1`
+        `SELECT 1 FROM orders o WHERE o.table_id = ? AND ${activeOrderSql('o')} LIMIT 1`
       )
       .get(tableId);
     if (!stillSeated) {
@@ -397,7 +399,7 @@ export function registerOrdersHandlers(
           o.status IN ('${ORDER_STATUS.OPEN}', '${ORDER_STATUS.PENDING}')
           OR (
             o.order_type = 3
-            AND o.status IN (${sqlList(ACTIVE_STATUSES)})
+            AND ${activeOrderSql('o')}
           )
         )
         AND (o.opened_at > @cutoff OR o.created_at > @cutoff)
@@ -414,7 +416,8 @@ export function registerOrdersHandlers(
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     const orders = rawDb.prepare(`
       SELECT o.* FROM orders o
-      WHERE o.status IN ('placed','prepared','ready')
+      WHERE (o.status IN ('placed','prepared','ready')
+          OR (o.status_code IN (${ACTIVE_SERVER_CODES.join(', ')}) AND o.status NOT IN (${sqlList(TERMINAL_STATUSES)}, 'open', 'pending')))
         AND CAST(COALESCE(NULLIF(o.opened_at, 0), o.created_at) AS REAL) > @cutoff
         AND EXISTS (SELECT 1 FROM order_lines ol WHERE ol.order_id = o.id)
       ORDER BY CAST(COALESCE(NULLIF(o.opened_at, 0), o.created_at) AS REAL) ASC
@@ -785,6 +788,7 @@ export function registerOrdersHandlers(
       // The server has to see the new state, and the push filter skips anything
       // already stamped as synced.
       markForRepush(orderId);
+      schedulePushSoon(orderId);
 
       log('orders.setStatus', orderId, { from: current, to: target });
 
@@ -1617,6 +1621,7 @@ export function registerOrdersHandlers(
     if (order.table_id) releaseTableIfFree(order.table_id);
 
     markForRepush(orderId);
+    schedulePushSoon(orderId);
 
     log('orders.close', orderId, {
       status: 'closed',
@@ -1861,6 +1866,7 @@ export function registerOrdersHandlers(
     if (order.table_id) releaseTableIfFree(order.table_id);
 
     markForRepush(orderId);
+    schedulePushSoon(orderId);
     log('orders.releaseTable', orderId, { table_id: order.table_id });
 
     return getOrderWithLines(orderId);
@@ -2071,6 +2077,7 @@ export function registerOrdersHandlers(
       // Moving an order that has already been sent must reach the server too;
       // the push skips anything already stamped as synced.
       markForRepush(orderId);
+      schedulePushSoon(orderId);
       return getOrderWithLines(orderId);
     }
   );
@@ -2086,7 +2093,7 @@ export function registerOrdersHandlers(
         SELECT o.*
         FROM orders o
         WHERE o.table_id = @table_id
-          AND o.status IN (${sqlList(ACTIVE_STATUSES)})
+          AND ${activeOrderSql('o')}
           ${userSql}
         ORDER BY o.opened_at DESC, o.created_at DESC
         LIMIT 1
@@ -2116,7 +2123,7 @@ export function registerOrdersHandlers(
         const ts = nowMs();
         const seated = rawDb
           .prepare(
-            `SELECT id FROM orders WHERE table_id = ? AND status IN (${sqlList(ACTIVE_STATUSES)})`
+            `SELECT id FROM orders o WHERE o.table_id = ? AND ${activeOrderSql('o')}`
           )
           .pluck()
           .all(tableId) as string[];
@@ -2145,7 +2152,7 @@ export function registerOrdersHandlers(
           rawDb
             .prepare(
               `UPDATE orders SET table_id = NULL, covers = NULL, updated_at = ?
-               WHERE table_id = ? AND status IN (${sqlList(ACTIVE_STATUSES)})`
+               WHERE table_id = ? AND id IN (SELECT o.id FROM orders o WHERE ${activeOrderSql('o')})`
             )
             .run(ts, tableId);
           rawDb
