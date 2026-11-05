@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import type { ReactElement } from 'react';
-import { Printer, QrCode, Eye, MoreHorizontal, CreditCard, CalendarDays, Search, RotateCw } from 'lucide-react';
+import { Printer, QrCode, Eye, ChevronDown, CreditCard, CalendarDays, Search, RotateCw } from 'lucide-react';
 import {
   DatePicker,
   Dropdown,
@@ -25,7 +25,7 @@ import { useToast } from '../components/ToastProvider'; // adjust path if needed
 import { PaymentMethodCell } from './PaymentMethodCell';
 import { OrderDetailModal } from './OrderDetailModal';
 import { MarkPaidControl } from '../components/MarkPaidControl';
-import { paymentStateOf } from '../components/PaymentBadge';
+import { PaymentBadge, paymentStateOf } from '../components/PaymentBadge';
 import { SYNCED_EVENT } from '../utils/syncEvents';
 import { PaymentLinkModal } from './pos/components/PaymentLinkModal';
 import { useRootTheme } from './pos/useRootTheme';
@@ -248,57 +248,44 @@ function TodayOrderCard({
   const canOpen = canViewDetail && !!id;
 
   const next = canChangeStatus ? flow.next : null;
-  const stepItems = canChangeStatus ? flow.others : [];
   const canPay = !!id && !settled;
   const canQr = canViewDetail && !!id && !!(o as any).payment_link_url;
 
-  const items: ReactElement[] = [];
-  for (const f of stepItems) {
-    const cancel = f.value === 'cancelled_client';
-    items.push(
-      <DropdownItem
-        key={`st:${f.value}`}
-        color={cancel ? 'danger' : 'default'}
-        className={cancel ? 'text-danger' : ''}
-        onPress={() => void flow.change(f.value)}
-      >
-        {t(f.key)}
-      </DropdownItem>
+  // Status: the badge is also the menu of every allowed change (the old
+  // list's status dropdown); the next step also has its own button.
+  const statusChoices = canChangeStatus ? flow.visible.filter((f) => f.value !== flow.current) : [];
+  const statusControl =
+    statusChoices.length > 0 ? (
+      <Dropdown classNames={{ content: 'ui-popup min-w-[12rem]' }} placement='bottom-start'>
+        <DropdownTrigger>
+          <button
+            type='button'
+            className='inline-flex items-center gap-0.5 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]'
+            aria-label={t('admin.orders.view.changeStatus')}
+          >
+            <StatusBadge order={o} />
+            <ChevronDown size={14} strokeWidth={1.8} className='ink-2' />
+          </button>
+        </DropdownTrigger>
+        <DropdownMenu aria-label={t('admin.orders.view.changeStatus')}>
+          {statusChoices.map((f) => {
+            const cancel = f.value === 'cancelled_client';
+            return (
+              <DropdownItem
+                key={f.value}
+                color={cancel ? 'danger' : 'default'}
+                className={cancel ? 'text-danger' : ''}
+                onPress={() => void flow.change(f.value)}
+              >
+                {t(f.key)}
+              </DropdownItem>
+            );
+          })}
+        </DropdownMenu>
+      </Dropdown>
+    ) : (
+      <StatusBadge order={o} />
     );
-  }
-  if (canPay) {
-    items.push(
-      <DropdownItem
-        key='pay'
-        startContent={<CreditCard size={16} strokeWidth={1.8} />}
-        onPress={() => setPayOpen(true)}
-      >
-        {t('admin.orders.changePayment')}
-      </DropdownItem>
-    );
-  }
-  if (canQr) {
-    items.push(
-      <DropdownItem
-        key='qr'
-        startContent={<QrCode size={16} strokeWidth={1.8} />}
-        onPress={() => onShowQr(id!)}
-      >
-        {t('admin.orders.showQr')}
-      </DropdownItem>
-    );
-  }
-  if (canOpen) {
-    items.push(
-      <DropdownItem
-        key='view'
-        startContent={<Eye size={16} strokeWidth={1.8} />}
-        onPress={() => onOpenDetail(id!)}
-      >
-        {t('admin.orders.viewDetail')}
-      </DropdownItem>
-    );
-  }
 
   const nextBtn = next ? (
     <button
@@ -320,31 +307,27 @@ function TodayOrderCard({
     </button>
   ) : null;
 
-  const rowBtnCls = 'ui-icon-btn';
+  const iconBtn = (label: string, icon: ReactElement, onClick: () => void) => (
+    <Hint content={label} placement='top'>
+      <button type='button' className='ui-icon-btn' onClick={onClick} aria-label={label}>
+        {icon}
+      </button>
+    </Hint>
+  );
+  // Every action on the line: mark paid, change payment, QR, details, print.
   const tools = (
     <>
-      {items.length > 0 && (
-        <Dropdown classNames={{ content: 'ui-popup min-w-[12rem]' }} placement='bottom-end'>
-          <DropdownTrigger>
-            <button type='button' className={rowBtnCls} aria-label={t('admin.orders.view.more')}>
-              <MoreHorizontal size={16} strokeWidth={1.8} />
-            </button>
-          </DropdownTrigger>
-          <DropdownMenu aria-label={t('admin.orders.view.more')}>{items}</DropdownMenu>
-        </Dropdown>
-      )}
-      {canViewDetail && (
-        <Hint content={t('admin.orders.printReceipt')} placement='top'>
-          <button
-            type='button'
-            className={rowBtnCls}
-            onClick={() => onPrint(o.id)}
-            aria-label={t('admin.orders.printReceipt')}
-          >
-            <Printer size={16} strokeWidth={1.8} />
-          </button>
-        </Hint>
-      )}
+      <MarkPaidControl order={o as any} onChanged={onChanged} trigger='compact' />
+      {canPay &&
+        iconBtn(t('admin.orders.changePayment'), <CreditCard size={16} strokeWidth={1.8} />, () =>
+          setPayOpen(true)
+        )}
+      {canQr &&
+        iconBtn(t('admin.orders.showQr'), <QrCode size={16} strokeWidth={1.8} />, () => onShowQr(id!))}
+      {canOpen &&
+        iconBtn(t('admin.orders.viewDetail'), <Eye size={16} strokeWidth={1.8} />, () => onOpenDetail(id!))}
+      {canViewDetail &&
+        iconBtn(t('admin.orders.printReceipt'), <Printer size={16} strokeWidth={1.8} />, () => onPrint(o.id))}
       {canPay && (
         <Modal
           isOpen={payOpen}
@@ -385,7 +368,8 @@ function TodayOrderCard({
   const open = canOpen ? () => onOpenDetail(id!) : undefined;
   // Controls inside a tappable row must not also open the order.
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
-  const payment = <MarkPaidControl order={o as any} onChanged={onChanged} trigger='badge' />;
+  // The badge is information only; marking paid is its own button.
+  const payment = <PaymentBadge order={o as any} />;
   const customer = [o.full_name, o.mobile].filter(Boolean).join(' · ') || '—';
   const table = (o as any).table_name as string | undefined;
   const typeText = `${typeLabel(o.order_type)}${table ? ` · ${table}` : ''}`;
@@ -413,8 +397,8 @@ function TodayOrderCard({
         <td className='px-2 whitespace-nowrap' onClick={stop}>
           {payment}
         </td>
-        <td className='px-2 whitespace-nowrap'>
-          <StatusBadge order={o} />
+        <td className='px-2 whitespace-nowrap' onClick={stop}>
+          {statusControl}
         </td>
         <td className='py-1.5 ps-2 pe-3' onClick={stop}>
           <div className='flex items-center justify-end gap-1'>
@@ -442,10 +426,10 @@ function TodayOrderCard({
         <span className='ms-auto font-semibold money'>{money(o.grand_total as number)}</span>
       </div>
       <div className='mt-0.5 truncate text-sm ink-2'>{customer}</div>
-      <div className='mt-2 flex items-center gap-1.5' onClick={stop}>
+      <div className='mt-2 flex flex-wrap items-center gap-1.5' onClick={stop}>
         {payment}
-        <StatusBadge order={o} />
-        <div className='ms-auto flex items-center gap-1'>
+        {statusControl}
+        <div className='ms-auto flex flex-wrap items-center justify-end gap-1'>
           {nextBtn}
           {tools}
         </div>

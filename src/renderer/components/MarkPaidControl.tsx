@@ -92,7 +92,7 @@ export function MarkPaidControl({
    * confirm dialog (order lists). Undo is deliberately not offered here: a
    * stray click in a list must not be able to remove a payment.
    */
-  trigger?: 'buttons' | 'badge';
+  trigger?: 'buttons' | 'badge' | 'compact';
 }) {
   const { t, money, lang } = useI18n();
   const toast = useToast();
@@ -382,6 +382,28 @@ export function MarkPaidControl({
   }
 
   const dialogs = renderDialogs();
+
+  // A list row: one small outline "Mark paid" button (same dialog, with the
+  // reference field for KNET / online), nothing when it does not apply.
+  if (trigger === 'compact') {
+    if (!canShowMark) return null;
+    return (
+      <>
+        <button
+          type='button'
+          className='ui-btn ui-btn-outline ui-btn-sm whitespace-nowrap'
+          onClick={(e) => {
+            e.stopPropagation();
+            openMark();
+          }}
+        >
+          <HandCoins size={15} strokeWidth={1.8} />
+          {t('paid.mark')}
+        </button>
+        {dialogs}
+      </>
+    );
+  }
 
   if (trigger === 'badge') {
     const badge = <PaymentBadge order={order as any} />;

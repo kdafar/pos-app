@@ -104,6 +104,21 @@ const SIZES = [[1366, 768], [1024, 600], [1920, 1080], [412, 900]];
       await win.setViewportSize({ width: w, height: h }); await sleep(900);
       await win.screenshot({ path: path.join(OUT, `${lang}-${theme}-${w}-orders.png`) });
     }
+    if (lang === 'en') {
+      await win.setViewportSize({ width: 1366, height: 768 }); await sleep(600);
+      await safe('status menu', async () => {
+        await win.getByRole('button', { name: 'Change status' }).first().click(); await sleep(600);
+        await win.screenshot({ path: path.join(OUT, 'en-light-1366-orders-status-menu.png') });
+        await win.keyboard.press('Escape'); await sleep(400);
+      });
+      await safe('mark paid', async () => {
+        await win.getByRole('button', { name: 'Mark paid' }).first().click(); await sleep(800);
+        const d = win.getByRole('dialog').last();
+        await d.getByText('KNET', { exact: true }).first().click().catch(() => {}); await sleep(500);
+        await win.screenshot({ path: path.join(OUT, 'en-light-1366-orders-mark-paid.png') });
+        await win.keyboard.press('Escape'); await sleep(500);
+      });
+    }
     console.log('  ', lang, 'done');
     await win.setViewportSize({ width: 1366, height: 768 });
   }
