@@ -469,7 +469,9 @@ export default function OrderSide({
               </div>
 
               {/* Right: type chip + lock / pending badges */}
-              <div className='flex flex-col items-end gap-1.5 shrink-0'>
+              {/* May shrink and wrap: with both badges a fixed column pushed
+                  the panel off its edge. */}
+              <div className='flex flex-col items-end gap-1.5 min-w-0 max-w-[55%]'>
                 <span className='ui-chip ui-chip-outline'>
                   {labelForType(currentOrder.order_type)}
                 </span>
@@ -498,7 +500,9 @@ export default function OrderSide({
               </div>
             </div>
 
-            {/* Promo + Clear cart share one compact row */}
+            {/* Promo + Clear cart share one compact row. Neither can be used on
+                another till's order, so neither is offered there. */}
+            {!isOtherTillsOrder && (
             <div className='flex flex-wrap items-center gap-2'>
               {currentOrder.promocode ? (
                 <div className='ui-notice items-center justify-between flex-1 min-w-0 !py-0.5'>
@@ -547,6 +551,7 @@ export default function OrderSide({
                 </Button>
               )}
             </div>
+            )}
           </div>
         ) : (
           <div className='text-center py-3'>
@@ -589,6 +594,7 @@ export default function OrderSide({
                     orderId={currentOrder.id}
                     theme={theme}
                     onUpdate={() => onSelectOrder(currentOrder.id)}
+                    readOnly={isOtherTillsOrder && lineIsLocked(line)}
                   />
                 ))}
               </div>

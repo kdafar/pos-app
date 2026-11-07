@@ -31,9 +31,12 @@ export function OrderLineItem({
   line,
   orderId,
   onUpdate,
+  readOnly = false,
 }: {
   line: OrderLineWithExtras;
   orderId: string;
+  /** A line another till sent: shown, not changeable from here. */
+  readOnly?: boolean;
   /** Unused (tokens). Kept because OrderSide.tsx still passes it. */
   theme?: 'light' | 'dark';
   onUpdate: () => void;
@@ -161,6 +164,9 @@ export function OrderLineItem({
         {extras}
       </div>
 
+      {readOnly ? (
+        <span className={`pos-sm font-semibold ${textMuted} tabular-nums`}>× {qty}</span>
+      ) : (
       <QtyStepper
         value={qty}
         min={1}
@@ -171,10 +177,12 @@ export function OrderLineItem({
         decHint={t('cart.removeHint')}
         onChange={setQty}
       />
+      )}
       <div className='ms-auto min-w-[3.5rem] text-end pos-sm font-semibold tabular-nums text-foreground @[24rem]:ms-0'>
         <span className='money'>{money(lineTotal)}</span>
       </div>
       {/* Finger-sized on touch: this deletes a line mid-order. */}
+      {!readOnly && (
       <Hint content={t('common.remove')} placement='top'>
         <Button
           isIconOnly
@@ -188,6 +196,7 @@ export function OrderLineItem({
           <Trash2 size={17} strokeWidth={1.8} />
         </Button>
       </Hint>
+      )}
     </div>
   );
 }

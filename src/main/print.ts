@@ -1733,7 +1733,7 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
    * shortcut would pass on a till whose receipts still do not come out.
    */
   // The slip for items added to another till's order (see renderAddedItemsHTML).
-  ipcMain.handle('orders:printAdded', async (_e, orderId: string, lineIds: string[]) => {
+  ipcMain.handle('orders:printAdded', async (_e, orderId: string, lineIds: string[], opts?: { savePdf?: boolean }) => {
     const order = getOrder(orderId);
     if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
     const wanted = new Set((lineIds ?? []).map(String));
@@ -1764,6 +1764,7 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
       })),
       at: new Date(),
     });
+    if (opts?.savePdf) return { ok: true, pdfPath: await printToPdfFile(html) };
     await printHtmlSilently(html);
     return { ok: true };
   });
