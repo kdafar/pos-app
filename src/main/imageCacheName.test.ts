@@ -4,7 +4,7 @@ import path from 'node:path';
 vi.mock('electron', () => ({ app: { getPath: () => '' } }));
 vi.mock('./db', () => ({ default: {}, getMeta: () => null }));
 
-const { hashName } = await import('./imageCache');
+const { hashName, isShopPhotoUrl } = await import('./imageCache');
 const url = 'https://shop.test/storage/a.jpg';
 
 describe('hashName', () => {
@@ -21,5 +21,28 @@ describe('hashName', () => {
   it('allows only image extensions', () => {
     expect(hashName('https://shop.test/a.exe', '1')).toMatch(/\.jpg$/);
     expect(hashName('https://shop.test/a.WEBP', '1')).toMatch(/\.WEBP$/);
+  });
+});
+
+describe('isShopPhotoUrl', () => {
+  const base = 'https://dev.trebianco.com/';
+  it('accepts the shop server, with or without www', () => {
+    expect(isShopPhotoUrl('https://dev.trebianco.com/storage/a.jpg', base)).toBe(true);
+    expect(isShopPhotoUrl('https://www.dev.trebianco.com/a.jpg', base)).toBe(true);
+  });
+  it('refuses anything else', () => {
+    for (const u of [
+      'https://evil.test/a.jpg',
+      'https://dev.trebianco.com.evil.test/a.jpg',
+      'https://evil.test/dev.trebianco.com/a.jpg',
+      'http://192.168.1.1/a.jpg',
+      'http://localhost/a.jpg',
+      'file:///etc/passwd',
+    ]) {
+      expect(isShopPhotoUrl(u, base)).toBe(false);
+    }
+  });
+  it('refuses when the shop address is unknown', () => {
+    expect(isShopPhotoUrl('https://dev.trebianco.com/a.jpg', null)).toBe(false);
   });
 });

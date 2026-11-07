@@ -28,6 +28,23 @@ async function ensureDir() {
   }
 }
 
+const bareHost = (h: string) => h.toLowerCase().replace(/^www\./, '');
+
+/**
+ * Item photos are only ever served by the shop's own server, so nothing else is
+ * fetched: a bad URL must not make the till call a device on its own network.
+ * `www.` is ignored so a shop's redirect between the two forms keeps working.
+ */
+export function isShopPhotoUrl(url: string, baseUrl: string | null | undefined): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    return bareHost(u.hostname) === bareHost(new URL(String(baseUrl)).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Helper: Fix URLs.
  * If backend sends "/uploads/foo.jpg", prepend the base_url.
@@ -37,7 +54,9 @@ function resolveUrl(rawUrl: string): string | null {
 
   // If it's already absolute (http/https), return it
   if (/^https?:\/\//i.test(rawUrl)) {
-    return rawUrl;
+    if (isShopPhotoUrl(rawUrl, getMeta('server.base_url'))) return rawUrl;
+    console.warn('[img-cache] Skipping photo from another host:', rawUrl);
+    return null;
   }
 
   // If relative, prepend base_url
@@ -85,6 +104,12 @@ async function fetchBinary(url: string): Promise<Buffer> {
     timeout: 15000,
     maxContentLength: 10 * 1024 * 1024, // far above any item photo
     maxRedirects: 3,
+    // The check above covers the first address only; a redirect must stay home too.
+    beforeRedirect: (options: { href?: string }) => {
+      if (!isShopPhotoUrl(String(options.href), getMeta('server.base_url'))) {
+        throw new Error('photo redirected to another host');
+      }
+    },
     headers: {
       // IMPORTANT: Some servers block requests without a User-Agent
       'User-Agent': 'Electron-POS-Client/1.0',
