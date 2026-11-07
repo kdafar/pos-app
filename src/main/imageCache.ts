@@ -59,7 +59,7 @@ function resolveUrl(rawUrl: string): string | null {
 /**
  * Stable hashed filename.
  */
-function hashName(originalUrl: string, id: string) {
+export function hashName(originalUrl: string, id: string) {
   const h = crypto.createHash('md5').update(originalUrl).digest('hex');
 
   // Try to keep extension
@@ -67,18 +67,24 @@ function hashName(originalUrl: string, id: string) {
   try {
     const u = new URL(originalUrl);
     const p = path.extname(u.pathname);
-    if (p) ext = p;
+    if (/^\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(p)) ext = p;
   } catch {
     // fallback if URL parse fails
   }
 
-  return `${id}-${h}${ext}`;
+  // The id comes from the server and becomes part of a path: `../` in it would
+  // write outside the images folder. Normal ids pass through unchanged, so
+  // photos already saved keep their names and are not downloaded again.
+  const safeId = String(id).replace(/[^A-Za-z0-9_-]/g, '_');
+  return `${safeId}-${h}${ext}`;
 }
 
 async function fetchBinary(url: string): Promise<Buffer> {
   const res = await axios.get(url, {
     responseType: 'arraybuffer',
     timeout: 15000,
+    maxContentLength: 10 * 1024 * 1024, // far above any item photo
+    maxRedirects: 3,
     headers: {
       // IMPORTANT: Some servers block requests without a User-Agent
       'User-Agent': 'Electron-POS-Client/1.0',
