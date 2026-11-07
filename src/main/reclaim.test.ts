@@ -22,7 +22,7 @@ vi.mock('./secureStore', () => ({
   loadSecret: async (k: string) => secrets.get(k) ?? null,
   saveSecret: async (k: string, v: string) => void secrets.set(k, v),
 }));
-vi.mock('./imageCache', () => ({ prefetchItemImages: async () => {} }));
+vi.mock('./imageCache', () => ({ prefetchItemImages: async () => {}, prefetchImagesFor: async () => {} }));
 vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: () => '', getVersion: () => '0.4.24' },
 }));

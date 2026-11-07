@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import db, { getMeta, setMeta } from './db';
 import { loadSecret, saveSecret } from './secureStore';
-import { prefetchItemImages } from './imageCache';
+import { prefetchImagesFor, prefetchItemImages } from './imageCache';
 import { app } from 'electron';
 
 import { posError } from '../shared/errorCodes';
@@ -2165,6 +2165,10 @@ export async function backfillPaymentMethods(
              ) AS needs_lines
       FROM orders o
       WHERE COALESCE(o.grand_total, 0) > 0
+        -- Only orders the server can know: GET /orders/{id} takes its numeric
+        -- id. A draft or an unsent sale has only a local UUID, so asking got a
+        -- 404 on every sync, and that 404 also stopped the auto-off below.
+        AND COALESCE(NULLIF(TRIM(o.server_id), ''), o.id) NOT GLOB '*[^0-9]*'
         AND (
           COALESCE(NULLIF(TRIM(o.payment_method_slug), ''),
                    NULLIF(TRIM(o.payment_method_id), '')) IS NULL
@@ -2225,6 +2229,12 @@ export async function backfillPaymentMethods(
     try {
       payload = await fetchOrderFromServer(row.remote_id);
     } catch (e: any) {
+      // Throttled: the rest of this batch would only be refused too, and each
+      // try counts against the limit. configureApi has recorded Retry-After.
+      if (e?.response?.status === 429) {
+        failed++;
+        break;
+      }
       // An order the server has never heard of is not a failure to report and
       // not worth retrying; anything else is a real fault worth counting.
       if (e?.code === 'POS_VAL_ORDER_NOT_FOUND') notOnServer++;
@@ -2825,7 +2835,7 @@ async function pullPage(): Promise<boolean> {
   markSyncedNow();
 
   if (changedItemIds.length) {
-    await prefetchItemImages([...new Set(changedItemIds)], 6);
+    await prefetchImagesFor([...new Set(changedItemIds)], 6);
   }
   if (!hasMore) {
     try {

@@ -9,7 +9,7 @@ vi.mock('./secureStore', () => ({
   loadSecret: () => null,
   saveSecret: () => {},
 }));
-vi.mock('./imageCache', () => ({ prefetchItemImages: async () => {} }));
+vi.mock('./imageCache', () => ({ prefetchItemImages: async () => {}, prefetchImagesFor: async () => {} }));
 vi.mock('electron', () => ({ app: { isPackaged: false, getPath: () => '' } }));
 
 const {

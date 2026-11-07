@@ -165,3 +165,10 @@ button is one behind.
 `"statuses": {"<temp_id>": 2}` next to `ack`. (Or emit the auto-accept as a feed
 change that also goes to the pusher.) The till will apply it under the rule it already
 uses for later website changes to its own orders.
+
+## Tablet + desktop test, dev.trebianco.com (2026-11-07)
+
+Code of 0.7.0, one desktop and one tablet emulator on Trebianco Grill, same user on both.
+Scripted sync: 22 of 22 checks passed. Automatic sync with no manual trigger: 6 of 6, with
+changes appearing on the other device in 8 to 23 s. Not tested: a physical tablet, the tablet with
+the app in the background, the nightly auto-close on a till, and a real shop with several tills.
