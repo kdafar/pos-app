@@ -535,6 +535,8 @@ export const adminStrings = {
   'admin.act.business.endDay': { en: 'Day ended', ar: 'تم إنهاء اليوم' },
   // Mark order paid §10 — information only, takings do not change.
   'admin.rep.paidOpen': { en: 'Paid, still open', ar: 'مدفوع وما زال مفتوحاً' },
+  'admin.rep.autoClosed': { en: 'Closed overnight, not in sales ({paid} marked paid)', ar: 'أُغلق تلقائياً ليلاً، غير محسوب في المبيعات ({paid} مسجّل كمدفوع)' },
+  'admin.rep.autoClosedNote': { en: 'Nobody closed these orders, so the server closed them with no accounting entry. A manager should review them.', ar: 'لم يغلق أحد هذه الطلبات، فأغلقها الخادم دون قيد محاسبي. يجب أن يراجعها المدير.' },
   'admin.rep.closedUnmarked': { en: 'Closed, not marked paid', ar: 'مغلق وغير مسجّل كمدفوع' },
   'admin.rep.ordersCount': { en: '{n} orders', ar: '{n} طلب' },
   'admin.rep.paidInfoNote': {

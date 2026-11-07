@@ -200,7 +200,7 @@ export function summarizePaid(rows: any[]): PaidInfo | null {
 }
 
 export type RowVerdict = {
-  counted: 'sale' | 'cancelled' | 'uncounted';
+  counted: 'sale' | 'cancelled' | 'uncounted' | 'auto_closed';
   /** Only on `uncounted` — the two have different fixes. */
   uncounted_reason?: 'no_total' | 'not_placed';
 };
@@ -214,6 +214,8 @@ export type RowVerdict = {
  */
 export function classifyRow(r: any): RowVerdict {
   if (isCancelled(r)) return { counted: 'cancelled' };
+  // The nightly job closed it with no accounting entry: not a known sale.
+  if (r?.auto_closed) return { counted: 'auto_closed' };
   if (isSold(r)) return { counted: 'sale' };
   // An unpaid ticket needs putting through; a zero total needs looking at.
   // Same highlight, different fix, so the row says which.
@@ -276,6 +278,7 @@ export function soldFilterSql(
           AND ${status} NOT IN (${notYetSold})
           AND ${status} NOT LIKE 'cancel%'
           AND ${status} NOT LIKE 'reject%'
+          AND COALESCE(${alias}.auto_closed, 0) = 0
           ${
             caps.statusCode
               ? `AND COALESCE(${alias}.status_code, -1) NOT IN (${[
@@ -481,7 +484,9 @@ export function registerOperationalReportHandlers(services: MainServices) {
           } AS completed_at,
           ${
             tableHasColumn('orders', 'status_code') ? 'o.status_code' : 'NULL'
-          } AS status_code
+          } AS status_code,
+          ${tableHasColumn('orders', 'auto_closed') ? 'o.auto_closed' : 'NULL'} AS auto_closed,
+          ${tableHasColumn('orders', 'paid_status') ? 'o.paid_status' : 'NULL'} AS paid_status
         FROM orders o
         WHERE ${tsMs} >= @fromMs AND ${tsMs} < @toMs
         ${andBranch}
@@ -499,6 +504,9 @@ export function registerOperationalReportHandlers(services: MainServices) {
       // nowhere while still being printed in the table, which is why the cards
       // (29 + 1 + 1) did not add up to the table's own row count (37).
       let uncounted_order_count = 0;
+      let auto_closed_count = 0;
+      let auto_closed_total = 0;
+      let auto_closed_paid = 0;
 
       let gross_sales_total = 0;
       let discounts = 0;
@@ -508,7 +516,7 @@ export function registerOperationalReportHandlers(services: MainServices) {
       let cancelled_total = 0;
 
       const decoratedOrders: Array<{
-        counted: 'sale' | 'cancelled' | 'uncounted';
+        counted: 'sale' | 'cancelled' | 'uncounted' | 'auto_closed';
         uncounted_reason?: 'no_total' | 'not_placed';
         id: string;
         order_number: string;
@@ -536,6 +544,11 @@ export function registerOperationalReportHandlers(services: MainServices) {
         const { counted, uncounted_reason } = classifyRow(r);
         const cancelled = counted === 'cancelled';
         const sold = counted === 'sale';
+        if (counted === 'auto_closed') {
+          auto_closed_count += 1;
+          auto_closed_total += Number(r.grand_total ?? 0);
+          if (String(r.paid_status ?? '').toLowerCase() === 'paid') auto_closed_paid += 1;
+        }
 
         const decorated = {
           counted,
@@ -991,6 +1004,9 @@ export function registerOperationalReportHandlers(services: MainServices) {
         outside_hours_count,
         canceled_order_count,
         uncounted_order_count,
+        auto_closed_count,
+        auto_closed_total: +auto_closed_total.toFixed(3),
+        auto_closed_paid,
         // Sales + cancelled + uncounted == the number of rows in the table
         // below. If these two ever disagree again, the report is dropping
         // orders on the floor and this is where it shows.

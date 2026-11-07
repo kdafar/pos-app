@@ -853,6 +853,7 @@ export function normPullOrder(o: any) {
     external_source: S(o.external_source),
     external_id: S(o.external_id),
     closed_at: parseServerTime(o.closed_at_ms ?? o.closed_at),
+    auto_closed: o.auto_closed == null ? null : B(o.auto_closed),
   };
 }
 
@@ -1783,7 +1784,7 @@ function buildOrderSyncOps() {
       promocode, created_at,
       opened_at, updated_at, server_id,
       table_id, covers, note, address, created_by_user_id, external_source,
-      external_id, closed_at
+      external_id, closed_at, auto_closed
     ) VALUES (
       @id, @number, @reference_no, @branch_id, @order_type, @status,
       @status_code, @full_name, @mobile, @email, @payment_type,
@@ -1792,7 +1793,7 @@ function buildOrderSyncOps() {
       @amount_tendered, @change_due,
       @promocode, @created_at, @opened_at, @updated_at, @server_id,
       @table_id, @covers, @note, @address, @created_by_user_id,
-      @external_source, @external_id, @closed_at
+      @external_source, @external_id, @closed_at, @auto_closed
     )
     ON CONFLICT(id) DO UPDATE SET
       number          = excluded.number,
@@ -1838,7 +1839,8 @@ function buildOrderSyncOps() {
       external_source = COALESCE(excluded.external_source, external_source),
       external_id     = COALESCE(excluded.external_id, external_id),
       closed_at = CASE WHEN @own = 1 THEN COALESCE(closed_at, excluded.closed_at)
-                       ELSE COALESCE(excluded.closed_at, closed_at) END
+                       ELSE COALESCE(excluded.closed_at, closed_at) END,
+      auto_closed = COALESCE(excluded.auto_closed, auto_closed)
   `);
 
   const upPullLine = db.prepare(`
@@ -1881,10 +1883,10 @@ function buildOrderSyncOps() {
   `);
 
   const qOrderById = db.prepare(
-    'SELECT id, status, status_code FROM orders WHERE id = ?'
+    'SELECT id, status, status_code, synced_at FROM orders WHERE id = ?'
   );
   const qOrderByNumber = db.prepare(
-    'SELECT id, status, status_code FROM orders WHERE number = ? LIMIT 1'
+    'SELECT id, status, status_code, synced_at FROM orders WHERE number = ? LIMIT 1'
   );
 
   /**

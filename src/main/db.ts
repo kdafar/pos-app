@@ -500,6 +500,8 @@ export function migrate() {
   );
   ensureColumn('orders', 'table_id TEXT', 'table_id');
   ensureColumn('orders', 'covers INTEGER', 'covers');
+  // The server's nightly job closed it, with no accounting entry.
+  ensureColumn('orders', 'auto_closed INTEGER', 'auto_closed');
 
   // Floors. The server calls them table_sections; a table with no section_id
   // still works and is shown under "All".

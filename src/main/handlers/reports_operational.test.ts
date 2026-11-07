@@ -317,3 +317,18 @@ describe('summarizePaid (Mark order paid §10)', () => {
     });
   });
 });
+
+describe('orders the nightly job closed', () => {
+  const row = { status: 'done', status_code: 4, grand_total: 5 };
+  it('are their own bucket, not sales', () => {
+    expect(classifyRow({ ...row, auto_closed: 1 }).counted).toBe('auto_closed');
+    expect(classifyRow({ ...row, auto_closed: 0 }).counted).toBe('sale');
+    expect(classifyRow(row).counted).toBe('sale');
+  });
+  it('stay out of the sold filter used by the breakdowns', () => {
+    expect(soldFilterSql('s')).toContain('COALESCE(s.auto_closed, 0) = 0');
+  });
+  it('a cancelled order stays cancelled', () => {
+    expect(classifyRow({ ...row, status: 'cancelled', status_code: 6, auto_closed: 1 }).counted).toBe('cancelled');
+  });
+});

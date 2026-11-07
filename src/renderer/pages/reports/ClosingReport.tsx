@@ -46,7 +46,7 @@ type BackendOrderRow = {
   status: number | string;
   operational_status: 'inside' | 'outside';
   /** Which bucket the footer put this row in. */
-  counted?: 'sale' | 'cancelled' | 'uncounted';
+  counted?: 'sale' | 'cancelled' | 'uncounted' | 'auto_closed';
   /** Only on `uncounted` rows — the two have different fixes. */
   uncounted_reason?: 'no_total' | 'not_placed';
   discount_amount?: number;
@@ -77,6 +77,9 @@ type FooterStats = {
   canceled_order_count: number;
   /** Rows in the table below that are neither a sale nor a cancellation. */
   uncounted_order_count?: number;
+  auto_closed_count?: number;
+  auto_closed_total?: number;
+  auto_closed_paid?: number;
   /** Rows in the table below, so the cards can be reconciled against it. */
   listed_order_count?: number;
   gross_sales_total: number;
@@ -644,8 +647,17 @@ export default function ClosingReport() {
         { label: t('admin.rep.deliveryFees'), value: fmt(f.delivery_fees) },
         { label: t('admin.rep.netTotal'), value: fmt(f.grand_total) },
       ],
-      paidInfo: data.paidInfo
+      paidInfo: f.auto_closed_count || data.paidInfo
         ? [
+            ...(f.auto_closed_count
+              ? [
+                  {
+                    label: `${t('admin.rep.autoClosed', { paid: f.auto_closed_paid ?? 0 })} · ${t('admin.rep.ordersCount', { n: f.auto_closed_count })}`,
+                    value: fmt(f.auto_closed_total),
+                  },
+                ]
+              : []),
+            ...(data.paidInfo ? [
             {
               label: `${t('admin.rep.paidOpen')} · ${t('admin.rep.ordersCount', { n: data.paidInfo.paid_open.count })}`,
               value: fmt(data.paidInfo.paid_open.total),
@@ -654,6 +666,7 @@ export default function ClosingReport() {
               label: `${t('admin.rep.closedUnmarked')} · ${t('admin.rep.ordersCount', { n: data.paidInfo.closed_unmarked.count })}`,
               value: fmt(data.paidInfo.closed_unmarked.total),
             },
+            ] : []),
           ]
         : undefined,
     });
@@ -973,6 +986,19 @@ export default function ClosingReport() {
                 tone='danger'
                 negative
               />
+            </div>
+          )}
+
+          {!!f?.auto_closed_count && (
+            <div className='max-w-xl ms-auto space-y-1'>
+              <div className='ui-card flex items-center justify-between gap-4 px-4 py-2.5 font-medium'>
+                <span className='ink-2'>{t('admin.rep.autoClosed', { paid: f.auto_closed_paid ?? 0 })}</span>
+                <span className='flex items-center gap-4 whitespace-nowrap'>
+                  <span className='ink-2'>{t('admin.rep.ordersCount', { n: f.auto_closed_count })}</span>
+                  <span className='money ink'>{fmt(f.auto_closed_total)}<Cur label={cur} /></span>
+                </span>
+              </div>
+              <p className='text-xs ink-2 text-end'>{t('admin.rep.autoClosedNote')}</p>
             </div>
           )}
 

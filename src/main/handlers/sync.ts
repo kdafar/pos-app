@@ -1,3 +1,4 @@
+import type { OrderChangeDeps } from '../orderStatusActions';
 import type { IpcMain } from 'electron';
 import https from 'node:https';
 import os from 'node:os';
@@ -259,6 +260,15 @@ function safeBuildOrderPayload(orderId: string) {
 export function paidDeps(): PaidDeps {
   return {
     db,
+    api: posApi,
+    isLive: () => (getMeta('pos.mode') || 'live') === 'live',
+    applyOrder: applyServerOrder,
+  };
+}
+
+/** Deps for changing an order this till did not create. */
+export function orderChangeDeps(): OrderChangeDeps {
+  return {
     api: posApi,
     isLive: () => (getMeta('pos.mode') || 'live') === 'live',
     applyOrder: applyServerOrder,

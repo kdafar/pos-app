@@ -18,7 +18,10 @@ import {
 import { logAction } from '../utils/logging';
 import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
 import { reconcileOrderFromServer } from '../sync';
-import { schedulePushSoon } from './sync';
+import { orderChangeDeps, schedulePushSoon, toServerUserId } from './sync';
+import { isOwnOrder } from '../paidMarks';
+import { sendOrderChange, type OrderChange } from '../orderStatusActions';
+import { newUlid } from '../../shared/paid';
 import {
   ORDER_STATUS,
   TERMINAL_STATUSES,
@@ -26,6 +29,7 @@ import {
   activeOrderSql,
   sqlList,
   isTerminal,
+  isActiveOrder,
 } from '../utils/orderStatus';
 import {
   isAllowedPosTransition,
@@ -219,12 +223,80 @@ export function registerOrdersHandlers(
       | undefined;
   };
 
+  /**
+   * Changes the server has no route for yet (items, tables, order type) stay
+   * local if made on another till's order, and the tills then disagree. Refused
+   * with a clear message until they can reach the server.
+   */
+  const assertOwnOrder = (order: { id: string }) => {
+    if (!isOwnOrder(order)) throw posError('POS_ORDER_OTHER_TILL');
+  };
+
+  /** Send a change for another till's order; the reply replaces the local copy. */
+  const changeOtherTillsOrder = async (order: any, change: OrderChange) => {
+    if (isPosLocked()) throw posError('POS_TILL_LOCKED');
+    const by = toServerUserId(getCurrentPosUser().id);
+    const result = await sendOrderChange(orderChangeDeps(), order, by, change);
+    const now = getOrderRow(order.id);
+    if (order.table_id && now && !isActiveOrder(now)) releaseTableIfFree(order.table_id);
+    log('orders.changeOtherTill', order.id, { ...change, approval: undefined, ...result });
+    return getOrderWithLines(order.id);
+  };
+
+  /** Close, cancel or move on another till's order. Permissions as the server has them. */
+  const setOtherTillsStatus = async (order: any, next: string, approval?: ApprovalInput) => {
+    const target = String(next || '').toLowerCase();
+    const isClose = target === ORDER_STATUS.CLOSED;
+    const isCancel = target === ORDER_STATUS.CANCELLED_CLIENT;
+    const allowed: string[] = [
+      ORDER_STATUS.PLACED,
+      ORDER_STATUS.PREPARED,
+      ORDER_STATUS.READY,
+      ORDER_STATUS.AWAITING_PICKUP,
+      ORDER_STATUS.CLOSED,
+      ORDER_STATUS.CANCELLED_CLIENT,
+    ];
+    if (!allowed.includes(target)) throw posError('POS_VAL_STATUS_UNKNOWN');
+    if (isCancel) assertPermission(services, 'orders.cancel');
+    else if (!isClose) assertPermission(services, 'orders.change_status');
+
+    const code = Number(order.status_code);
+    if (isTerminal(order.status) || (Number.isFinite(code) && isTerminalServerStatus(code))) {
+      throw posError('POS_PUSH_ORDER_FINALIZED');
+    }
+    // No step-order check here: the local copy can be behind, and the server
+    // rules on this order. Closing from preparing is normal.
+    const change: OrderChange = { status: pushStatusForLocal(target) };
+    if (isClose || isCancel) change.closed_at = nowMs();
+
+    // The server counts statuses 2, 3 and 7 as sent to the kitchen.
+    let approver: Awaited<ReturnType<typeof resolveApprover>> | null = null;
+    if (isCancel && [2, 3, 7].includes(code)) {
+      approver = await resolveApprover(services, 'cancel_sent_order', approval);
+      if (approver.approvedBy !== approver.requestedBy) {
+        change.approval = {
+          id: newUlid(),
+          action: 'cancel_sent_order',
+          requested_by: approver.requestedBy,
+          approved_by: approver.approvedBy,
+          approved_at: new Date().toISOString(),
+          reason: approver.reason,
+        };
+      }
+    }
+
+    const out = await changeOtherTillsOrder(order, change);
+    if (approver) recordApproval(services, approver, { action: 'cancel_sent_order', orderId: order.id });
+    return out;
+  };
+
   const assertOrderEditable = (
     orderId: string,
     opts?: { allowAddOnLockedDineIn?: boolean }
   ) => {
     const order = getOrderRow(orderId);
     if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
+    assertOwnOrder(order);
 
     const locked =
       hasColumn('orders', 'is_locked') && Number(order.is_locked ?? 0) === 1;
@@ -606,6 +678,7 @@ export function registerOrdersHandlers(
 
       const order = getOrderRow(orderId);
       if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
+      assertOwnOrder(order);
 
       const currentType = Number(order.order_type || 0);
       const status = (order.status || '').toLowerCase();
@@ -690,10 +763,13 @@ export function registerOrdersHandlers(
   ipcMain.handle(
     'orders:setStatus',
     async (_e, orderId: string, next: string, approval?: ApprovalInput) => {
+      const row = getOrderRow(orderId);
+      if (row && !isOwnOrder(row)) return setOtherTillsStatus(row, next, approval);
+
       assertPermission(services, 'orders.change_status');
       if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
-      const order = getOrderRow(orderId);
+      const order = row;
       if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
 
       const allowed = [
@@ -1475,6 +1551,7 @@ export function registerOrdersHandlers(
     const ts = nowMs();
     const order = getOrderRow(orderId);
     if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
+    if (!isOwnOrder(order)) return setOtherTillsStatus(order, ORDER_STATUS.CLOSED);
 
     // ── 0) Basic info ──────────────────────────────────────────────────────────
     const orderType = Number(order.order_type ?? order.type ?? 0);
@@ -1640,6 +1717,7 @@ export function registerOrdersHandlers(
     assertPermission(services, 'orders.reopen');
     const order = getOrderRow(orderId);
     if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
+    assertOwnOrder(order);
 
     const assignments = [`status = '${ORDER_STATUS.OPEN}'`, 'updated_at = ?', 'synced_at = NULL'];
     if (hasColumn('orders', 'is_locked')) assignments.push('is_locked = 0');
@@ -1654,6 +1732,8 @@ export function registerOrdersHandlers(
 
   ipcMain.handle('orders:cancel', async (_e, orderId: string) => {
     if (isPosLocked()) throw posError('POS_TILL_LOCKED');
+    const row = getOrderRow(orderId);
+    if (row && !isOwnOrder(row)) return setOtherTillsStatus(row, ORDER_STATUS.CANCELLED_CLIENT);
     rawDb
       .prepare(
         `UPDATE orders SET status = 'cancelled', updated_at = ? WHERE id = ?`
@@ -1670,6 +1750,22 @@ export function registerOrdersHandlers(
     'orders:complete',
     async (_e, orderId: string, customer: any) => {
       if (isPosLocked()) throw posError('POS_TILL_LOCKED');
+
+      // Paying for another till's order: its dishes and customer are not ours to
+      // change, only how it was paid. A tender is only ever kept for cash.
+      const row = getOrderRow(orderId);
+      if (row && !isOwnOrder(row)) {
+        const slug = String(customer?.payment_method_slug ?? '').trim();
+        const tender = isCashPayment(slug)
+          ? tenderForWire(customer?.amount_tendered, row.grand_total)
+          : null;
+        const sameMethod = !slug || slug === String(row.payment_method_slug ?? '');
+        if (sameMethod && tender == null) return getOrderWithLines(orderId);
+        return changeOtherTillsOrder(row, {
+          ...(sameMethod ? {} : { payment_method: slug }),
+          ...(tender == null ? {} : { amount_tendered: tender }),
+        });
+      }
 
       // Same exception as addLine: a dine-in table takes a new round after it
       // was first placed. Without it the round could be added but never
@@ -1843,6 +1939,7 @@ export function registerOrdersHandlers(
     const ts = nowMs();
     const order = getOrderRow(orderId);
     if (!order) return;
+    if (!isOwnOrder(order)) return setOtherTillsStatus(order, ORDER_STATUS.CLOSED);
 
     // 1. Mark order as completed — finished the same way orders:close finishes
     // one. This path used to skip three things: the re-push, so the server
@@ -2054,6 +2151,7 @@ export function registerOrdersHandlers(
       if (!table) throw posError('POS_VAL_TABLE_NOT_FOUND');
 
       const o = getOrderRow(orderId);
+      if (o) assertOwnOrder(o);
       if (!o) throw posError('POS_VAL_ORDER_NOT_FOUND');
       if (Number(o.order_type) !== 3) throw posError('POS_VAL_NOT_DINE_IN');
 
@@ -2127,6 +2225,8 @@ export function registerOrdersHandlers(
           )
           .pluck()
           .all(tableId) as string[];
+        // Freeing it here would not free it on the server or the other tills.
+        if (seated.some((id) => !isOwnOrder({ id }))) throw posError('POS_ORDER_OTHER_TILL');
         // Freeing a table someone is still sat at, with an order that has
         // items, is a force close: tables.force_close or a manager's code. A
         // table that only looks busy (a stale flag, an empty draft) is not.
@@ -2167,6 +2267,7 @@ export function registerOrdersHandlers(
       const orderId = arg;
       const order = getOrderRow(orderId);
       if (!order) return getOrderWithLines(orderId);
+      assertOwnOrder(order);
 
       // 🚫 Safety: do NOT allow clearing table if the order has any items
       let count: number;

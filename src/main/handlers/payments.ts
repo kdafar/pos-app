@@ -1,11 +1,16 @@
 // src/main/handlers/payments.ts
 import type { IpcMain } from 'electron';
+import type { MainServices } from '../types/common';
 import axios from 'axios';
 import QRCode from 'qrcode';
 import db, { getMeta } from '../db';
 import { loadSecret } from '../secureStore';
 import { isTerminalServerStatus } from '../utils/serverStatus';
 import { isTerminal } from '../utils/orderStatus';
+import { isOwnOrder } from '../paidMarks';
+import { sendOrderChange } from '../orderStatusActions';
+import { getCurrentPosUser } from '../utils/permissions';
+import { orderChangeDeps, toServerUserId } from './sync';
 
 import { posError } from '../../shared/errorCodes';
 type PaymentLinkArgs = {
@@ -20,7 +25,7 @@ type PaymentLinkArgs = {
   };
 };
 
-export function registerPaymentHandlers(ipcMain: IpcMain) {
+export function registerPaymentHandlers(ipcMain: IpcMain, services: MainServices) {
   /**
    * Render a payment link as a QR the CUSTOMER scans with their own phone.
    *
@@ -187,11 +192,28 @@ export function registerPaymentHandlers(ipcMain: IpcMain) {
       if (!method) throw posError('POS_PAY_METHOD_UNAVAILABLE', { field: 'payment_method' });
 
       const order = db
-        .prepare(`SELECT id, status, status_code FROM orders WHERE id = ?`)
+        .prepare(`SELECT id, server_id, status, status_code FROM orders WHERE id = ?`)
         .get(id) as any;
       if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
       if (isTerminal(order.status) || isTerminalServerStatus(order.status_code)) {
         throw posError('POS_VAL_ORDER_LOCKED');
+      }
+
+      // Another till's order: only the server's reply changes the local copy.
+      if (!isOwnOrder(order)) {
+        await sendOrderChange(
+          orderChangeDeps(),
+          order,
+          toServerUserId(getCurrentPosUser(services).id),
+          { payment_method: method.slug ?? '' }
+        );
+        return {
+          ok: true,
+          slug: method.slug,
+          name_en: method.name_en,
+          is_online: Boolean(method.is_online),
+          supports_payment_link: Boolean(method.supports_payment_link),
+        };
       }
 
       db.prepare(
@@ -230,6 +252,7 @@ export function registerPaymentHandlers(ipcMain: IpcMain) {
         .prepare('SELECT status, status_code FROM orders WHERE id = ?')
         .get(id) as any;
       if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
+      if (!isOwnOrder({ id })) throw posError('POS_ORDER_OTHER_TILL');
       if (isTerminal(order.status) || isTerminalServerStatus(order.status_code)) {
         throw posError('POS_VAL_ORDER_LOCKED');
       }

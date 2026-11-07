@@ -72,11 +72,12 @@ export type CatalogEntry = {
  * for Mark order paid, all mirrored; 61 with 1.8.0 and the two business-day
  * codes (POS_BUSINESS_DAY_INPUT_INVALID, POS_DAY_CLOSE_INPUT_INVALID), mirrored;
  * 62 with 1.9.0 and POS_PAID_REFERENCE_MISSING (KNET slip reference), mirrored.
+ * 66 with 1.11.0 and the four codes of POST /orders/{id}/status, mirrored.
  *
  * Kept next to the catalogue rather than inside the drift test so the export
  * and the test cannot disagree about the target.
  */
-export const BACKEND_SENT_CODE_COUNT = 62;
+export const BACKEND_SENT_CODE_COUNT = 66;
 
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
@@ -742,11 +743,11 @@ export const ERROR_CATALOG = {
     origin: 'server',
     en: {
       title: 'Payment method is fixed',
-      body: 'This order is closed, so it can only be marked paid with the method it was closed with.',
+      body: 'This order\u2019s payment method cannot be changed: it was closed with that method, or the provider confirmed the payment.',
     },
     ar: {
       title: 'طريقة الدفع ثابتة',
-      body: 'هذا الطلب مغلق، لذا يمكن تسجيله كمدفوع بطريقة الدفع التي أُغلق بها فقط.',
+      body: 'لا يمكن تغيير طريقة دفع هذا الطلب: فقد أُغلق بهذه الطريقة أو أكّد مزوّد الدفع العملية.',
     },
   },
   POS_PAID_METHOD_PRICE_LIST: {
@@ -811,6 +812,131 @@ export const ERROR_CATALOG = {
     ar: {
       title: 'رابط الدفع ما زال مفتوحاً',
       body: 'تم تسجيل الطلب كمدفوع، لكن رابط الدفع ما زال مفتوحاً وقد يدفعه العميل. ألغِ الرابط من المكتب.',
+    },
+  },
+  POS_ORDER_OTHER_TILL: {
+    severity: 'inline',
+    retry: false,
+    where: 'another till\u2019s order',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Made on another till',
+      body: 'This change can only be made on the till that took this order, or on the website. Closing, cancelling, status and payment method work from here.',
+    },
+    ar: {
+      title: 'الطلب من جهاز آخر',
+      body: 'لا يمكن إجراء هذا التعديل إلا من الجهاز الذي أنشأ الطلب أو من الموقع. الإغلاق والإلغاء والحالة وطريقة الدفع تعمل من هنا.',
+    },
+  },
+  POS_ORDER_CHANGE_UNSENT: {
+    severity: 'inline',
+    retry: true,
+    where: 'POST /orders/{id}/status',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Could not reach the server',
+      body: 'Nothing changed on this order. Check the connection and try again.',
+    },
+    ar: {
+      title: 'تعذّر الوصول إلى الخادم',
+      body: 'لم يتغير شيء في هذا الطلب. تحقق من الاتصال وحاول مرة أخرى.',
+    },
+  },
+  POS_ORDER_CHANGE_UNAVAILABLE: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST /orders/{id}/status',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Not available yet',
+      body: 'The server cannot change another till\u2019s order yet. Use the till that took the order, or the website.',
+    },
+    ar: {
+      title: 'غير متاح بعد',
+      body: 'لا يستطيع الخادم تعديل طلب من جهاز آخر بعد. استخدم الجهاز الذي أنشأ الطلب أو الموقع.',
+    },
+  },
+  POS_ORDER_STATUS_CONFLICT: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST /orders/{id}/status',
+    http: 409,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'This order just changed',
+      body: 'Someone else changed this order. It now shows the latest status. Check it, then try again if needed.',
+    },
+    ar: {
+      title: 'تغيّر هذا الطلب للتو',
+      body: 'غيّر شخص آخر هذا الطلب، وهو يعرض الآن آخر حالة. تحقق منه ثم حاول مرة أخرى إذا لزم الأمر.',
+    },
+  },
+  POS_ORDER_ACTION_REUSED: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST /orders/{id}/status',
+    http: 409,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Could not apply the change',
+      body: 'The till sent a duplicate request. Nothing changed. Try again, and tell support if it repeats.',
+    },
+    ar: {
+      title: 'تعذّر تطبيق التعديل',
+      body: 'أرسل الجهاز طلباً مكرراً ولم يتغير شيء. حاول مرة أخرى، وأبلغ الدعم إذا تكرر ذلك.',
+    },
+  },
+  POS_ORDER_STATUS_NOT_PERMITTED: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST /orders/{id}/status',
+    http: 403,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Not allowed',
+      body: 'Your account cannot make this change on this order. Ask a manager.',
+    },
+    ar: {
+      title: 'غير مسموح',
+      body: 'لا يملك حسابك صلاحية هذا التعديل على هذا الطلب. اطلب ذلك من المدير.',
+    },
+  },
+  POS_PUSH_CANCEL_NOT_PERMITTED: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST /orders/{id}/status',
+    http: 403,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Cannot cancel this order',
+      body: 'Your account cannot cancel this order. Ask a manager.',
+    },
+    ar: {
+      title: 'لا يمكن إلغاء هذا الطلب',
+      body: 'لا يملك حسابك صلاحية إلغاء هذا الطلب. اطلب ذلك من المدير.',
+    },
+  },
+  POS_ORDER_STATUS_INPUT: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST /orders/{id}/status',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Could not apply the change',
+      body: 'The till sent something the server could not read. Nothing changed. Tell support if it repeats.',
+    },
+    ar: {
+      title: 'تعذّر تطبيق التعديل',
+      body: 'أرسل الجهاز بيانات لم يتمكن الخادم من قراءتها ولم يتغير شيء. أبلغ الدعم إذا تكرر ذلك.',
     },
   },
   POS_APPROVAL_REQUIRED: {

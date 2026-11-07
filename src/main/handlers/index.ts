@@ -29,7 +29,7 @@ export function registerAllHandlers(
   registerCatalogHandlers(ipcMain);
   registerGeoHandlers(ipcMain);
   registerTableHandlers(ipcMain);
-  registerPaymentHandlers(ipcMain);
+  registerPaymentHandlers(ipcMain, services);
   registerPaidHandlers(ipcMain, services);
   registerBusinessDayHandlers(ipcMain, services);
   registerSyncHandlers(ipcMain, services);
