@@ -319,7 +319,7 @@ export function collectUnsyncedOrders(limit = 50): any[] {
  * allocates after insert, so a till can print it on a receipt for a sale it
  * took while offline.
  */
-export function applyPushResult(result: any): {
+export function applyPushResult(result: any, sent: any[] = []): {
   acked: number;
   retryable: number;
   dropped: number;
@@ -344,6 +344,20 @@ export function applyPushResult(result: any): {
             reference_no = COALESCE(?, reference_no)
       WHERE id = ?`
   );
+  // The order changed while this push was on its way (a close, say): keep the
+  // ids from the reply but leave it queued, or that change would never be sent.
+  const setIdsOnly = db.prepare(
+    `UPDATE orders
+        SET server_id  = COALESCE(?, server_id),
+            reference_no = COALESCE(?, reference_no)
+      WHERE id = ?`
+  );
+  const currentUpdatedAt = db.prepare(`SELECT updated_at FROM orders WHERE id = ?`);
+  const sentUpdatedAt = new Map<string, number>();
+  for (const o of sent) {
+    const at = Number(o?.timestamps?.updated_at);
+    if (o?.temp_id != null && Number.isFinite(at)) sentUpdatedAt.set(String(o.temp_id), at);
+  }
   const setRef = db.prepare(
     `UPDATE orders SET reference_no = ? WHERE id = ?`
   );
@@ -364,7 +378,10 @@ export function applyPushResult(result: any): {
 
   const tx = db.transaction(() => {
     for (const [tempId, serverId] of Object.entries(ack)) {
-      setSynced.run(
+      const sentAt = sentUpdatedAt.get(tempId);
+      const nowRow = sentAt == null ? null : (currentUpdatedAt.get(tempId) as any);
+      const changedSince = nowRow != null && Number(nowRow.updated_at) > (sentAt as number);
+      (changedSince ? setIdsOnly : setSynced).run(
         serverId != null ? String(serverId) : null,
         references[tempId] != null ? String(references[tempId]) : null,
         tempId

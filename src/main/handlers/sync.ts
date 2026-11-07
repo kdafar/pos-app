@@ -293,7 +293,24 @@ export function businessDayDeps(): BusinessDayDeps {
  * the server's total, so an unsent edit has to land first (§4.4). Never
  * throws; false means the order is still queued.
  */
-export async function pushOrderNowIfPending(orderId: string): Promise<boolean> {
+export function pushOrderNowIfPending(orderId: string): Promise<boolean> {
+  return serialPush(() => pushOrderNowLocked(orderId));
+}
+
+/**
+ * One /push at a time, each reading the order only once its turn comes. Timer
+ * sync, push-soon and the rest overlapped: two would read the same unsent order
+ * before either got its reply and both send it, and the second carried a status
+ * the first's reply had already overtaken (seen moving an order from 2 back to 1).
+ */
+let pushChain: Promise<unknown> = Promise.resolve();
+function serialPush<T>(fn: () => Promise<T>): Promise<T> {
+  const run = pushChain.then(fn, fn);
+  pushChain = run.catch(() => {});
+  return run;
+}
+
+async function pushOrderNowLocked(orderId: string): Promise<boolean> {
   try {
     if ((getMeta('pos.mode') || 'live') !== 'live' || !posApi()) return false;
     const pending = db
@@ -307,7 +324,7 @@ export async function pushOrderNowIfPending(orderId: string): Promise<boolean> {
       { client_msg_id: `pos-paid-${Date.now()}-${Math.random().toString(36).slice(2)}` },
       { orders: [payload] }
     );
-    return applyPushResult(result).acked > 0;
+    return applyPushResult(result, [payload]).acked > 0;
   } catch (e) {
     console.warn('[paid] push before mark failed; the mark stays queued', (e as any)?.message);
     return false;
@@ -341,7 +358,11 @@ export function schedulePushSoon(orderId: string) {
   }
 }
 
-async function pushOrdersNow(ids: string[]) {
+function pushOrdersNow(ids: string[]) {
+  return serialPush(() => pushOrdersNowLocked(ids));
+}
+
+async function pushOrdersNowLocked(ids: string[]) {
   try {
     if ((getMeta('pos.mode') || 'live') !== 'live' || !posApi()) return;
     if (Number(getMeta('sync.retry_after_at') || 0) > Date.now()) return;
@@ -360,7 +381,7 @@ async function pushOrdersNow(ids: string[]) {
       { client_msg_id: `pos-soon-${Date.now()}-${Math.random().toString(36).slice(2)}` },
       { orders: payloads }
     );
-    applyPushResult(result);
+    applyPushResult(result, payloads);
   } catch (e) {
     console.warn('[push-soon] failed; the timer sync will retry', (e as any)?.message);
   }
@@ -421,7 +442,11 @@ function safeCollectUnsyncedOrders(limit = 20) {
  * till that is offline or whose server rejects an incomplete order simply
  * carries on with the local number, exactly as before.
  */
-async function reserveOrderReference(orderId: string): Promise<string | null> {
+function reserveOrderReference(orderId: string): Promise<string | null> {
+  return serialPush(() => reserveOrderReferenceLocked(orderId));
+}
+
+async function reserveOrderReferenceLocked(orderId: string): Promise<string | null> {
   try {
     const row = db
       .prepare(
@@ -1167,8 +1192,9 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         .get() as number) || 0;
 
     if (pending > 0) {
-      const batch = safeCollectUnsyncedOrders(25);
-      if (batch.length) {
+      await serialPush(async () => {
+        const batch = safeCollectUnsyncedOrders(25);
+        if (!batch.length) return;
         const envelope = {
           client_msg_id: `pos-${Date.now()}-${Math.random()
             .toString(36)
@@ -1177,7 +1203,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
         const result = await pushOutbox(envelope, { orders: batch });
         // Only clear what the server actually acked; retryable failures stay
         // queued under the same temp_id so the retry is idempotent.
-        const applied = applyPushResult(result);
+        const applied = applyPushResult(result, batch);
         pushedCount = applied.acked;
         pushFailed = applied.retryable + applied.dropped;
         if (applied.retryable || applied.dropped) {
@@ -1186,7 +1212,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
             ...applied,
           });
         }
-      }
+      });
     }
 
     // The bootstrap and pull above ran before this push, so they brought down
@@ -1310,8 +1336,10 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     // `references` map, which is why an order that HAD been given a server
     // number (0057) kept showing its local one (POS-1-8ZH57CLV) on the till
     // and in every report.
-    const result = await pushOutbox(envelope, { orders: [payload] });
-    const applied = applyPushResult(result);
+    const applied = await serialPush(async () => {
+      const fresh = safeBuildOrderPayload(orderId) ?? payload;
+      return applyPushResult(await pushOutbox(envelope, { orders: [fresh] }), [fresh]);
+    });
     return { ok: applied.acked > 0, pushed: applied.acked, ...applied };
   });
 
@@ -1358,6 +1386,7 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     if ((getMeta('pos.mode') || 'live') !== 'live')
       throw posError('POS_NET_OFFLINE');
 
+    return serialPush(async () => {
     const toPush = safeCollectUnsyncedOrders(limit);
     if (!toPush.length) return { ok: true, pushed: 0 };
 
@@ -1368,7 +1397,8 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
 
     // Same fix as orders:pushOne — only what the server acked leaves the
     // outbox; retryable failures stay queued under the same temp_id.
-    const applied = applyPushResult(result);
+    const applied = applyPushResult(result, toPush);
     return { ok: true, pushed: applied.acked, sent: toPush.length, ...applied };
+    });
   });
 }

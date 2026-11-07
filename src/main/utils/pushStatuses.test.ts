@@ -12,7 +12,9 @@ const fakeDb = {
         const id = a[a.length - 1];
         const r = rows.get(id);
         if (!r) return { changes: 0 };
-        if (s.startsWith('UPDATE orders SET status = ? WHERE')) {
+        if (s.includes('server_id = COALESCE') && !s.includes('synced_at')) {
+          if (a[0] != null) r.server_id = a[0];
+        } else if (s.startsWith('UPDATE orders SET status = ? WHERE')) {
           r.status = a[0];
         } else if (s.includes('synced_at')) {
           r.synced_at = 1;
@@ -39,6 +41,20 @@ describe('applyPushResult statuses', () => {
     seed('a', 'placed');
     applyPushResult({ ack: { a: '9' }, statuses: { a: 2 } });
     expect(rows.get('a')).toMatchObject({ status: 'prepared', status_code: null, updated_at: 100 });
+  });
+
+  it('an order changed during the push stays queued, with its ids', () => {
+    seed('f', 'closed');
+    rows.get('f').updated_at = 200;
+    applyPushResult({ ack: { f: '9' } }, [{ temp_id: 'f', timestamps: { updated_at: 100 } }]);
+    expect(rows.get('f').synced_at).toBeUndefined();
+    expect(rows.get('f').server_id).toBe('9');
+  });
+
+  it('an unchanged order is marked sent', () => {
+    seed('g', 'placed');
+    applyPushResult({ ack: { g: '9' } }, [{ temp_id: 'g', timestamps: { updated_at: 100 } }]);
+    expect(rows.get('g').synced_at).toBe(1);
   });
 
   it('never moves an order back', () => {
