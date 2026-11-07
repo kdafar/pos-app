@@ -1037,6 +1037,36 @@ export const ERROR_CATALOG = {
       body: 'لم تتطابق طريقتا الدفع مع الفاتورة، فتم تسجيل الطلب بطريقة دفع واحدة.',
     },
   },
+  POS_ORDER_LINES_SENDING: {
+    severity: 'inline',
+    retry: true,
+    where: 'items added to another till\u2019s order',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Still sending these items',
+      body: 'These items were sent but the server has not answered yet. Press Update again to finish sending them, then change them if needed.',
+    },
+    ar: {
+      title: 'ما زال إرسال هذه الأصناف جارياً',
+      body: 'أُرسلت هذه الأصناف ولم يرد الخادم بعد. اضغط تحديث مرة أخرى لإكمال الإرسال، ثم عدّلها إذا لزم الأمر.',
+    },
+  },
+  POS_VAL_SPLIT_AMOUNT: {
+    severity: 'inline',
+    retry: false,
+    where: 'checkout, split payment',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Check the split',
+      body: 'The cash part must be more than zero and less than the total, and the other part must be a method other than cash.',
+    },
+    ar: {
+      title: 'تحقق من تقسيم الدفع',
+      body: 'يجب أن يكون الجزء النقدي أكبر من صفر وأقل من الإجمالي، وأن يكون الجزء الآخر بطريقة دفع غير النقد.',
+    },
+  },
   POS_APPROVAL_REQUIRED: {
     severity: 'inline',
     retry: false,

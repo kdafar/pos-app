@@ -492,6 +492,39 @@ function normTable(t: any) {
   };
 }
 
+/** The parts of a split-paid order, or [] when it was paid one way. */
+export function readPayParts(orderId: string): Array<{
+  method_slug: string;
+  amount: number;
+  amount_tendered: number | null;
+}> {
+  try {
+    return db
+      .prepare(
+        `SELECT method_slug, amount, amount_tendered FROM order_payment_parts
+          WHERE order_id = ? ORDER BY idx`
+      )
+      .all(orderId) as any[];
+  } catch {
+    return [];
+  }
+}
+
+/** Replace an order's parts; an empty list makes it single-payment again. */
+export function writePayParts(
+  orderId: string,
+  parts: Array<{ method: string; amount: number; amount_tendered?: number | null }>
+) {
+  db.prepare(`DELETE FROM order_payment_parts WHERE order_id = ?`).run(orderId);
+  const ins = db.prepare(
+    `INSERT INTO order_payment_parts (order_id, idx, method_slug, amount, amount_tendered)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+  parts.forEach((p, i) =>
+    ins.run(orderId, i, p.method, Number(p.amount), p.amount_tendered ?? null)
+  );
+}
+
 /** The upsert /pull uses for order lines, for lines a reply carries. */
 export function orderLineUpsert() {
   return orderSyncOps().upPullLine;
@@ -868,6 +901,17 @@ export function normPullOrder(o: any) {
     external_id: S(o.external_id),
     closed_at: parseServerTime(o.closed_at_ms ?? o.closed_at),
     auto_closed: o.auto_closed == null ? null : B(o.auto_closed),
+    // Split payment parts; [] is a single payment, undefined is a server
+    // that does not say.
+    pay_parts: Array.isArray(o.payments)
+      ? o.payments
+          .map((p: any) => ({
+            method: S(p?.payment?.method_slug ?? p?.payment?.slug ?? p?.method_slug ?? p?.method) ?? '',
+            amount: Number(p?.amount ?? 0),
+            amount_tendered: p?.amount_tendered == null ? null : Number(p.amount_tendered),
+          }))
+          .filter((p: any) => p.method)
+      : undefined,
   };
 }
 
@@ -2015,7 +2059,13 @@ export function writePulledOrder(
         existing.synced_at == null || Number(existing.synced_at) === 0
       )
     : row.status;
-  const { table_name: _tn, ...rest } = row;
+  const { table_name: _tn, pay_parts: payParts, ...rest } = row;
+  // Another till's order: the server's parts. This till's own order: only when
+  // it has nothing unsent, so a split taken elsewhere (or undone) shows here too.
+  const ownPending = own && (existing.synced_at == null || Number(existing.synced_at) === 0);
+  if (Array.isArray(payParts) && !ownPending) {
+    writePayParts(target, payParts.length === 2 ? payParts : []);
+  }
   ops.upPullOrder.run({
     ...rest,
     status,
@@ -2103,12 +2153,9 @@ export async function reconcileOrderFromServer(
   const target = found.localId ?? orderRow.id;
   const write = db.transaction(() => {
     if (!isTerminalLocalOrder(found.row)) {
-      ops.upPullOrder.run({
-        ...orderRow,
-        id: target,
-        updated_at: Date.now(),
-        server_id: orderRow.id,
-      });
+      // Same write as /pull. This one used to omit @own, which the statement
+      // needs, so it threw and an order opened without its dishes never got them.
+      writePulledOrder(ops, orderRow, target, found.row);
     }
     let written = 0;
     for (const l of payload.lines) {

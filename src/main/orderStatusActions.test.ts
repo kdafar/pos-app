@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetOrderChanges, sendOrderChange, sendOrderLines } from './orderStatusActions';
+import { isLineSending, resetOrderChanges, sendOrderChange, sendOrderLines } from './orderStatusActions';
 
 const ORDER = { id: '107790', status_code: 2 };
 const SERVER_ORDER = { id: 107790, status: 4 };
@@ -163,5 +163,26 @@ describe('sendOrderLines', () => {
     await sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l1' }]).catch(() => {});
     await sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l1' }]);
     expect(ids[0]).toBe(ids[1]);
+  });
+});
+
+describe('lines being sent', () => {
+  beforeEach(() => resetOrderChanges());
+  it('are frozen while a send is unanswered, and free again once answered', async () => {
+    let fail = true;
+    const { d } = deps(async () => {
+      if (fail) throw new Error('network');
+      return { data: { applied: true, lines: [{ id: '9', temp_line_id: 'l1' }] } };
+    });
+    await sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l1' }]).catch(() => {});
+    expect(isLineSending('l1')).toBe(true);
+    fail = false;
+    await sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l1' }]);
+    expect(isLineSending('l1')).toBe(false);
+  });
+  it('a refusal frees them at once', async () => {
+    const { d } = deps(async () => { throw refusal(409, { code: 'POS_PAID_ALREADY_PAID' }); });
+    await sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l2' }]).catch(() => {});
+    expect(isLineSending('l2')).toBe(false);
   });
 });

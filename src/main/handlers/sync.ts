@@ -1,4 +1,4 @@
-import { applyServerTable } from '../sync';
+import { applyServerTable, readPayParts } from '../sync';
 import type { OrderChangeDeps } from '../orderStatusActions';
 import { HOLD_REFRESH_MS, holdTable, type HoldDeps } from '../tableHolds';
 import type { IpcMain } from 'electron';
@@ -150,9 +150,18 @@ function safeBuildOrderPayload(orderId: string) {
 
   // Split tender is expressed as payments[]; the singular payment{} form only
   // supports a single method and takes its amount from grand_total (§A2).
-  const payments = o.payment_method_slug
-    ? [{ method: o.payment_method_slug, amount: Number(o.grand_total || 0) }]
-    : [];
+  // Split payment: both parts, the tender on the cash one. Otherwise one part.
+  const parts = readPayParts(String(o.id));
+  const payments =
+    parts.length === 2
+      ? parts.map((p) => ({
+          method: p.method_slug,
+          amount: Number(p.amount),
+          ...(p.amount_tendered != null ? { amount_tendered: Number(p.amount_tendered) } : {}),
+        }))
+      : o.payment_method_slug
+        ? [{ method: o.payment_method_slug, amount: Number(o.grand_total || 0) }]
+        : [];
 
   // Re-validated on the way out rather than trusted from the column: an order
   // whose payment method was corrected to KNET after the fact still carries

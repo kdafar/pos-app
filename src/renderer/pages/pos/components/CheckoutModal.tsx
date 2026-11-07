@@ -22,6 +22,8 @@ import { PaymentLinkModal } from './PaymentLinkModal';
 import { useToast } from '../../../components/ToastProvider'; // adjust path if needed
 import { useI18n } from '../../../i18n';
 import { isOnlinePayment } from '../paymentKinds';
+import { splitParts } from '../../../../shared/splitPayment';
+import { isCashPayment as isCashSlug } from '../../../../shared/cashChange';
 import { DeliveryFeeRow } from './DeliveryFeeRow';
 import { describeError } from '../../../utils/posError';
 import { paymentStatusCode } from '../../../../shared/errors';
@@ -136,6 +138,19 @@ export function CheckoutModal({
    * a number on every keystroke fights the person at the keyboard.
    */
   const [cashReceived, setCashReceived] = useState('');
+
+  // Split payment: part cash, the rest by the method chosen above. Offered only
+  // where the shop has it on (orders.split_payment_enabled), and only with a
+  // non-cash, non-link method, which is what the server accepts.
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [splitOn, setSplitOn] = useState(false);
+  const [splitCash, setSplitCash] = useState('');
+  useEffect(() => {
+    window.api
+      .invoke('settings:get', 'orders.split_payment_enabled')
+      .then((v: unknown) => setSplitEnabled(String(v ?? '') === '1'))
+      .catch(() => setSplitEnabled(false));
+  }, []);
   const [useQuickMode, setUseQuickMode] = useState(false);
   const [customerLookup, setCustomerLookup] = useState<Customer | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -346,8 +361,23 @@ export function CheckoutModal({
    * A KNET terminal has already taken the exact amount, so there is no tender
    * to record and no change to hand back.
    */
+  const splitAllowed =
+    splitEnabled &&
+    !!formData.payment_method_slug &&
+    !isCashSlug(formData.payment_method_slug) &&
+    !isOnlinePayment(formData.payment_method_slug);
+  const splitActive = splitAllowed && splitOn;
+  const splitCashValue = Number(splitCash);
+  const splitPreview = splitActive
+    ? splitParts(computeDisplayTotals().grand_total, splitCashValue, formData.payment_method_slug)
+    : null;
+  /** What the cash in the drawer has to cover: the cash part of a split, else the bill. */
+  const cashDue = splitActive
+    ? Number.isFinite(splitCashValue) ? splitCashValue : 0
+    : computeDisplayTotals().grand_total;
+
   const showCashCapture =
-    capturesCash && isCashPayment(formData.payment_method_slug);
+    capturesCash && (isCashPayment(formData.payment_method_slug) || (splitActive && cashDue > 0));
 
   /** What the cashier has typed, as a number — NaN while it is unusable. */
   const tenderedValue = Number(cashReceived);
@@ -356,9 +386,9 @@ export function CheckoutModal({
   // against 0.507 would contradict the warning shown right under the field.
   const changePreview = showCashCapture && isTenderable(tenderedValue)
     ? computeChangeBlock({
-        grandTotal: computeDisplayTotals().grand_total,
+        grandTotal: cashDue,
         amountTendered: tenderedValue,
-        paymentSlug: formData.payment_method_slug,
+        paymentSlug: splitActive ? 'cash' : formData.payment_method_slug,
         enabled: true,
       })
     : null;
@@ -373,7 +403,7 @@ export function CheckoutModal({
     cashReceived.trim() !== '' &&
     Number.isFinite(tenderedValue) &&
     tenderedValue > 0 &&
-    tenderedValue < computeDisplayTotals().grand_total;
+    tenderedValue < cashDue;
 
   /**
    * Typed an amount that does not exist in coins — 0.007, say.
@@ -394,11 +424,11 @@ export function CheckoutModal({
     showCashCapture &&
     Number.isFinite(tenderedValue) &&
     isTenderable(tenderedValue) &&
-    tenderedValue >= computeDisplayTotals().grand_total;
+    tenderedValue >= cashDue;
 
   /** The notes a customer plausibly hands over for this bill. */
-  const tenderChoices = showCashCapture
-    ? suggestTenders(computeDisplayTotals().grand_total)
+  const tenderChoices = showCashCapture && cashDue > 0
+    ? suggestTenders(cashDue)
     : [];
 
 
@@ -449,6 +479,10 @@ export function CheckoutModal({
 
     if (order.order_type === 3 && !order.table_id) {
       found.push({ code: 'POS_VAL_TABLE_REQUIRED', field: 'table' });
+    }
+
+    if (splitActive && !splitPreview) {
+      found.push({ code: 'POS_VAL_SPLIT_AMOUNT' as FormIssue['code'], field: 'payment_method' });
     }
 
     if (!formData.payment_method_id || !formData.payment_method_slug) {
@@ -517,6 +551,8 @@ export function CheckoutModal({
         // main process re-validates against the recalculated total and drops
         // anything short, so this is a capture, not a claim.
         amount_tendered: cashIsUsable ? tenderedValue : null,
+        // Split: the cash part; the main process works out the other part.
+        split_cash_amount: splitActive && splitPreview ? splitPreview[0].amount : null,
         state_id: selectedState?.id ?? null,
         city_id: selectedCity?.id ?? null,
         block_id: selectedBlock?.id ?? null,
@@ -1076,6 +1112,50 @@ export function CheckoutModal({
                 );
               })}
             </div>
+            {splitAllowed && (
+              <div className='mt-2 rounded-[13px] border border-line-strong bg-surface p-3 space-y-2'>
+                <label className='flex items-center gap-2 font-semibold ink cursor-pointer'>
+                  <input
+                    type='checkbox'
+                    className='accent-[var(--brand)] h-4 w-4'
+                    checked={splitOn}
+                    onChange={(e) => {
+                      setSplitOn(e.target.checked);
+                      setCashReceived('');
+                    }}
+                  />
+                  {t('checkout.splitCash')}
+                </label>
+                {splitOn && (
+                  <div className='grid grid-cols-2 gap-2 items-center'>
+                    <span className='ink-2 text-sm'>{t('checkout.splitCashPart')}</span>
+                    <input
+                      type='text'
+                      inputMode='decimal'
+                      dir='ltr'
+                      value={splitCash}
+                      onChange={(e) => {
+                        const next = e.target.value.replace(/[^\d.]/g, '');
+                        if (/^\d*\.?\d{0,3}$/.test(next)) setSplitCash(next);
+                      }}
+                      placeholder='0.000'
+                      className='min-h-11 text-end rounded-[11px] border border-line-strong px-2 py-1 money bg-surface ink focus:outline-none focus:border-[var(--brand)] focus:shadow-[0_0_0_4px_var(--brand-ring)]'
+                    />
+                    <span className='ink-2 text-sm'>
+                      {t('checkout.splitOtherPart', {
+                        method: localName({
+                          name: paymentMethods.find((m: any) => String(m.id) === String(formData.payment_method_id))?.name_en ?? formData.payment_method_slug,
+                          name_ar: paymentMethods.find((m: any) => String(m.id) === String(formData.payment_method_id))?.name_ar ?? null,
+                        }),
+                      })}
+                    </span>
+                    <span className='text-end font-semibold money ink'>
+                      {splitPreview ? money(splitPreview[1].amount) : '—'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
             <FieldError issue={issues.codeFor('payment_method')} />
           </div>
 

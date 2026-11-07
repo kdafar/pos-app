@@ -1,3 +1,5 @@
+import { isCashPayment } from '../shared/cashChange';
+import { readPayParts } from './sync';
 import { BrowserWindow, ipcMain, app, dialog } from 'electron';
 import { execFile } from 'node:child_process';
 import os from 'node:os';
@@ -569,6 +571,8 @@ function renderReceiptHTML(opts: {
   barcodeDataUrl?: string | null;
   currency: string;
   orderNotes?: string | null;
+  /** Split payment parts; empty for a single payment. */
+  payParts?: Array<{ method_slug: string; amount: number; amount_tendered: number | null }>;
 }) {
   const {
     aboutLogo,
@@ -762,10 +766,13 @@ function renderReceiptHTML(opts: {
   // sends both figures for an order pulled back down, and they agree by
   // construction — change_due is stored, not printed, so a support question
   // about a disputed slip can be answered by comparing the two.
+  // A split bill: the change is against the cash part, never the whole bill.
+  const parts = opts.payParts ?? [];
+  const cashPart = parts.length === 2 ? parts.find((p) => isCashPayment(p.method_slug)) : undefined;
   const changeBlock = computeChangeBlock({
-    grandTotal,
-    amountTendered: order.amount_tendered,
-    paymentSlug: order.payment_method_slug,
+    grandTotal: cashPart ? Number(cashPart.amount) : grandTotal,
+    amountTendered: cashPart ? cashPart.amount_tendered ?? order.amount_tendered : order.amount_tendered,
+    paymentSlug: cashPart ? 'cash' : order.payment_method_slug,
     enabled: branch?.show_change_on_receipt,
   });
 
@@ -812,10 +819,11 @@ function renderReceiptHTML(opts: {
     : '';
 
   const orderTypeText = orderTypeLabel(order.order_type, lang);
-  const paymentLabel = order.payment_method_slug
-    ? order.payment_method_slug.charAt(0).toUpperCase() +
-      order.payment_method_slug.slice(1)
-    : '';
+  const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
+  const paymentLabel =
+    parts.length === 2
+      ? parts.map((p) => `${cap(p.method_slug)} ${Number(p.amount).toFixed(3)}`).join(' + ')
+      : cap(order.payment_method_slug ?? '');
   const statusText = orderStatusLabel(order.status, lang);
 
   const addressBlock =
@@ -2162,6 +2170,7 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
         barcodeDataUrl,
         currency,
         orderNotes: order.order_notes || null,
+        payParts: readPayParts(orderId),
       });
 
       if (opts?.savePdf) {

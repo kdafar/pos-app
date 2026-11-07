@@ -20,6 +20,8 @@ export type OrderChange = {
   status?: number;
   payment_method?: string;
   amount_tendered?: number;
+  /** Split payment, instead of payment_method and amount_tendered. */
+  payments?: Array<{ method: string; amount: number; amount_tendered?: number }>;
   closed_at?: number;
   approval?: Record<string, unknown>;
 };
@@ -48,6 +50,16 @@ const DECLARED_REFUSALS = new Set([
 
 /** Action ids of changes that got no answer, by what they were changing. */
 const unanswered = new Map<string, string>();
+
+/**
+ * Lines sent with no answer yet. They cannot be edited until the send is
+ * answered: the retry reuses the action id, so the server would replay the
+ * first send and an edit made in between would be lost without a word.
+ */
+const sendingLines = new Set<string>();
+export function isLineSending(lineId: string): boolean {
+  return sendingLines.has(String(lineId));
+}
 
 function keyFor(orderId: string, c: OrderChange): string {
   return [orderId, c.status ?? '', c.payment_method ?? '', c.amount_tendered ?? ''].join('|');
@@ -79,10 +91,21 @@ export async function sendOrderLines(
 ): Promise<OrderChangeResult & { lines: any[] }> {
   const expected = order.status_code == null ? NaN : Number(order.status_code);
   const key = [String(order.id), 'lines', ...lines.map((l) => l.temp_line_id)].join('|');
-  return post(deps, order, by, 'lines', key, {
-    lines,
-    ...(Number.isInteger(expected) ? { expected_status: expected } : {}),
-  });
+  for (const l of lines) sendingLines.add(String(l.temp_line_id));
+  try {
+    const out = await post(deps, order, by, 'lines', key, {
+      lines,
+      ...(Number.isInteger(expected) ? { expected_status: expected } : {}),
+    });
+    for (const l of lines) sendingLines.delete(String(l.temp_line_id));
+    return out;
+  } catch (e: any) {
+    // Answered (a refusal): the lines are editable again. Unanswered: frozen.
+    if (e?.code !== 'POS_ORDER_CHANGE_UNSENT') {
+      for (const l of lines) sendingLines.delete(String(l.temp_line_id));
+    }
+    throw e;
+  }
 }
 
 async function post(
@@ -147,4 +170,5 @@ async function post(
 /** For tests. */
 export function resetOrderChanges() {
   unanswered.clear();
+  sendingLines.clear();
 }

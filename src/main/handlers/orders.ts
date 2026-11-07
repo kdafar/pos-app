@@ -21,8 +21,9 @@ import { reconcileOrderFromServer } from '../sync';
 import { holdDeps, orderChangeDeps, schedulePushSoon, toServerUserId } from './sync';
 import { holdTable, releaseHold } from '../tableHolds';
 import { isOwnOrder } from '../paidMarks';
-import { sendOrderChange, sendOrderLines, type OrderChange } from '../orderStatusActions';
-import { normPullLine, orderLineUpsert } from '../sync';
+import { isLineSending, sendOrderChange, sendOrderLines, type OrderChange } from '../orderStatusActions';
+import { normPullLine, orderLineUpsert, writePayParts } from '../sync';
+import { largerPart, splitParts, type PayPart } from '../../shared/splitPayment';
 import { newUlid } from '../../shared/paid';
 import {
   ORDER_STATUS,
@@ -262,13 +263,47 @@ export function registerOrdersHandlers(
     const wire = unsent.map((l) => ({ ...l, temp_line_id: String(l.id) }));
     const res = await sendOrderLines(orderChangeDeps(), order, by, wire);
     const upLine = orderLineUpsert();
+    // Only the local lines the reply accounts for are replaced. A reply that
+    // names its lines by temp_line_id is matched exactly; one that does not
+    // must at least return as many lines as were sent.
+    const confirmed = new Set(
+      res.lines.map((l: any) => String(l?.temp_line_id ?? '')).filter(Boolean)
+    );
+    const replaced = confirmed.size
+      ? unsent.filter((l) => confirmed.has(String(l.id)))
+      : res.applied && res.lines.length === unsent.length
+        ? unsent
+        : [];
     rawDb.transaction(() => {
       const drop = rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`);
-      for (const l of unsent) drop.run(l.id);
+      for (const l of replaced) drop.run(l.id);
       for (const l of res.lines) upLine.run(normPullLine(l, String(order.id)));
     })();
     log('orders.addLinesOtherTill', order.id, { lines: res.lines.length, replayed: res.replayed });
     return res.lines.map((l: any) => String(l.id));
+  };
+
+  /**
+   * The split asked for at checkout, as parts with the tender on the cash one,
+   * or null for a single payment. Refused when the shop has split payment off
+   * or the amounts do not qualify, so nothing half-split is ever stored.
+   */
+  const splitFor = (customer: any, grandTotal: unknown): PayPart[] | null => {
+    if (customer?.split_cash_amount == null || customer.split_cash_amount === '') return null;
+    const enabled =
+      String(
+        (rawDb
+          .prepare(`SELECT value FROM app_settings WHERE key = 'orders.split_payment_enabled'`)
+          .pluck()
+          .get() as string | undefined) ?? ''
+      ) === '1';
+    const parts = enabled
+      ? splitParts(Number(grandTotal), Number(customer.split_cash_amount), customer.payment_method_slug)
+      : null;
+    if (!parts) throw posError('POS_VAL_SPLIT_AMOUNT', { field: 'payment_method' });
+    const tender = tenderForWire(customer.amount_tendered, parts[0].amount);
+    if (tender != null) parts[0].amount_tendered = tender;
+    return parts;
   };
 
   /** Close, cancel or move on another till's order. Permissions as the server has them. */
@@ -1154,8 +1189,8 @@ export function registerOrdersHandlers(
         )
         .all(orderId, itemId) as any[];
 
-      // Prefer an UNLOCKED line to merge into
-      row = candidates.find((l) => Number(l.is_locked || 0) === 0) || null;
+      // Prefer an UNLOCKED line to merge into (never one still being sent)
+      row = candidates.find((l) => Number(l.is_locked || 0) === 0 && !isLineSending(l.id)) || null;
 
       if (row) {
         const newQty = Number(row.qty || 0) + Number(qty || 0);
@@ -1476,6 +1511,7 @@ export function registerOrdersHandlers(
 
       // The line check above protects what was sent; a new round on a placed
       // table must stay correctable before it is sent.
+      if (isLineSending(line.id)) throw posError('POS_ORDER_LINES_SENDING');
       assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true, allowOtherTillUnsent: true });
 
       if (qty <= 0) {
@@ -1506,6 +1542,7 @@ export function registerOrdersHandlers(
       return voidSentLine(line, 0, approval);
     }
 
+    if (isLineSending(line.id)) throw posError('POS_ORDER_LINES_SENDING');
     assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true, allowOtherTillUnsent: true });
     rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
     return recalcAndGet(line.order_id);
@@ -1524,6 +1561,11 @@ export function registerOrdersHandlers(
         sql += ` AND (is_locked IS NULL OR is_locked = 0)`;
       }
 
+      const sending = (rawDb
+        .prepare(`SELECT id FROM order_lines WHERE order_id = ? AND item_id = ?`)
+        .pluck()
+        .all(orderId, itemId) as string[]).filter(isLineSending);
+      if (sending.length) throw posError('POS_ORDER_LINES_SENDING');
       rawDb.prepare(sql).run(orderId, itemId);
       return recalcAndGet(orderId);
     }
@@ -1794,6 +1836,17 @@ export function registerOrdersHandlers(
       if (row && !isOwnOrder(row)) {
         const added = await sendUnsentLinesOfOtherTill(row);
         const fresh = getOrderRow(orderId) ?? row;
+        const split = splitFor(customer, fresh.grand_total);
+        if (split) {
+          const out = await changeOtherTillsOrder(fresh, {
+            payments: split.map((p) => ({
+              method: p.method,
+              amount: p.amount,
+              ...(p.amount_tendered != null ? { amount_tendered: p.amount_tendered } : {}),
+            })),
+          });
+          return { ...(out as any), added_line_ids: added };
+        }
         const slug = String(customer?.payment_method_slug ?? '').trim();
         const tender = isCashPayment(slug)
           ? tenderForWire(customer?.amount_tendered, fresh.grand_total)
@@ -1919,9 +1972,21 @@ export function registerOrdersHandlers(
       // slip whose change line does not match its own bill. tenderForWire
       // drops anything short — that is a partial payment, not a rounding
       // question — and drops it silently, because the sale itself is valid.
-      const tendered = isCashPayment(customer.payment_method_slug)
-        ? tenderForWire(customer.amount_tendered, totals.grand_total)
-        : null;
+      const split = splitFor(customer, totals.grand_total);
+      if (split) {
+        // The order carries the larger part, as the server files it.
+        const main = largerPart(split);
+        const m = rawDb
+          .prepare(`SELECT id, slug FROM payment_methods WHERE slug = ? LIMIT 1`)
+          .get(main.method) as any;
+        params[1] = m?.id != null ? String(m.id) : customer.payment_method_id;
+        params[2] = main.method;
+      }
+      const tendered = split
+        ? split[0].amount_tendered ?? null
+        : isCashPayment(customer.payment_method_slug)
+          ? tenderForWire(customer.amount_tendered, totals.grand_total)
+          : null;
 
       if (hasColumn('orders', 'amount_tendered')) {
         cols.push('amount_tendered = ?');
@@ -1958,6 +2023,9 @@ export function registerOrdersHandlers(
         console.error('Orders:complete SQL Error:', err.message);
         throw posError('POS_DB_WRITE_FAILED', { cause: err });
       }
+
+      // Split parts, or none: a re-checkout as one payment clears an old split.
+      writePayParts(orderId, split ?? []);
 
       // Placing sends every line, so every line is now "sent". This is what
       // tells a later round apart from the first: only unlocked lines can be

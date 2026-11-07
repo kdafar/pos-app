@@ -522,6 +522,19 @@ export function migrate() {
   // Table holds: a draft on another till. held_by is the server's object as JSON.
   ensureColumn('tables', 'held INTEGER', 'held');
   ensureColumn('tables', 'held_by TEXT', 'held_by');
+  // Split payment: one row per part (cash + one other method). An order with
+  // no rows here was paid one way. Not named order_payments: an old report
+  // fallback reads a table by that name.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS order_payment_parts (
+      order_id TEXT NOT NULL,
+      idx INTEGER NOT NULL,
+      method_slug TEXT NOT NULL,
+      amount REAL NOT NULL,
+      amount_tendered REAL,
+      PRIMARY KEY (order_id, idx)
+    )
+  `);
   // The table this till holds for its own draft, and when it last said so.
   ensureColumn('orders', 'hold_table_id TEXT', 'hold_table_id');
   ensureColumn('orders', 'hold_at INTEGER', 'hold_at');

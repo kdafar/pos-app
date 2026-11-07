@@ -188,6 +188,9 @@ export const cartStrings = {
     ar: 'المبلغ المدفوع',
   },
   'checkout.change': { en: 'Change', ar: 'الباقي' },
+  'checkout.splitCash': { en: 'Pay part in cash', ar: 'دفع جزء نقداً' },
+  'checkout.splitCashPart': { en: 'Cash part', ar: 'الجزء النقدي' },
+  'checkout.splitOtherPart': { en: 'Rest by {method}', ar: 'الباقي عبر {method}' },
   'checkout.rounding': { en: 'Rounding', ar: 'التقريب' },
   // Shown under the field when the cashier types less than the bill. Not an
   // error: the sale is fine, the tender simply is not recorded.

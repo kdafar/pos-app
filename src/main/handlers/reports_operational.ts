@@ -787,6 +787,65 @@ export function registerOperationalReportHandlers(services: MainServices) {
           }
         }
 
+        // Split payment: the query above files a split bill whole under its
+        // larger part. Move each part to its own method, as the server's
+        // reports do: the money adds up exactly, and a split order counts once
+        // under each of its two methods.
+        try {
+          const splits = db
+            .prepare(
+              `SELECT p.order_id, p.method_slug, p.amount, s.grand_total,
+                      COALESCE(NULLIF(TRIM(s.payment_method_slug), ''), '') AS filed_under
+                 FROM order_payment_parts p
+                 JOIN orders s ON s.id = p.order_id
+                WHERE ${msExpr(tsCol, 's')} >= @fromMs AND ${msExpr(tsCol, 's')} < @toMs
+                  ${branchFilter('s')}
+                  ${soldFilter('s')}`
+            )
+            .all({ fromMs, toMs, branch_id: branchId }) as Array<{
+            order_id: string;
+            method_slug: string;
+            amount: number;
+            grand_total: number;
+            filed_under: string;
+          }>;
+          if (splits.length) {
+            const nameOf = (slug: string) =>
+              (hasPmTable
+                ? (db
+                    .prepare(`SELECT COALESCE(name_en, name_ar, slug) FROM payment_methods WHERE slug = ?`)
+                    .pluck()
+                    .get(slug) as string | undefined)
+                : undefined) ?? slug;
+            const rowFor = (slug: string) => {
+              let r = rows.find((x) => x.id === slug);
+              if (!r) {
+                r = { id: slug, name: nameOf(slug), count: 0, total: 0 };
+                rows.push(r);
+              }
+              return r;
+            };
+            const seen = new Set<string>();
+            for (const sp of splits) {
+              if (!seen.has(sp.order_id)) {
+                seen.add(sp.order_id);
+                const filed = rowFor(sp.filed_under || 'unknown');
+                filed.count -= 1;
+                filed.total = +(filed.total - Number(sp.grand_total || 0)).toFixed(3);
+              }
+              const part = rowFor(sp.method_slug);
+              part.count += 1;
+              part.total = +(part.total + Number(sp.amount || 0)).toFixed(3);
+            }
+            for (let i = rows.length - 1; i >= 0; i--) {
+              if (rows[i].count <= 0 && Math.abs(rows[i].total) < 0.0005) rows.splice(i, 1);
+            }
+            rows.sort((a, b) => b.total - a.total);
+          }
+        } catch (e) {
+          console.error('[report] split payment parts', e);
+        }
+
         return rows;
       })();
 
