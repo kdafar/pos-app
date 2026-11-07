@@ -4,7 +4,7 @@ import path from 'node:path';
 vi.mock('electron', () => ({ app: { getPath: () => '' } }));
 vi.mock('./db', () => ({ default: {}, getMeta: () => null }));
 
-const { hashName, isShopPhotoUrl } = await import('./imageCache');
+const { hashName, isShopPhotoUrl, shopPhotoOrNull } = await import('./imageCache');
 const url = 'https://shop.test/storage/a.jpg';
 
 describe('hashName', () => {
@@ -38,11 +38,30 @@ describe('isShopPhotoUrl', () => {
       'http://192.168.1.1/a.jpg',
       'http://localhost/a.jpg',
       'file:///etc/passwd',
+      'http://dev.trebianco.com/a.jpg',
+      'https://dev.trebianco.com:8443/a.jpg',
     ]) {
       expect(isShopPhotoUrl(u, base)).toBe(false);
     }
   });
   it('refuses when the shop address is unknown', () => {
     expect(isShopPhotoUrl('https://dev.trebianco.com/a.jpg', null)).toBe(false);
+  });
+});
+
+describe('shopPhotoOrNull', () => {
+  const base = 'https://dev.trebianco.com/';
+  it('keeps the shop server and relative paths', () => {
+    expect(shopPhotoOrNull('https://dev.trebianco.com/a.jpg', base)).toBe('https://dev.trebianco.com/a.jpg');
+    expect(shopPhotoOrNull('/storage/a.jpg', base)).toBe('/storage/a.jpg');
+    expect(shopPhotoOrNull(null, base)).toBeNull();
+  });
+  it('drops anything else, so the item card cannot load it', () => {
+    for (const u of ['https://evil.test/a.jpg', '//evil.test/a.jpg', 'http://192.168.1.1/a.jpg', 'file:///etc/passwd', 'data:image/png;base64,AA']) {
+      expect(shopPhotoOrNull(u, base)).toBeNull();
+    }
+  });
+  it('judges nothing before the shop address is known', () => {
+    expect(shopPhotoOrNull('https://dev.trebianco.com/a.jpg', null)).toBe('https://dev.trebianco.com/a.jpg');
   });
 });

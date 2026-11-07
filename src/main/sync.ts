@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import db, { getMeta, setMeta } from './db';
 import { loadSecret, saveSecret } from './secureStore';
-import { prefetchImagesFor, prefetchItemImages } from './imageCache';
+import { prefetchImagesFor, prefetchItemImages, shopPhotoOrNull } from './imageCache';
 import { app } from 'electron';
 
 import { posError } from '../shared/errorCodes';
@@ -208,7 +208,7 @@ function normItem(it: any) {
     name_ar: S(it.name_ar) ?? '',
     barcode: S(it.barcode),
     price: N(it.price),
-    image: S(it.image),
+    image: shopPhotoOrNull(S(it.image), getMeta('server.base_url')),
     size: S(it.size),
     has_variations: B(it.has_variations),
     has_addons: B(it.has_addons),

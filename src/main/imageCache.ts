@@ -38,11 +38,32 @@ const bareHost = (h: string) => h.toLowerCase().replace(/^www\./, '');
 export function isShopPhotoUrl(url: string, baseUrl: string | null | undefined): boolean {
   try {
     const u = new URL(url);
+    const base = new URL(String(baseUrl));
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
-    return bareHost(u.hostname) === bareHost(new URL(String(baseUrl)).hostname);
+    // No downgrade from an https shop, and the same port: another port on the
+    // same host can be a different service.
+    if (base.protocol === 'https:' && u.protocol !== 'https:') return false;
+    if (u.port !== base.port) return false;
+    return bareHost(u.hostname) === bareHost(base.hostname);
   } catch {
     return false;
   }
+}
+
+/**
+ * What may be stored as an item's photo address. Applied before it is saved,
+ * because the item card also loads this address directly when no local copy
+ * exists. A path on the shop's server is kept. An address elsewhere is dropped;
+ * the card then shows no photo. With no known shop address nothing can be judged.
+ */
+export function shopPhotoOrNull(
+  raw: string | null,
+  baseUrl: string | null | undefined
+): string | null {
+  if (!raw) return raw;
+  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('//');
+  if (!absolute || !baseUrl) return raw;
+  return isShopPhotoUrl(raw, baseUrl) ? raw : null;
 }
 
 /**
