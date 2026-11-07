@@ -53,15 +53,33 @@ describe('shopPhotoOrNull', () => {
   const base = 'https://dev.trebianco.com/';
   it('keeps the shop server and relative paths', () => {
     expect(shopPhotoOrNull('https://dev.trebianco.com/a.jpg', base)).toBe('https://dev.trebianco.com/a.jpg');
-    expect(shopPhotoOrNull('/storage/a.jpg', base)).toBe('/storage/a.jpg');
+    expect(shopPhotoOrNull('/storage/a.jpg', base)).toBe('https://dev.trebianco.com/storage/a.jpg');
     expect(shopPhotoOrNull(null, base)).toBeNull();
   });
   it('drops anything else, so the item card cannot load it', () => {
-    for (const u of ['https://evil.test/a.jpg', '//evil.test/a.jpg', 'http://192.168.1.1/a.jpg', 'file:///etc/passwd', 'data:image/png;base64,AA']) {
+    for (const u of [
+      'https://evil.test/a.jpg',
+      '//evil.test/a.jpg',
+      'http://192.168.1.1/a.jpg',
+      'file:///etc/passwd',
+      'data:image/png;base64,AA',
+      '\\\\evil.test\\a.jpg',
+      '/\\evil.test/a.jpg',
+      ' //evil.test/a.jpg',
+      '\t//evil.test/a.jpg',
+      '/\t/evil.test/a.jpg',
+      '/a\nb.jpg',
+      '\\\\dev.trebianco.com\\a.jpg',
+    ]) {
       expect(shopPhotoOrNull(u, base)).toBeNull();
     }
   });
-  it('judges nothing before the shop address is known', () => {
-    expect(shopPhotoOrNull('https://dev.trebianco.com/a.jpg', null)).toBe('https://dev.trebianco.com/a.jpg');
+  it('keeps a photo with a space in its name', () => {
+    expect(shopPhotoOrNull('https://dev.trebianco.com/grilled chicken.jpg', base)).toBe(
+      'https://dev.trebianco.com/grilled%20chicken.jpg'
+    );
+  });
+  it('stores nothing when the shop address is unknown', () => {
+    expect(shopPhotoOrNull('https://dev.trebianco.com/a.jpg', null)).toBeNull();
   });
 });

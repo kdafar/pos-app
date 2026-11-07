@@ -53,17 +53,22 @@ export function isShopPhotoUrl(url: string, baseUrl: string | null | undefined):
 /**
  * What may be stored as an item's photo address. Applied before it is saved,
  * because the item card also loads this address directly when no local copy
- * exists. A path on the shop's server is kept. An address elsewhere is dropped;
- * the card then shows no photo. With no known shop address nothing can be judged.
+ * exists. Parsed the way a browser parses it, not pattern-matched: browsers read
+ * `\\host\a.jpg` as a host and skip leading spaces and tabs. Returns the full
+ * address on the shop's server, or null, and the card then shows no photo.
  */
 export function shopPhotoOrNull(
   raw: string | null,
   baseUrl: string | null | undefined
 ): string | null {
   if (!raw) return raw;
-  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('//');
-  if (!absolute || !baseUrl) return raw;
-  return isShopPhotoUrl(raw, baseUrl) ? raw : null;
+  if (!baseUrl || /[\\\x00-\x1f]/.test(raw) || raw !== raw.trim()) return null;
+  try {
+    const href = new URL(raw, baseUrl).href;
+    return isShopPhotoUrl(href, baseUrl) ? href : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
