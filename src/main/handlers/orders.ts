@@ -18,7 +18,8 @@ import {
 import { logAction } from '../utils/logging';
 import { allowAnonymousAdmin, isAdminRole } from '../utils/authContext';
 import { reconcileOrderFromServer } from '../sync';
-import { orderChangeDeps, schedulePushSoon, toServerUserId } from './sync';
+import { holdDeps, orderChangeDeps, schedulePushSoon, toServerUserId } from './sync';
+import { holdTable, releaseHold } from '../tableHolds';
 import { isOwnOrder } from '../paidMarks';
 import { sendOrderChange, type OrderChange } from '../orderStatusActions';
 import { newUlid } from '../../shared/paid';
@@ -1575,6 +1576,12 @@ export function registerOrdersHandlers(
         previous_status: order.status,
       });
 
+      if (order.hold_table_id) {
+        await releaseHold(holdDeps(), String(order.hold_table_id), {
+          temp_id: String(orderId),
+          by: toServerUserId(getCurrentPosUser().id),
+        });
+      }
       rawDb.transaction(() => {
         // Explicit child cleanup also covers legacy databases where foreign
         // key enforcement may not have been enabled when the DB was created.
@@ -2155,12 +2162,32 @@ export function registerOrdersHandlers(
       if (!o) throw posError('POS_VAL_ORDER_NOT_FOUND');
       if (Number(o.order_type) !== 3) throw posError('POS_VAL_NOT_DINE_IN');
 
+      // A draft holds its table so every other till sees it as taken. Asked
+      // before anything changes here: if another till has it, nothing moves.
+      const isDraft = ['open', 'pending'].includes(String(o.status ?? '').toLowerCase());
+      const moving = String(o.table_id ?? '') !== String(tableId);
+      let heldNow = false;
+      if (isDraft && moving) {
+        const res = await holdTable(holdDeps(), String(tableId), {
+          temp_id: String(orderId),
+          covers,
+          by: toServerUserId(getCurrentPosUser().id),
+        });
+        heldNow = res.held;
+      }
+
       rawDb.transaction(() => {
         rawDb
           .prepare(
             `UPDATE orders SET table_id = ?, covers = ?, updated_at = ? WHERE id = ?`
           )
           .run(tableId, covers, ts, orderId);
+        if (isDraft && moving) {
+          // hold_at 0: not confirmed yet, so the next sync takes the hold.
+          rawDb
+            .prepare(`UPDATE orders SET hold_table_id = ?, hold_at = ? WHERE id = ?`)
+            .run(String(tableId), heldNow ? Date.now() : 0, orderId);
+        }
         // A fresh choice supersedes the server's refusal of the last one.
         if (hasColumn('orders', 'push_notice')) {
           rawDb.prepare(`UPDATE orders SET push_notice = NULL WHERE id = ?`).run(orderId);
@@ -2172,6 +2199,12 @@ export function registerOrdersHandlers(
           .prepare(`UPDATE tables SET is_available = 0 WHERE id = ?`)
           .run(tableId);
       })();
+      if (isDraft && moving && o.hold_table_id) {
+        await releaseHold(holdDeps(), String(o.hold_table_id), {
+          temp_id: String(orderId),
+          by: toServerUserId(getCurrentPosUser().id),
+        });
+      }
       // Moving an order that has already been sent must reach the server too;
       // the push skips anything already stamped as synced.
       markForRepush(orderId);
@@ -2291,11 +2324,17 @@ export function registerOrdersHandlers(
       rawDb.transaction(() => {
         rawDb
           .prepare(
-            `UPDATE orders SET table_id = NULL, covers = NULL, updated_at = ? WHERE id = ?`
+            `UPDATE orders SET table_id = NULL, covers = NULL, hold_table_id = NULL, hold_at = NULL, updated_at = ? WHERE id = ?`
           )
           .run(nowMs(), orderId);
         if (order.table_id) releaseTableIfFree(order.table_id);
       })();
+      if (order.hold_table_id) {
+        await releaseHold(holdDeps(), String(order.hold_table_id), {
+          temp_id: String(orderId),
+          by: toServerUserId(getCurrentPosUser().id),
+        });
+      }
 
       return getOrderWithLines(orderId);
     }

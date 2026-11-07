@@ -60,6 +60,7 @@ export const navStrings = {
     ar: 'الجهاز غير مربوط — افتح الإعدادات',
   },
   'sync.failed': { en: 'Sync failed', ar: 'فشلت المزامنة' },
+  'holds.lost': { en: '{table} was taken while order {number} was open', ar: 'أُخذت {table} أثناء فتح الطلب {number}' },
   'sync.failedHint': {
     en: 'Check connection/base URL/pairing.',
     ar: 'تأكد من الاتصال ورابط الخادم وربط الجهاز.',

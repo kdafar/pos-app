@@ -8,6 +8,23 @@ import { tableNumber } from '../sync';
 // is what every dine-in order becomes on "Place order". A seated table then
 // lost its order — no active highlight, and a tap could not reopen it.
 
+function parseHeldBy(raw: unknown): any {
+  try {
+    return raw ? JSON.parse(String(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+function heldByName(raw: unknown): string | null {
+  const h = parseHeldBy(raw);
+  const parts = [h?.device_name, h?.user_name].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+function heldByMe(raw: unknown): boolean {
+  const h = parseHeldBy(raw);
+  return !!h?.device_id && String(h.device_id) === String(getMeta('device_id') ?? '');
+}
+
 export function registerTableHandlers(ipcMain: IpcMain) {
   ipcMain.handle('tables:list', async () => {
     const branchId = Number(getMeta('branch_id') || 0);
@@ -23,6 +40,8 @@ export function registerTableHandlers(ipcMain: IpcMain) {
           NULLIF(t.label_ar, '') AS name_ar,
           t.capacity,
           t.is_available,
+          t.held,
+          t.held_by,
           t.branch_id,
           t.section_id,
           COALESCE(t.sort_order, 0) AS sort_order,
@@ -123,6 +142,11 @@ export function registerTableHandlers(ipcMain: IpcMain) {
         active_order_id: r.active_order_id ? String(r.active_order_id) : null,
         active_order_status: r.active_order_status ?? null,
         active_order_number: r.active_order_number ?? null,
+
+        // Held for a draft on another till: who, so staff can find it.
+        held: Number(r.held) === 1,
+        held_by: heldByName(r.held_by),
+        held_by_me: heldByMe(r.held_by),
 
         // backward compat
         current_order_id: r.current_order_id ?? r.active_order_id ?? null,

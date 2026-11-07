@@ -519,6 +519,12 @@ export function migrate() {
   ensureColumn('tables', 'section_id TEXT', 'section_id');
   ensureColumn('tables', 'sort_order INTEGER DEFAULT 0', 'sort_order');
   ensureColumn('tables', 'label_ar TEXT', 'label_ar');
+  // Table holds: a draft on another till. held_by is the server's object as JSON.
+  ensureColumn('tables', 'held INTEGER', 'held');
+  ensureColumn('tables', 'held_by TEXT', 'held_by');
+  // The table this till holds for its own draft, and when it last said so.
+  ensureColumn('orders', 'hold_table_id TEXT', 'hold_table_id');
+  ensureColumn('orders', 'hold_at INTEGER', 'hold_at');
 
   // Manager approval. The server sends the bcrypt hash of a manager's 6-digit
   // approval code; the till checks a typed or scanned code against it offline.

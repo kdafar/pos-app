@@ -70,6 +70,16 @@ const APP_VENDOR = packageJson.author || 'Majestic POS';
 
 export function Layout() {
   const toast = useToast();
+  // A draft's table taken by another till while this one could not renew its
+  // hold (offline, say). Said once, before the cashier places the order.
+  const warnHoldsLost = (res: any) => {
+    for (const h of res?.holds_lost ?? []) {
+      toast.error(
+        { code: 'POS_TABLE_TAKEN', params: { held_by: h.held_by || '' }, fallback: '' },
+        { title: t('holds.lost', { table: h.table, number: h.number }) }
+      );
+    }
+  };
   const { t } = useI18n();
   const collapsed = useStore((s) => s.collapsed);
   const toggleCollapsed = useStore((s) => s.actions.toggleCollapsed);
@@ -217,9 +227,10 @@ export function Layout() {
       try {
         syncingRef.current = true;
         setSyncing(true);
-        await window.api.invoke('sync:run');
+        const res = await window.api.invoke('sync:run');
         announceSynced();
         await refreshStatus();
+        warnHoldsLost(res);
       } catch (e) {
         console.error('auto sync:run failed', e);
       } finally {
@@ -243,6 +254,7 @@ export function Layout() {
       const res = await window.api.invoke('sync:run');
       announceSynced();
       await refreshStatus();
+      warnHoldsLost(res);
       // A sync that pushed 3 of 4 used to report as a plain success. The
       // queued one is not an error — it retries by itself — but the cashier
       // should know the till is not fully caught up.

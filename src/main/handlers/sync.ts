@@ -1,4 +1,6 @@
+import { applyServerTable } from '../sync';
 import type { OrderChangeDeps } from '../orderStatusActions';
+import { HOLD_REFRESH_MS, holdTable, type HoldDeps } from '../tableHolds';
 import type { IpcMain } from 'electron';
 import https from 'node:https';
 import os from 'node:os';
@@ -273,6 +275,59 @@ export function orderChangeDeps(): OrderChangeDeps {
     isLive: () => (getMeta('pos.mode') || 'live') === 'live',
     applyOrder: applyServerOrder,
   };
+}
+
+/** Deps for table holds. */
+export function holdDeps(): HoldDeps {
+  return {
+    api: posApi,
+    isLive: () => (getMeta('pos.mode') || 'live') === 'live',
+    applyTable: applyServerTable,
+  };
+}
+
+/**
+ * Renew this till's holds, and take any it could not take while offline.
+ * Returns the drafts whose table someone else took meanwhile, so the cashier
+ * hears before placing the order.
+ */
+export async function refreshTableHolds(): Promise<
+  Array<{ number: string; table: string; held_by: string }>
+> {
+  const lost: Array<{ number: string; table: string; held_by: string }> = [];
+  const rows = db
+    .prepare(
+      `SELECT o.id, o.number, o.status, o.table_id, o.hold_table_id, o.hold_at, o.covers,
+              o.created_by_user_id, COALESCE(t.label, 'Table ' || t.number) AS table_label
+         FROM orders o LEFT JOIN tables t ON t.id = o.hold_table_id
+        WHERE o.hold_table_id IS NOT NULL`
+    )
+    .all() as any[];
+  const clear = db.prepare(`UPDATE orders SET hold_table_id = NULL, hold_at = NULL WHERE id = ?`);
+  for (const r of rows) {
+    const draft = ['open', 'pending'].includes(String(r.status ?? '').toLowerCase());
+    // Placed (the server turned the hold into the order) or moved off the table.
+    if (!draft || String(r.table_id ?? '') !== String(r.hold_table_id)) {
+      clear.run(r.id);
+      continue;
+    }
+    if (Date.now() - Number(r.hold_at || 0) < HOLD_REFRESH_MS) continue;
+    try {
+      const res = await holdTable(holdDeps(), String(r.hold_table_id), {
+        temp_id: String(r.id),
+        covers: r.covers ?? null,
+        by: toServerUserId(r.created_by_user_id),
+      });
+      if (res.held) db.prepare(`UPDATE orders SET hold_at = ? WHERE id = ?`).run(Date.now(), r.id);
+    } catch (e: any) {
+      if (e?.code === 'POS_TABLE_TAKEN') {
+        lost.push({ number: String(r.number ?? ''), table: String(r.table_label ?? ''), held_by: String(e?.params?.held_by ?? '') });
+      }
+      console.warn('[holds] could not renew', r.id, e?.code ?? e?.message);
+      clear.run(r.id);
+    }
+  }
+  return lost;
 }
 
 /** True once a /bootstrap succeeded since this app started. */
@@ -1250,13 +1305,20 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     // so the till heals itself instead of waiting for someone to notice and
     // press a button. Fire-and-forget on purpose: this is a repair, and a
     // repair must never be the reason a sync reports failure.
+    let holdsLost: Awaited<ReturnType<typeof refreshTableHolds>> = [];
+    try {
+      holdsLost = await refreshTableHolds();
+    } catch (err) {
+      console.error('[Sync] table holds refresh failed', err);
+    }
+
     backfillPaymentMethods(25, { auto: true }).catch((err) =>
       console.error('[Sync] payment backfill after sync failed', err)
     );
 
     console.log(`[Sync] Manual sync:run complete. Pushed: ${pushedCount}`);
 
-    return { ok: true, pulled: true, pushed: pushedCount, failed: pushFailed };
+    return { ok: true, pulled: true, pushed: pushedCount, failed: pushFailed, holds_lost: holdsLost };
   });
 
   handle('sync:pull', async () => {

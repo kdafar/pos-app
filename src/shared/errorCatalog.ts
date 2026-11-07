@@ -73,11 +73,13 @@ export type CatalogEntry = {
  * codes (POS_BUSINESS_DAY_INPUT_INVALID, POS_DAY_CLOSE_INPUT_INVALID), mirrored;
  * 62 with 1.9.0 and POS_PAID_REFERENCE_MISSING (KNET slip reference), mirrored.
  * 66 with 1.11.0 and the four codes of POST /orders/{id}/status, mirrored.
+ * 72 with 1.14.0: POS_PUSH_LINES_KEPT, the four table-hold codes and
+ * POS_PUSH_SPLIT_INVALID, mirrored.
  *
  * Kept next to the catalogue rather than inside the drift test so the export
  * and the test cannot disagree about the target.
  */
-export const BACKEND_SENT_CODE_COUNT = 66;
+export const BACKEND_SENT_CODE_COUNT = 72;
 
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
@@ -937,6 +939,102 @@ export const ERROR_CATALOG = {
     ar: {
       title: 'تعذّر تطبيق التعديل',
       body: 'أرسل الجهاز بيانات لم يتمكن الخادم من قراءتها ولم يتغير شيء. أبلغ الدعم إذا تكرر ذلك.',
+    },
+  },
+  POS_PUSH_LINES_KEPT: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST /push',
+    http: 200,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Items were added from another till',
+      body: 'Another till added items to this order. They were kept and their price is in the total. Refresh the order to see them.',
+    },
+    ar: {
+      title: 'أُضيفت أصناف من جهاز آخر',
+      body: 'أضاف جهاز آخر أصنافاً إلى هذا الطلب. لم تُحذف، وتمت إضافة سعرها إلى المجموع. حدّث الطلب لرؤيتها.',
+    },
+  },
+  POS_TABLE_TAKEN: {
+    severity: 'blocker',
+    retry: false,
+    where: 'POST /tables/{table}/hold, and POST /push (notice)',
+    http: 409,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Table is busy',
+      body: 'Another till is using this table, or an order is already open on it ({held_by}). Please pick another table.',
+    },
+    ar: {
+      title: 'الطاولة مشغولة',
+      body: 'هذه الطاولة مستخدمة الآن من جهاز آخر أو عليها طلب مفتوح ({held_by}). اختر طاولة أخرى.',
+    },
+  },
+  POS_TABLE_NOT_FOUND: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST|DELETE /tables/{table}/hold',
+    http: 404,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Table not available',
+      body: 'This table is not available in this branch. Please pick another table.',
+    },
+    ar: {
+      title: 'الطاولة غير متاحة',
+      body: 'هذه الطاولة غير موجودة أو متوقفة في هذا الفرع. اختر طاولة أخرى.',
+    },
+  },
+  POS_TABLE_HOLD_NOT_YOURS: {
+    severity: 'toast',
+    retry: false,
+    where: 'DELETE /tables/{table}/hold',
+    http: 403,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Cannot free this table',
+      body: 'Another till is holding this table. Ask a manager to free it.',
+    },
+    ar: {
+      title: 'لا يمكن تحرير الطاولة',
+      body: 'هذه الطاولة محجوزة من جهاز آخر. اطلب من المسؤول تحريرها.',
+    },
+  },
+  POS_TABLE_HOLD_INPUT: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST /tables/{table}/hold',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Could not hold the table',
+      body: 'The till made a mistake while holding the table. Please try again.',
+    },
+    ar: {
+      title: 'تعذّر حجز الطاولة',
+      body: 'حدث خطأ في الجهاز أثناء حجز الطاولة. حاول مرة أخرى.',
+    },
+  },
+  POS_PUSH_SPLIT_INVALID: {
+    severity: 'info',
+    retry: false,
+    where: 'POST /push',
+    http: 200,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Saved as one payment',
+      body: 'The two payments did not match the bill, so the order was saved with one payment method.',
+    },
+    ar: {
+      title: 'تم تسجيل طريقة دفع واحدة',
+      body: 'لم تتطابق طريقتا الدفع مع الفاتورة، فتم تسجيل الطلب بطريقة دفع واحدة.',
     },
   },
   POS_APPROVAL_REQUIRED: {

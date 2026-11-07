@@ -487,7 +487,15 @@ function normTable(t: any) {
     section_id: S(t.section_id ?? t.floor_id),
     sort_order: N(t.sort_order),
     updated_at: S(t.updated_at),
+    held: t.held === undefined ? null : B(t.held),
+    held_by: t.held_by ? JSON.stringify(t.held_by) : null,
   };
+}
+
+/** Store one table object from the server (a hold reply carries one). */
+export function applyServerTable(t: any) {
+  if (!t || t.id == null) return;
+  db.prepare(UPSERT_TABLE_SQL).run(normTable(t));
 }
 
 function normTableSection(s: any) {
@@ -503,13 +511,14 @@ function normTableSection(s: any) {
 }
 
 const UPSERT_TABLE_SQL = `
-  INSERT INTO tables (id,branch_id,label,label_ar,number,capacity,is_available,section_id,sort_order,updated_at)
-  VALUES (@id,@branch_id,@label,@label_ar,@number,@capacity,@is_available,@section_id,@sort_order,@updated_at)
+  INSERT INTO tables (id,branch_id,label,label_ar,number,capacity,is_available,section_id,sort_order,updated_at,held,held_by)
+  VALUES (@id,@branch_id,@label,@label_ar,@number,@capacity,@is_available,@section_id,@sort_order,@updated_at,@held,@held_by)
   ON CONFLICT(id) DO UPDATE SET
     branch_id=excluded.branch_id, label=excluded.label, label_ar=excluded.label_ar,
     number=excluded.number, capacity=excluded.capacity,
     is_available=excluded.is_available, section_id=excluded.section_id,
-    sort_order=excluded.sort_order, updated_at=excluded.updated_at`;
+    sort_order=excluded.sort_order, updated_at=excluded.updated_at,
+    held=excluded.held, held_by=excluded.held_by`;
 
 const UPSERT_TABLE_SECTION_SQL = `
   INSERT INTO table_sections (id,branch_id,name_en,name_ar,sort_order,is_active,updated_at)

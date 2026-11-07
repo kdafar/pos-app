@@ -101,7 +101,13 @@ export function TableQuickBar({
           // same size, so the row holds as many tables as possible.
           const occupied = t.status === 'occupied';
           const label = lang === 'ar' && t.name_ar ? t.name_ar : t.name;
-          const statusWord = occupied ? translate('tables.occupied') : '';
+          // Held for a draft on another till: say whose, on hover and to readers.
+          const heldBy = !t.current_order_id && !(t as any).held_by_me ? (t as any).held_by : null;
+          const statusWord = occupied
+            ? heldBy
+              ? `${translate('tables.occupied')} · ${heldBy}`
+              : translate('tables.occupied')
+            : '';
 
           return (
             <button
