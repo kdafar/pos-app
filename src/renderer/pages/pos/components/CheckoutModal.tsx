@@ -523,11 +523,16 @@ export function CheckoutModal({
       };
 
       // Complete order on server
-      await window.api.invoke(
+      const completed: any = await window.api.invoke(
         'orders:complete',
         order.id,
         payload
       );
+      // Items added to another till's order: a slip of just those for the
+      // kitchen, besides the receipt below.
+      if (completed?.added_line_ids?.length) {
+        window.api.invoke('orders:printAdded', order.id, completed.added_line_ids).catch(() => {});
+      }
 
       // Creating a reference pushes a real order to the backend. Do this only
       // after Place Order succeeds; simply opening checkout and pressing

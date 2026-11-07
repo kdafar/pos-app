@@ -655,6 +655,22 @@ export function migrate() {
   ensureColumn('order_lines', 'notes TEXT', 'notes'); // safe even if already exists
   ensureColumn('order_lines', 'updated_at INTEGER', 'updated_at');
   ensureColumn('order_lines', 'is_locked INTEGER DEFAULT 0', 'is_locked');
+  // Once: lines pulled onto other tills' orders before 0.7.2 were stored
+  // unlocked, and an unlocked line on another till's order now means "added
+  // here, not sent yet". Left unlocked they would be sent again as new items.
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`);
+    const done = db.prepare(`SELECT value FROM meta WHERE key = 'migr.lock_pulled_lines'`).get();
+    if (!done) {
+      db.exec(
+        `UPDATE order_lines SET is_locked = 1
+          WHERE order_id NOT GLOB '*[^0-9]*' AND order_id <> ''`
+      );
+      db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('migr.lock_pulled_lines', '1')`).run();
+    }
+  } catch (e) {
+    console.error('[db] locking pulled lines failed', e);
+  }
 
   // Phase 3: indexes (only after columns are present)
   db.exec(`

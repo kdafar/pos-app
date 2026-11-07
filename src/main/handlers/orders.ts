@@ -21,7 +21,8 @@ import { reconcileOrderFromServer } from '../sync';
 import { holdDeps, orderChangeDeps, schedulePushSoon, toServerUserId } from './sync';
 import { holdTable, releaseHold } from '../tableHolds';
 import { isOwnOrder } from '../paidMarks';
-import { sendOrderChange, type OrderChange } from '../orderStatusActions';
+import { sendOrderChange, sendOrderLines, type OrderChange } from '../orderStatusActions';
+import { normPullLine, orderLineUpsert } from '../sync';
 import { newUlid } from '../../shared/paid';
 import {
   ORDER_STATUS,
@@ -244,6 +245,32 @@ export function registerOrdersHandlers(
     return getOrderWithLines(order.id);
   };
 
+  /**
+   * Send the lines this till added to another till's order. The local copies
+   * are replaced by the server's, so they come back locked under the server's
+   * ids. Returns those ids (for the added-items slip), or [] if none waited.
+   */
+  const sendUnsentLinesOfOtherTill = async (order: any): Promise<string[]> => {
+    const unsent = rawDb
+      .prepare(
+        `SELECT * FROM order_lines WHERE order_id = ? AND COALESCE(is_locked, 0) = 0 ORDER BY rowid`
+      )
+      .all(order.id) as any[];
+    if (!unsent.length) return [];
+    if (isPosLocked()) throw posError('POS_TILL_LOCKED');
+    const by = toServerUserId(getCurrentPosUser().id);
+    const wire = unsent.map((l) => ({ ...l, temp_line_id: String(l.id) }));
+    const res = await sendOrderLines(orderChangeDeps(), order, by, wire);
+    const upLine = orderLineUpsert();
+    rawDb.transaction(() => {
+      const drop = rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`);
+      for (const l of unsent) drop.run(l.id);
+      for (const l of res.lines) upLine.run(normPullLine(l, String(order.id)));
+    })();
+    log('orders.addLinesOtherTill', order.id, { lines: res.lines.length, replayed: res.replayed });
+    return res.lines.map((l: any) => String(l.id));
+  };
+
   /** Close, cancel or move on another till's order. Permissions as the server has them. */
   const setOtherTillsStatus = async (order: any, next: string, approval?: ApprovalInput) => {
     const target = String(next || '').toLowerCase();
@@ -293,11 +320,13 @@ export function registerOrdersHandlers(
 
   const assertOrderEditable = (
     orderId: string,
-    opts?: { allowAddOnLockedDineIn?: boolean }
+    opts?: { allowAddOnLockedDineIn?: boolean; allowOtherTillUnsent?: boolean }
   ) => {
     const order = getOrderRow(orderId);
     if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
-    assertOwnOrder(order);
+    // Another till's order takes new, unsent lines only: everything already on
+    // it came from the server and is locked, so the usual line rules hold.
+    if (!opts?.allowOtherTillUnsent) assertOwnOrder(order);
 
     const locked =
       hasColumn('orders', 'is_locked') && Number(order.is_locked ?? 0) === 1;
@@ -1085,7 +1114,7 @@ export function registerOrdersHandlers(
 
       // Allow adding even if locked for dine-in
       assertOrderEditable(orderId, {
-        allowAddOnLockedDineIn: true,
+        allowAddOnLockedDineIn: true, allowOtherTillUnsent: true,
       });
 
       const item = rawDb
@@ -1177,7 +1206,7 @@ export function registerOrdersHandlers(
 
       // Allow adding even if locked for dine-in (same as addLine)
       assertOrderEditable(orderId, {
-        allowAddOnLockedDineIn: true,
+        allowAddOnLockedDineIn: true, allowOtherTillUnsent: true,
       });
 
       qty = Math.trunc(Number(qty));
@@ -1447,7 +1476,7 @@ export function registerOrdersHandlers(
 
       // The line check above protects what was sent; a new round on a placed
       // table must stay correctable before it is sent.
-      assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true });
+      assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true, allowOtherTillUnsent: true });
 
       if (qty <= 0) {
         rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
@@ -1477,7 +1506,7 @@ export function registerOrdersHandlers(
       return voidSentLine(line, 0, approval);
     }
 
-    assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true });
+    assertOrderEditable(line.order_id, { allowAddOnLockedDineIn: true, allowOtherTillUnsent: true });
     rawDb.prepare(`DELETE FROM order_lines WHERE id = ?`).run(lineId);
     return recalcAndGet(line.order_id);
   });
@@ -1487,7 +1516,7 @@ export function registerOrdersHandlers(
     async (_e, orderId: string, itemId: string) => {
       if (isPosLocked()) throw posError('POS_TILL_LOCKED');
       // Deletes unlocked lines only, so a placed table can drop an unsent item.
-      assertOrderEditable(orderId, { allowAddOnLockedDineIn: true });
+      assertOrderEditable(orderId, { allowAddOnLockedDineIn: true, allowOtherTillUnsent: true });
 
       // Only remove unlocked lines
       let sql = `DELETE FROM order_lines WHERE order_id = ? AND item_id = ?`;
@@ -1758,20 +1787,27 @@ export function registerOrdersHandlers(
     async (_e, orderId: string, customer: any) => {
       if (isPosLocked()) throw posError('POS_TILL_LOCKED');
 
-      // Paying for another till's order: its dishes and customer are not ours to
-      // change, only how it was paid. A tender is only ever kept for cash.
+      // Another till's order: its customer and sent lines are not ours to
+      // change. New lines go to the server first; then how it was paid. A
+      // tender is only ever kept for cash.
       const row = getOrderRow(orderId);
       if (row && !isOwnOrder(row)) {
+        const added = await sendUnsentLinesOfOtherTill(row);
+        const fresh = getOrderRow(orderId) ?? row;
         const slug = String(customer?.payment_method_slug ?? '').trim();
         const tender = isCashPayment(slug)
-          ? tenderForWire(customer?.amount_tendered, row.grand_total)
+          ? tenderForWire(customer?.amount_tendered, fresh.grand_total)
           : null;
-        const sameMethod = !slug || slug === String(row.payment_method_slug ?? '');
-        if (sameMethod && tender == null) return getOrderWithLines(orderId);
-        return changeOtherTillsOrder(row, {
-          ...(sameMethod ? {} : { payment_method: slug }),
-          ...(tender == null ? {} : { amount_tendered: tender }),
-        });
+        const sameMethod = !slug || slug === String(fresh.payment_method_slug ?? '');
+        const out =
+          sameMethod && tender == null
+            ? getOrderWithLines(orderId)
+            : await changeOtherTillsOrder(fresh, {
+                ...(sameMethod ? {} : { payment_method: slug }),
+                ...(tender == null ? {} : { amount_tendered: tender }),
+              });
+        // The renderer prints a slip of just these for the kitchen.
+        return { ...(out as any), added_line_ids: added };
       }
 
       // Same exception as addLine: a dine-in table takes a new round after it

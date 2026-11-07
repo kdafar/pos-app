@@ -492,6 +492,11 @@ function normTable(t: any) {
   };
 }
 
+/** The upsert /pull uses for order lines, for lines a reply carries. */
+export function orderLineUpsert() {
+  return orderSyncOps().upPullLine;
+}
+
 /** Store one table object from the server (a hold reply carries one). */
 export function applyServerTable(t: any) {
   if (!t || t.id == null) return;
@@ -881,6 +886,7 @@ export function normPullLine(l: any, localOrderId: string) {
     variation_price: N(l.variation_price),
     notes: S(l.item_notes ?? l.notes),
     updated_at: parseServerTime(l.created_at_ms ?? l.created_at),
+    temp_line_id: S(l.temp_line_id),
     ...addonsToCsv(l.addons),
   };
 }
@@ -1856,14 +1862,18 @@ function buildOrderSyncOps() {
     INSERT INTO order_lines (
       id, order_id, item_id, name, name_ar, qty, unit_price, line_total,
       variation_id, variation, variation_price,
-      addons_id, addons_name, addons_price, addons_qty, notes, updated_at
+      addons_id, addons_name, addons_price, addons_qty, notes, updated_at,
+      temp_line_id, is_locked
     ) VALUES (
       @id, @order_id, @item_id, @name, @name_ar, @qty, @unit_price,
       @line_total, @variation_id, @variation, @variation_price,
       @addons_id, @addons_name, @addons_price, @addons_qty, @notes,
-      @updated_at
+      @updated_at, @temp_line_id, 1
     )
     ON CONFLICT(id) DO UPDATE SET
+      -- From the server, so already sent: changed only by a void, never edited.
+      is_locked       = 1,
+      temp_line_id    = COALESCE(excluded.temp_line_id, temp_line_id),
       order_id        = excluded.order_id,
       item_id         = excluded.item_id,
       name            = excluded.name,
@@ -1897,6 +1907,12 @@ function buildOrderSyncOps() {
   const qOrderByNumber = db.prepare(
     'SELECT id, status, status_code, synced_at FROM orders WHERE number = ? LIMIT 1'
   );
+  // This till's own order under the id the server gave it (stored from the push
+  // reply). A line added by another till arrives with only order_id, no
+  // number, and was parked forever as if its order had not arrived.
+  const qOrderByServerId = db.prepare(
+    'SELECT id, status, status_code, synced_at FROM orders WHERE server_id = ? AND id <> ? LIMIT 1'
+  );
 
   /**
    * Find the local row a server order maps to.
@@ -1915,6 +1931,10 @@ function buildOrderSyncOps() {
   const resolveLocalOrder = (serverId: string, number: string | null) => {
     const byId = qOrderById.get(serverId) as any;
     if (byId) return { row: byId, localId: serverId, isLocalOrigin: false };
+    const byServerId = qOrderByServerId.get(serverId, serverId) as any;
+    if (byServerId) {
+      return { row: byServerId, localId: String(byServerId.id), isLocalOrigin: true };
+    }
     if (!number) return { row: null, localId: null, isLocalOrigin: false };
     const byNumber = qOrderByNumber.get(number) as any;
     if (!byNumber) return { row: null, localId: null, isLocalOrigin: false };
@@ -2738,11 +2758,20 @@ async function pullPage(): Promise<boolean> {
             ? resolveLocalOrder(serverOrderId, number)
             : { row: null, localId: null, isLocalOrigin: false };
 
-          if (found.isLocalOrigin) {
+          const addedElsewhere =
+            c.data.added_by_device != null &&
+            String(c.data.added_by_device) !== String(getMeta('device_id') ?? '');
+          if (found.isLocalOrigin && addedElsewhere && found.localId) {
+            // Another till added this to our order (POST /orders/{id}/lines).
+            // Not an echo: without it this till would show and print an order
+            // short of what the server, and the customer's bill, holds.
+            upPullLine.run(normPullLine(c.data, found.localId));
+          } else if (found.isLocalOrigin) {
             // This till rang the order up; its own lines are authoritative and
             // the echo would duplicate them under the server's line ids.
             console.log('[sync] ignoring line for locally-created order', {
               number,
+              line: c.data.id,
             });
           } else if (found.localId) {
             upPullLine.run(normPullLine(c.data, found.localId));

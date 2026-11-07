@@ -98,13 +98,16 @@ export default function OrderSide({
     !!currentOrder &&
     (((currentOrder as any).is_locked === 1 ||
       (currentOrder as any).is_locked === true) as boolean);
+  // Another till's order (server id, all digits): new items go to it like a
+  // new round on a placed table, then print as an added-items slip.
+  const isOtherTillsOrder = !!currentOrder && /^\d+$/.test(String(currentOrder.id));
 
   const lineIsLocked = (line: any) =>
     line?.is_locked === 1 || line?.is_locked === true;
 
   // Only after FIRST print: there must be at least one locked line
   const hasMainLockedLines =
-    isOrderLocked && orderLines.some((l) => lineIsLocked(l));
+    (isOrderLocked || isOtherTillsOrder) && orderLines.some((l) => lineIsLocked(l));
 
   const pendingNewItemsCount = hasMainLockedLines
     ? orderLines.filter((l) => !lineIsLocked(l)).length
@@ -183,7 +186,7 @@ export default function OrderSide({
     !!currentOrder &&
     currentOrder.order_type === 3 &&
     !!currentOrder.table_id &&
-    isOrderLocked &&
+    (isOrderLocked || isOtherTillsOrder) &&
     hasPendingNewItems &&
     !!String(order?.full_name ?? '').trim() &&
     !!order?.payment_method_id &&
@@ -195,7 +198,7 @@ export default function OrderSide({
     try {
       // The same payload checkout sends, from the stored order. The main
       // process re-checks it exactly as it would a submitted form.
-      await window.api.invoke('orders:complete', currentOrder.id, {
+      const res: any = await window.api.invoke('orders:complete', currentOrder.id, {
         full_name: String(order.full_name ?? '').trim(),
         mobile: String(order.mobile ?? '').trim(),
         address: order.address ?? null,
@@ -211,8 +214,13 @@ export default function OrderSide({
       });
 
       // Printing matches the checkout path, and like it does not undo the
-      // update if the printer fails — handlePrint already says so.
-      handlePrint(currentOrder.id).catch(() => {});
+      // update if the printer fails — handlePrint already says so. Items
+      // added to another till's order print as a slip of just those items.
+      if (res?.added_line_ids?.length) {
+        window.api.invoke('orders:printAdded', currentOrder.id, res.added_line_ids).catch(() => {});
+      } else {
+        handlePrint(currentOrder.id).catch(() => {});
+      }
 
       await onSelectOrder(currentOrder.id);
       try {

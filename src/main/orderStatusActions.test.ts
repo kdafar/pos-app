@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetOrderChanges, sendOrderChange } from './orderStatusActions';
+import { resetOrderChanges, sendOrderChange, sendOrderLines } from './orderStatusActions';
 
 const ORDER = { id: '107790', status_code: 2 };
 const SERVER_ORDER = { id: 107790, status: 4 };
@@ -120,5 +120,48 @@ describe('sendOrderChange', () => {
       (e) => codeOf(e) === 'POS_ORDER_STATUS_NOT_PERMITTED'
     );
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendOrderLines', () => {
+  beforeEach(() => resetOrderChanges());
+
+  it('posts the lines with temp_line_id and returns the stored lines', async () => {
+    const post = vi.fn(async () => ({
+      data: { applied: true, replayed: false, order: SERVER_ORDER, lines: [{ id: '9001', temp_line_id: 'l1' }] },
+    }));
+    const { d, applied } = deps(post);
+    const r = await sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l1', item_id: '41', qty: 2 }]);
+    const [path, body] = post.mock.calls[0] as unknown as [string, any];
+    expect(path).toBe('/orders/107790/lines');
+    expect(body).toMatchObject({ by: 16, expected_status: 2, lines: [{ temp_line_id: 'l1', qty: 2 }] });
+    expect(r.lines).toEqual([{ id: '9001', temp_line_id: 'l1' }]);
+    expect(applied).toHaveLength(1);
+  });
+
+  it('says so when the order is already marked paid', async () => {
+    const { d } = deps(async () => {
+      throw refusal(409, { code: 'POS_PAID_ALREADY_PAID', order: SERVER_ORDER });
+    });
+    await expect(sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l1' }])).rejects.toSatisfy(
+      (e) => codeOf(e) === 'POS_PAID_ALREADY_PAID'
+    );
+  });
+
+  it('keeps the action id for the same lines after no answer', async () => {
+    const ids: string[] = [];
+    let first = true;
+    const post = async (_p: string, b: any) => {
+      ids.push(b.action_id);
+      if (first) {
+        first = false;
+        throw new Error('network');
+      }
+      return { data: { applied: true, replayed: true, lines: [] } };
+    };
+    const { d } = deps(post);
+    await sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l1' }]).catch(() => {});
+    await sendOrderLines(d, ORDER, 16, [{ temp_line_id: 'l1' }]);
+    expect(ids[0]).toBe(ids[1]);
   });
 });

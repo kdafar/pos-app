@@ -1559,6 +1559,45 @@ async function printHtmlSilently(
   }
 }
 
+/**
+ * The kitchen slip for items this till added to another till's order: the new
+ * items only, no prices. The receipt is the bill; this tells the kitchen what
+ * is new without reprinting what it already has.
+ */
+export function renderAddedItemsHTML(opts: {
+  lang: 'en' | 'ar';
+  orderRef: string;
+  tableName: string | null;
+  lines: Array<{ qty: number; name: string; variation?: string | null; addons?: string[]; notes?: string | null }>;
+  at: Date;
+}): string {
+  const ar = opts.lang === 'ar';
+  const title = ar ? 'أصناف مضافة' : 'ADDED ITEMS';
+  const table = opts.tableName ? `${ar ? 'الطاولة' : 'Table'}: ${esc(opts.tableName)}` : '';
+  const time = opts.at.toLocaleTimeString(ar ? 'ar-KW-u-nu-latn' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+  const rows = opts.lines
+    .map(
+      (l) => `<div class="ln"><b>${esc(String(l.qty))} ×</b> ${esc(l.name)}${
+        l.variation ? ` <i>(${esc(l.variation)})</i>` : ''
+      }${(l.addons ?? []).map((a) => `<div class="sub">+ ${esc(a)}</div>`).join('')}${
+        l.notes ? `<div class="sub">* ${esc(l.notes)}</div>` : ''
+      }</div>`
+    )
+    .join('');
+  return `<!DOCTYPE html><html dir="${ar ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><style>
+    @page { margin: 0; }
+    body { font-family: Arial, sans-serif; width: 72mm; margin: 0; padding: 4mm 3mm; color: #000; }
+    h1 { font-size: 20px; text-align: center; margin: 0 0 2mm; border: 2px solid #000; padding: 1mm; }
+    .meta { display: flex; justify-content: space-between; font-size: 14px; font-weight: bold; margin-bottom: 2mm; }
+    .ln { font-size: 16px; padding: 1.5mm 0; border-bottom: 1px dashed #000; }
+    .sub { font-size: 13px; padding-inline-start: 5mm; }
+  </style></head><body>
+    <h1>${title}</h1>
+    <div class="meta"><span>#${esc(opts.orderRef)}</span><span>${table}</span><span>${esc(time)}</span></div>
+    ${rows}
+  </body></html>`;
+}
+
 async function printToPdfFile(html: string): Promise<string> {
   const win = new BrowserWindow({
     // Saving a PDF has nothing to show the cashier; see printHtmlSilently.
@@ -1683,6 +1722,42 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
    * same window, same page size, same printer selection. A test that took a
    * shortcut would pass on a till whose receipts still do not come out.
    */
+  // The slip for items added to another till's order (see renderAddedItemsHTML).
+  ipcMain.handle('orders:printAdded', async (_e, orderId: string, lineIds: string[]) => {
+    const order = getOrder(orderId);
+    if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
+    const wanted = new Set((lineIds ?? []).map(String));
+    const lines = getLines(orderId).filter((l) => wanted.has(String(l.id)));
+    if (!lines.length) return { ok: false };
+    const lang: 'ar' | 'en' =
+      (getSetting('ui.lang') as 'ar' | 'en') || (getMeta('ui.lang') as 'ar' | 'en') || 'en';
+    const addonNames = (raw: string | null | undefined): string[] => {
+      try {
+        const list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list)
+          ? list.map((a: any) => `${a?.qty > 1 ? `${a.qty}× ` : ''}${a?.name ?? ''}`).filter((x: string) => x.trim())
+          : [];
+      } catch {
+        return [];
+      }
+    };
+    const html = renderAddedItemsHTML({
+      lang,
+      orderRef: String(order.reference_no || order.number || order.id),
+      tableName: order.table_name ?? null,
+      lines: lines.map((l) => ({
+        qty: Number(l.qty || 0),
+        name: String((lang === 'ar' && l.item_name_ar) || l.item_name || ''),
+        variation: l.variation ?? null,
+        addons: addonNames(l.addons_json),
+        notes: l.item_notes ?? null,
+      })),
+      at: new Date(),
+    });
+    await printHtmlSilently(html);
+    return { ok: true };
+  });
+
   ipcMain.handle('print:test', async () => {
     if (services) assertPermission(services, 'settings.manage');
     const { printerName, paperWidthMm } = getPrintConfig();

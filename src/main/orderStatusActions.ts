@@ -35,6 +35,7 @@ export type OrderChangeResult = { applied: boolean; replayed: boolean };
 
 /** Codes the contract declares, shown to staff as they are. */
 const DECLARED_REFUSALS = new Set([
+  'POS_PAID_ALREADY_PAID',
   'POS_PUSH_ORDER_FINALIZED',
   'POS_ORDER_STATUS_CONFLICT',
   'POS_ORDER_ACTION_REUSED',
@@ -58,6 +59,40 @@ export async function sendOrderChange(
   by: number | null,
   change: OrderChange
 ): Promise<OrderChangeResult> {
+  const expected = order.status_code == null ? NaN : Number(order.status_code);
+  const out = await post(deps, order, by, 'status', keyFor(String(order.id), change), {
+    ...change,
+    ...(change.status != null && Number.isInteger(expected) ? { expected_status: expected } : {}),
+  });
+  return { applied: out.applied, replayed: out.replayed };
+}
+
+/**
+ * Add lines to an order this till did not create (POST /orders/{id}/lines).
+ * Returns the added lines as the server stored them, in the /pull line shape.
+ */
+export async function sendOrderLines(
+  deps: OrderChangeDeps,
+  order: { id: string; server_id?: string | null; status_code?: unknown },
+  by: number | null,
+  lines: Array<Record<string, unknown> & { temp_line_id: string }>
+): Promise<OrderChangeResult & { lines: any[] }> {
+  const expected = order.status_code == null ? NaN : Number(order.status_code);
+  const key = [String(order.id), 'lines', ...lines.map((l) => l.temp_line_id)].join('|');
+  return post(deps, order, by, 'lines', key, {
+    lines,
+    ...(Number.isInteger(expected) ? { expected_status: expected } : {}),
+  });
+}
+
+async function post(
+  deps: OrderChangeDeps,
+  order: { id: string; server_id?: string | null },
+  by: number | null,
+  route: 'status' | 'lines',
+  key: string,
+  payload: Record<string, unknown>
+): Promise<OrderChangeResult & { lines: any[] }> {
   const remote = remoteOrderId(order);
   if (!remote) throw posError('POS_VAL_ORDER_NOT_FOUND');
   if (by == null) throw posError('POS_ORDER_STATUS_NOT_PERMITTED');
@@ -65,21 +100,18 @@ export async function sendOrderChange(
   const api = deps.api();
   if (!api || !deps.isLive()) throw posError('POS_ORDER_CHANGE_UNSENT');
 
-  const key = keyFor(String(order.id), change);
   const actionId = unanswered.get(key) ?? newUlid();
-  const expected = order.status_code == null ? NaN : Number(order.status_code);
-  const body = {
-    action_id: actionId,
-    by,
-    ...change,
-    ...(change.status != null && Number.isInteger(expected) ? { expected_status: expected } : {}),
-  };
+  const body = { action_id: actionId, by, ...payload };
 
   try {
-    const { data } = await api.post(`/orders/${encodeURIComponent(remote)}/status`, body);
+    const { data } = await api.post(`/orders/${encodeURIComponent(remote)}/${route}`, body);
     unanswered.delete(key);
     if (data?.order) deps.applyOrder(String(order.id), data.order);
-    return { applied: Boolean(data?.applied), replayed: Boolean(data?.replayed) };
+    return {
+      applied: Boolean(data?.applied),
+      replayed: Boolean(data?.replayed),
+      lines: Array.isArray(data?.lines) ? data.lines : [],
+    };
   } catch (err: any) {
     const status = Number(err?.response?.status ?? 0);
     const data = err?.response?.data ?? {};
