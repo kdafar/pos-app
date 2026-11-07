@@ -820,10 +820,12 @@ function renderReceiptHTML(opts: {
 
   const orderTypeText = orderTypeLabel(order.order_type, lang);
   const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
-  const paymentLabel =
+  // Escaped here: the slugs can come from the server, and this goes into HTML.
+  const paymentLabel = esc(
     parts.length === 2
-      ? parts.map((p) => `${cap(p.method_slug)} ${Number(p.amount).toFixed(3)}`).join(' + ')
-      : cap(order.payment_method_slug ?? '');
+      ? parts.map((p) => `${cap(String(p.method_slug))} ${Number(p.amount).toFixed(3)}`).join(' + ')
+      : cap(String(order.payment_method_slug ?? ''))
+  );
   const statusText = orderStatusLabel(order.status, lang);
 
   const addressBlock =

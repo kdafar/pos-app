@@ -910,7 +910,8 @@ export function normPullOrder(o: any) {
             amount: Number(p?.amount ?? 0),
             amount_tendered: p?.amount_tendered == null ? null : Number(p.amount_tendered),
           }))
-          .filter((p: any) => p.method)
+          // A method code only: anything else is not a method this till knows.
+          .filter((p: any) => /^[a-z0-9_-]{1,40}$/i.test(p.method))
       : undefined,
   };
 }
