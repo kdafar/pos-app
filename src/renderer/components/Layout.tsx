@@ -507,13 +507,13 @@ export function Layout() {
     <>
       {catalogItems.length > 0 && (
         <>
-          <SectionLabel>{t('nav.section.catalog')}</SectionLabel>
+          <SectionLabel hidden={opts?.collapsed ?? rail}>{t('nav.section.catalog')}</SectionLabel>
           {catalogItems.map((i) => renderItem(i, opts))}
         </>
       )}
       {systemItems.length > 0 && (
         <>
-          <SectionLabel>{t('nav.section.system')}</SectionLabel>
+          <SectionLabel hidden={opts?.collapsed ?? rail}>{t('nav.section.system')}</SectionLabel>
           {systemItems.map((i) => renderItem(i, opts))}
         </>
       )}
