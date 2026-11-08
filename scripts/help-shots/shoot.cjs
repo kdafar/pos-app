@@ -191,7 +191,6 @@ async function run(lang) {
 
   /* ---------- the sync card ---------- */
   await step('check-till', async () => {
-    // The order screen folds the side menu to icons; open it like staff would.
     // The demo server does not exist, so the real check says Offline. For this
     // one picture, answer the status call as a till that synced a minute ago.
     await app.evaluate(({ ipcMain }) => {
@@ -203,9 +202,7 @@ async function run(lang) {
       }));
     });
     await sleep(5500); // the sidebar polls the status every few seconds
-    const panelBtn = () => win.locator('aside button:has(svg.flip-rtl)').first();
-    await panelBtn().click();
-    await sleep(700);
+    // The sidebar stays open on every screen now, so it is photographed as is.
     const pill = win.locator('aside').getByText(t.online, { exact: true });
     await shot('check-till', {
       clip: win.locator('aside').first(),
@@ -217,8 +214,6 @@ async function run(lang) {
         win.locator('aside').locator('svg.lucide-refresh-cw').first(),
       ],
     });
-    await panelBtn().click();
-    await sleep(700);
   });
 
   /* ---------- an order with options ---------- */
