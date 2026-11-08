@@ -1320,6 +1320,17 @@ export async function bootstrap(baseUrl: string) {
     return [...byId.values()];
   })();
   const ordersSeed = asArray(catalog.orders_seed ?? []);
+  // Kitchen stations: only whether the branch has any matters here. With
+  // stations the server's print PC prints the kitchen tickets, "added" ones
+  // included, so the till must not print them too. A server that sends no
+  // key leaves the last known list alone.
+  if (catalog.stations !== undefined) {
+    const ids = asArray(catalog.stations)
+      .filter((s: any) => s && s.is_active !== false && s.is_active !== 0)
+      .map((s: any) => S(s.id))
+      .filter(Boolean);
+    setMeta('kitchen.station_ids', JSON.stringify(ids));
+  }
   const tables = asArray(catalog.tables ?? catalog.table_list ?? []);
   const tableSections = asArray(
     catalog.table_sections ?? data.table_sections ?? []
@@ -2879,8 +2890,20 @@ async function pullPage(): Promise<boolean> {
       } else if (tbl === 'block' || tbl === 'blocks') {
         if (op === 'delete') delBy('blocks', c.pk);
       } else if (tbl === 'station' || tbl === 'stations') {
-        // Kitchen stations print on the server's own printers; the till keeps
-        // no copy, so there is nothing to apply. Known, so not logged below.
+        // Kitchen stations print on the server's own printers; the till only
+        // keeps which ones exist, to know whether to print kitchen slips.
+        // A station switched off arrives as a delete.
+        let ids: string[] = [];
+        try {
+          ids = JSON.parse(getMeta('kitchen.station_ids') || '[]');
+        } catch {}
+        const id = S(c.data?.id ?? c.pk);
+        if (id) {
+          const off = op === 'delete' || c.data?.is_active === false || c.data?.is_active === 0;
+          ids = ids.filter((x) => x !== id);
+          if (!off) ids.push(id);
+          setMeta('kitchen.station_ids', JSON.stringify(ids));
+        }
       } else if (op === 'delete') {
         console.warn('[sync] unhandled delete in change feed', {
           table: tbl,

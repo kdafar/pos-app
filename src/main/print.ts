@@ -1734,6 +1734,15 @@ export function registerLocalPrintHandlers(_ipc?: unknown, _db?: unknown, servic
    */
   // The slip for items added to another till's order (see renderAddedItemsHTML).
   ipcMain.handle('orders:printAdded', async (_e, orderId: string, lineIds: string[], opts?: { savePdf?: boolean }) => {
+    // A branch with kitchen stations has its "added" tickets printed by the
+    // server's print PC; printing here too would put two in the kitchen.
+    let stations: unknown[] = [];
+    try {
+      stations = JSON.parse(getMeta('kitchen.station_ids') || '[]');
+    } catch {}
+    if (Array.isArray(stations) && stations.length && !opts?.savePdf) {
+      return { ok: true, skipped: 'stations' };
+    }
     const order = getOrder(orderId);
     if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');
     const wanted = new Set((lineIds ?? []).map(String));
