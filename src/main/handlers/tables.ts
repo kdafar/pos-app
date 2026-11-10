@@ -3,6 +3,7 @@ import type { IpcMain } from 'electron';
 import db, { getMeta } from '../db';
 import { activeOrderSql } from '../utils/orderStatus';
 import { tableNumber } from '../sync';
+import { compareTables } from '../utils/tableOrder';
 
 // The one shared list, not a copy: this one used to leave out `placed`, which
 // is what every dine-in order becomes on "Place order". A seated table then
@@ -98,20 +99,8 @@ export function registerTableHandlers(ipcMain: IpcMain) {
     // Rows synced before the label fallback existed are stored with number 0,
     // so the SQL order is label text (Table 1, Table 10 … Table 2). Sort on
     // the effective number here so those rows are right without a re-sync.
-    // Floor first, then the admin's order within it; tables with no floor
-    // last. A sort_order of 0 means "not set" and falls through to number.
     for (const r of rows) r.number = tableNumber(r);
-    const floorRank = (r: any) =>
-      r.section_name_en || r.section_name_ar ? Number(r.section_sort) || 0 : Infinity;
-    const orderRank = (r: any) => Number(r.sort_order) || Infinity;
-    rows.sort(
-      (a, b) =>
-        floorRank(a) - floorRank(b) ||
-        String(a.section_id ?? '').localeCompare(String(b.section_id ?? '')) ||
-        (orderRank(a) === orderRank(b) ? 0 : orderRank(a) - orderRank(b)) ||
-        a.number - b.number ||
-        String(a.name).localeCompare(String(b.name), undefined, { numeric: true })
-    );
+    rows.sort(compareTables);
 
     return rows.map((r) => {
       const capacity = Number(r.capacity) || 0;

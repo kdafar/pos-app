@@ -15,7 +15,7 @@ export function ItemCard({
   onAddItem: (it: Item) => void;
   onSelectWithAddons?: (it: Item) => void;
 }) {
-  const { t, name: localName, money, isRTL } = useI18n();
+  const { t, name: localName, money } = useI18n();
   const [localImageFailed, setLocalImageFailed] = useState(false);
   const [remoteImageFailed, setRemoteImageFailed] = useState(false);
 
@@ -113,9 +113,6 @@ export function ItemCard({
         <h3 className='font-semibold text-foreground pos-sm leading-snug break-words'>
           {localName(item)}
         </h3>
-        <p className='pos-xs ink-2 leading-snug break-words'>
-          {isRTL ? item.name : item.name_ar}
-        </p>
       </div>
 
       {/* Compact card: chips inline under the name */}

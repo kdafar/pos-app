@@ -326,15 +326,10 @@ export function AddonPickerModal({ item, onClose, onConfirm }: Props) {
                                 isSelected ? TILE_SELECTED : TILE_IDLE
                               }`}
                             >
-                              <div className='min-w-0 space-y-0.5'>
+                              <div className='min-w-0'>
                                 <div className='truncate font-medium'>
                                   {localName(v)}
                                 </div>
-                                {v.name_ar && (
-                                  <div className='truncate text-xs font-medium ink-2'>
-                                    {v.name_ar}
-                                  </div>
-                                )}
                               </div>
                               <span className='ms-2 flex shrink-0 items-center gap-1.5'>
                                 <span className='money text-sm font-semibold'>
