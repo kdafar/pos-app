@@ -540,7 +540,12 @@ export function registerOrdersHandlers(
             AND ${activeOrderSql('o')}
           )
         )
-        AND (o.opened_at > @cutoff OR o.created_at > @cutoff)
+        -- Opened time first, as a number, like the kitchen board. The old
+        -- "o.created_at > @cutoff" compared text: a server order's ISO
+        -- created_at ('2026-11-07T…') is always "greater" than a number,
+        -- so every order from the server passed and old dine-ins the server
+        -- had long closed stayed on the strip for good.
+        AND CAST(COALESCE(NULLIF(o.opened_at, 0), o.created_at) AS REAL) > @cutoff
         ${userSql}
         ORDER BY o.opened_at DESC, o.created_at DESC
       `

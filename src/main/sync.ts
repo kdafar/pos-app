@@ -8,7 +8,7 @@ import { posError } from '../shared/errorCodes';
 import { applyServerPaid } from './paidState';
 import { applyPriceListChange, storePlatformOnly, storePriceLists } from './platformOnly';
 import { matchTableByName } from './utils/pulledOrderTable';
-import { resolveOwnOrderStatus } from './utils/serverStatus';
+import { isTerminalServerStatus, resolveOwnOrderStatus } from './utils/serverStatus';
 import {
   MAX_PULL_PAGES,
   loadFailedChanges,
@@ -2114,6 +2114,28 @@ export function applyServerOrder(localId: string, o: any) {
     writePulledOrder(ops, row, target, found.row);
   }
   applyServerPaid(db, target, o.paid);
+}
+
+/**
+ * The stale-order sweep (staleOrders.ts): if the server has finished this
+ * order (closed or cancelled), write its header over the local row, the
+ * till's own orders included, and return true. Same write as /pull, so an own
+ * order takes the server's terminal status (resolveOwnOrderStatus) and keeps
+ * its lines. Never reopens anything and changes nothing for an open order.
+ */
+export function applyServerClosed(localId: string, o: any): boolean {
+  if (!o || typeof o !== 'object') return false;
+  const row = normPullOrder(o);
+  if (!isTerminalServerStatus(row.status_code)) return false;
+  const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(localId) as any;
+  if (!existing || isTerminalLocalOrder(existing)) return false;
+  const own = /\D/.test(String(existing.id));
+  if (own && (existing.synced_at == null || Number(existing.synced_at) === 0)) return false;
+  db.transaction(() => {
+    writePulledOrder(orderSyncOps(), row, localId, existing);
+    applyServerPaid(db, localId, o.paid);
+  })();
+  return true;
 }
 
 /**

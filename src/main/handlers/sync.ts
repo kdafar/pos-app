@@ -1,4 +1,4 @@
-import { applyServerTable, readPayParts } from '../sync';
+import { applyServerClosed, applyServerTable, fetchOrderFromServer, readPayParts } from '../sync';
 import type { OrderChangeDeps } from '../orderStatusActions';
 import { platformRefusedError } from '../platformOnly';
 import { HOLD_REFRESH_MS, holdTable, type HoldDeps } from '../tableHolds';
@@ -57,7 +57,8 @@ import {
   posApi,
   applyServerOrder,
 } from '../sync';
-import { bootstrapDue } from '../pullRetry';
+import { bootstrapDue, removeServerOrder } from '../pullRetry';
+import { sweepStaleOrders } from '../staleOrders';
 
 import { prefetchItemImages } from '../imageCache';
 
@@ -1326,6 +1327,17 @@ export function registerSyncHandlers(ipcMain: IpcMain, services: MainServices) {
     backfillPaymentMethods(25, { auto: true }).catch((err) =>
       console.error('[Sync] payment backfill after sync failed', err)
     );
+
+    // Orders still open here that the server already closed (its nightly
+    // job, the office, another till): ask about a few and follow it. A
+    // repair too, so fire-and-forget like the backfill above.
+    sweepStaleOrders({
+      db,
+      fetchOrder: fetchOrderFromServer,
+      applyClosed: applyServerClosed,
+      removeOrder: (id) => removeServerOrder(db, id),
+      isLive: () => (getMeta('pos.mode') || 'live') === 'live',
+    }).catch((err) => console.error('[Sync] stale order sweep failed', err));
 
     console.log(`[Sync] Manual sync:run complete. Pushed: ${pushedCount}`);
 
