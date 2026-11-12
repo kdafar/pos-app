@@ -1,12 +1,19 @@
 // src/renderer/pages/pos/CatalogPanel.tsx
 import React from 'react';
 import { Input } from '@heroui/react';
-import { Search, Package, AlertTriangle } from 'lucide-react';
+import { Search, Package, AlertTriangle, Motorbike } from 'lucide-react';
 
 // Shared types
 import { Item, Category } from './types';
 import { ItemCard } from './components/ItemCard';
 import { useI18n } from '../../i18n';
+
+/** What catalog:platformOnly returns. */
+export type PlatformOnlyView = {
+  enabled: boolean;
+  tags: Record<string, { en: string; ar: string }>;
+  platforms: { id: string; name: string; name_ar: string | null; count: number }[];
+};
 
 export default function CatalogPanel({
   theme,
@@ -22,6 +29,9 @@ export default function CatalogPanel({
   onAddItem,
   onSelectWithAddons,
   totalItems,
+  platform,
+  selectedPlatformId = null,
+  setSelectedPlatformId,
 }: {
   theme: 'light' | 'dark';
   items: Item[];
@@ -37,8 +47,15 @@ export default function CatalogPanel({
   setSelectedSubcategoryId: (id: string | null) => void;
   onAddItem: (it: Item) => void;
   onSelectWithAddons?: (it: Item) => void;
+  /** Dishes sold only on Talabat / Keeta. Nothing new shows while disabled. */
+  platform?: PlatformOnlyView;
+  /** The "Keeta specials" button that is lit, if any. */
+  selectedPlatformId?: string | null;
+  setSelectedPlatformId?: (id: string | null) => void;
 }) {
-  const { t, name: localName } = useI18n();
+  const { t, lang, name: localName } = useI18n();
+  const platforms = platform?.enabled ? platform.platforms : [];
+  const selPlatform = selectedPlatformId == null ? null : String(selectedPlatformId);
 
   /* ---------- Diagnostics & Normalization ---------- */
   const safeCats = React.useMemo(
@@ -173,12 +190,34 @@ export default function CatalogPanel({
                 console.debug('[CatalogPanel] click All Categories');
                 setSearchQuery('');
                 setSelectedCategoryId(null);
+                setSelectedPlatformId?.(null);
               }}
-              aria-pressed={!selCat && !isSearching}
+              aria-pressed={!selCat && !isSearching && !selPlatform}
               className={segItem}
             >
               {t('pos.categories')}
             </button>
+
+            {/* One button per platform with dishes sold only there. */}
+            {platforms.map((p) => (
+              <button
+                key={`platform-${p.id}`}
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedCategoryId(null);
+                  setSelectedSubcategoryId(null);
+                  setSelectedPlatformId?.(p.id);
+                }}
+                aria-pressed={selPlatform === p.id && !isSearching}
+                className={`${segItem} inline-flex items-center gap-1`}
+              >
+                <Motorbike size={14} strokeWidth={1.8} className='text-[#c2410c]' />
+                {t('pos.platformSpecials', {
+                  list: lang === 'ar' ? p.name_ar || p.name : p.name,
+                  count: p.count,
+                })}
+              </button>
+            ))}
 
             {safeCats.map((cat) => (
               <button
@@ -193,8 +232,9 @@ export default function CatalogPanel({
                   setSearchQuery('');
                   setSelectedCategoryId(String(cat.id));
                   setSelectedSubcategoryId(null);
+                  setSelectedPlatformId?.(null);
                 }}
-                aria-pressed={selCat === String(cat.id) && !isSearching}
+                aria-pressed={selCat === String(cat.id) && !isSearching && !selPlatform}
                 className={segItem}
               >
                 {localName(cat)}
@@ -203,7 +243,7 @@ export default function CatalogPanel({
           </div>
 
         {/* Subcategories: under the categories, in the same column */}
-        {filteredSubcategories.length > 0 && (
+        {filteredSubcategories.length > 0 && !selPlatform && (
           <div className={`${segRow} mt-2`}>
             <button
               onClick={() => {
@@ -258,6 +298,7 @@ export default function CatalogPanel({
               theme={theme}
               onAddItem={onAddItem}
               onSelectWithAddons={onSelectWithAddons}
+              platformTag={platform?.enabled ? platform.tags[String(item.id)] ?? null : null}
             />
           ))}
         </div>

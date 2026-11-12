@@ -566,6 +566,9 @@ export function migrate() {
   // POS_PUSH_TABLE_INVALID: the server kept the order on its old table. Shown
   // on the order until the cashier picks a table again.
   ensureColumn('orders', 'push_notice TEXT', 'push_notice');
+  // POS_PUSH_PLATFORM_ONLY_PAYMENT on this order: 1 = not toasted yet,
+  // 2 = toasted. Kept apart from push_notice so a table notice cannot hide it.
+  ensureColumn('orders', 'platform_notice INTEGER DEFAULT 0', 'platform_notice');
 
   // Mark order paid (contract: Mark order paid). The server's `paid` object,
   // stored as it arrives on pull / orders_seed / GET /orders/{id} / the two

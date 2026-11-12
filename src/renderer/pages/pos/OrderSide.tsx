@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@heroui/react';
 import { Hint } from '../../components/Hint';
 import {
@@ -24,7 +24,8 @@ import { OrderLineItem } from './components/OrderLineItem';
 import { PromoDialog } from './components/PromoDialog';
 import { TablePickerModal } from './components/TablePickerModal';
 import { CheckoutModal } from './components/CheckoutModal';
-import { ERROR_CATALOG } from '../../../shared/errorCatalog';
+import { ERROR_CATALOG, interpolate } from '../../../shared/errorCatalog';
+import { localizeParams } from '../../../shared/platformOnly';
 import { isOnlinePayment } from './paymentKinds';
 import { DeliveryFeeRow } from './components/DeliveryFeeRow';
 import { useToast } from '../../components/ToastProvider';
@@ -93,6 +94,23 @@ export default function OrderSide({
   const toast = useToast();
   const confirm = useConfirmDialog();
   const { t, lang, money } = useI18n();
+  // POS_PUSH_PLATFORM_ONLY_PAYMENT kept on this order: its words, filled in
+  // from the order and this till's platform_only copy.
+  const [platformNotice, setPlatformNotice] = useState<Record<string, string> | null>(null);
+  const noticeOrderId = Number(currentOrder?.platform_notice ?? 0) > 0 ? currentOrder?.id : null;
+  useEffect(() => {
+    let live = true;
+    setPlatformNotice(null);
+    if (noticeOrderId) {
+      window.api
+        .invoke('catalog:platformNotice', noticeOrderId)
+        .then((p: Record<string, string>) => live && setPlatformNotice(p ?? null))
+        .catch(() => {});
+    }
+    return () => {
+      live = false;
+    };
+  }, [noticeOrderId]);
   const labelForType = useOrderTypeLabel();
   const isOrderLocked =
     !!currentOrder &&
@@ -466,6 +484,15 @@ export default function OrderSide({
                       {ERROR_CATALOG.POS_PUSH_TABLE_INVALID[lang].body}
                     </p>
                   )}
+                {/* The server kept a Talabat/Keeta-only dish paid another way. */}
+                {platformNotice && (
+                  <p className='mt-1 max-w-xs text-xs font-semibold text-danger'>
+                    {interpolate(
+                      ERROR_CATALOG.POS_PUSH_PLATFORM_ONLY_PAYMENT[lang].body,
+                      localizeParams(platformNotice, lang)
+                    )}
+                  </p>
+                )}
               </div>
 
               {/* Right: type chip + lock / pending badges */}

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { SYNCED_EVENT } from '../../utils/syncEvents';
 import { ChevronUp, Plus, ShoppingBag, X } from 'lucide-react';
 
-import CatalogPanel from './CatalogPanel';
+import CatalogPanel, { type PlatformOnlyView } from './CatalogPanel';
 import OrderSide from './OrderSide';
 import { useRootTheme } from './useRootTheme';
 
@@ -95,6 +95,13 @@ export default function OrderProcessPage() {
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<
     string | null
   >(null);
+  // Dishes sold only on Talabat or Keeta: tile tags and the "specials" buttons.
+  const [platformView, setPlatformView] = useState<PlatformOnlyView>({
+    enabled: false,
+    tags: {},
+    platforms: [],
+  });
+  const [selectedPlatformId, setSelectedPlatformId] = useState<string | null>(null);
 
   // Every sync can remove or reprice what is on screen; reload it then rather
   // than only at sign-in.
@@ -124,12 +131,21 @@ export default function OrderProcessPage() {
 
   const loadInitialData = async () => {
     try {
-      const [cats, subs, sts, prms] = await Promise.all([
+      const [cats, subs, sts, prms, plat] = await Promise.all([
         window.api.invoke('catalog:listCategories'),
         window.api.invoke('catalog:listSubcategories'),
         window.api.invoke('geo:listStates'),
         window.api.invoke('catalog:listPromos'),
+        window.api.invoke('catalog:platformOnly').catch(() => null),
       ]);
+      const view: PlatformOnlyView = plat?.enabled
+        ? plat
+        : { enabled: false, tags: {}, platforms: [] };
+      setPlatformView(view);
+      // A pull can switch the rule off or empty a platform: drop its button.
+      setSelectedPlatformId((cur) =>
+        cur && view.platforms.some((p) => p.id === cur) ? cur : null
+      );
       setCategories(cats || []);
       setSubcategories(subs || []);
       setStates(sts || []);
@@ -181,6 +197,7 @@ export default function OrderProcessPage() {
         q: searchQuery || null,
         categoryId: selectedCategoryId,
         subcategoryId: selectedSubcategoryId,
+        platformListId: selectedPlatformId,
       };
       // Fetch the true match count alongside the (capped) page so the grid can
       // tell the operator when products are being hidden.
@@ -196,7 +213,7 @@ export default function OrderProcessPage() {
   };
   useEffect(() => {
     loadItems();
-  }, [searchQuery, selectedCategoryId, selectedSubcategoryId]);
+  }, [searchQuery, selectedCategoryId, selectedSubcategoryId, selectedPlatformId]);
 
   const loadActiveOrders = async () => {
     try {
@@ -582,7 +599,11 @@ export default function OrderProcessPage() {
           categories={categories}
           subcategories={subcategories}
           searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
+          setSearchQuery={(v) => {
+            // A search spans the whole catalogue, specials included.
+            if (v.trim()) setSelectedPlatformId(null);
+            setSearchQuery(v);
+          }}
           selectedCategoryId={selectedCategoryId}
           setSelectedCategoryId={(id) => {
             setSelectedCategoryId(id);
@@ -592,6 +613,9 @@ export default function OrderProcessPage() {
           setSelectedSubcategoryId={setSelectedSubcategoryId}
           onAddItem={addItemToOrder}
           onSelectWithAddons={(it) => setAddonItem(it)}
+          platform={platformView}
+          selectedPlatformId={selectedPlatformId}
+          setSelectedPlatformId={setSelectedPlatformId}
         />
 
         {/* Phones: the cart slides up over the catalog. One OrderSide instance

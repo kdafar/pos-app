@@ -75,6 +75,20 @@ const coreStrings = {
     ar: 'البحث في كل الأقسام',
   },
   'pos.categories': { en: 'All Categories', ar: 'كل الأقسام' },
+  // Dishes sold only on Talabat or Keeta (platform-only contract §1). The
+  // web tills' words.
+  'pos.platformSpecials': {
+    en: '{list} specials ({count})',
+    ar: 'أصناف {list} فقط ({count})',
+  },
+  'pos.platformOnlyTag': {
+    en: 'Sold only on this delivery app',
+    ar: 'يُباع فقط على تطبيق التوصيل هذا',
+  },
+  'checkout.platformOnlyNote': {
+    en: 'This order has a dish sold only on {list}, so it is paid with {list}.',
+    ar: 'في هذا الطلب صنف يُباع فقط على {list}، لذلك يُدفع عن طريق {list}.',
+  },
   'pos.outOfStock': { en: 'Out of Stock', ar: 'غير متوفر' },
   'pos.from': { en: 'from', ar: 'يبدأ من' },
   'pos.addons': { en: 'Add-ons', ar: 'الإضافات' },

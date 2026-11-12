@@ -1,11 +1,20 @@
 import type { IpcMain } from 'electron';
 import db from '../db';
 import { promoIsLive } from '../utils/calculations';
+import {
+  loadPlatformState,
+  platformNoticeParams,
+  takePlatformNotices,
+  verdictForOrder,
+} from '../platformOnly';
+import { platformTag } from '../../shared/platformOnly';
 
 type CatalogListItemsFilter = {
   q?: string | null;
   categoryId?: string | null;
   subcategoryId?: string | null;
+  /** The "Keeta specials" button: only dishes sold only on this price list. */
+  platformListId?: string | null;
 };
 
 type AddonGroupFilter = {
@@ -57,7 +66,19 @@ function buildItemFilter(filter: CatalogListItemsFilter | null) {
   // item was simply filed elsewhere. Nothing on screen explained why, so the
   // usual recovery was to retype the search rather than clear the category.
   // Browsing is scoped; searching is not.
-  if (!q) {
+  // The specials button lists its platform's dishes, whatever is searched.
+  if (filter?.platformListId) {
+    const st = loadPlatformState();
+    const ids = st.platformOnly.enabled
+      ? st.platformOnly.items
+          .filter((it) => it.price_list_ids.includes(String(filter.platformListId)))
+          .map((it) => it.item_id)
+      : [];
+    where.push(ids.length ? `i.id IN (${ids.map(() => '?').join(',')})` : '0');
+    params.push(...ids);
+  }
+
+  if (!q && !filter?.platformListId) {
     if (filter?.categoryId) {
       where.push(`category_id = ?`);
       params.push(filter.categoryId);
@@ -72,6 +93,44 @@ function buildItemFilter(filter: CatalogListItemsFilter | null) {
 }
 
 export function registerCatalogHandlers(ipcMain: IpcMain) {
+  // Dishes sold only on Talabat or Keeta: the tile tags and one "specials"
+  // button per switched-on platform that has such a dish on this till.
+  // `enabled: false` means the screen shows nothing new.
+  ipcMain.handle('catalog:platformOnly', () => {
+    const st = loadPlatformState();
+    if (!st.platformOnly.enabled || !st.platformOnly.items.length) {
+      return { enabled: false, tags: {}, platforms: [] };
+    }
+    const known = new Set(
+      (db.prepare(`SELECT CAST(id AS TEXT) AS id FROM items`).all() as { id: string }[]).map(
+        (r) => r.id
+      )
+    );
+    const tags: Record<string, { en: string; ar: string }> = {};
+    const counts = new Map<string, number>();
+    for (const it of st.platformOnly.items) {
+      if (!known.has(it.item_id)) continue;
+      tags[it.item_id] = platformTag(it.price_list_ids, st.knownNames);
+      for (const l of it.price_list_ids) counts.set(l, (counts.get(l) ?? 0) + 1);
+    }
+    const platforms = st.priceLists
+      .filter((l) => (counts.get(l.id) ?? 0) > 0)
+      .map((l) => ({ id: l.id, name: l.name, name_ar: l.name_ar, count: counts.get(l.id)! }));
+    return { enabled: true, tags, platforms };
+  });
+
+  // POS_PUSH_PLATFORM_ONLY_PAYMENT: toast each new one once, after a sync.
+  ipcMain.handle('catalog:takePlatformNotices', () => takePlatformNotices());
+  // The same words for the notice kept on the order.
+  ipcMain.handle('catalog:platformNotice', (_e, orderId: string) =>
+    platformNoticeParams(String(orderId ?? ''))
+  );
+
+  // §4 for checkout: which methods may take this order, and why.
+  ipcMain.handle('catalog:platformVerdict', (_e, orderId: string) =>
+    verdictForOrder(String(orderId ?? ''))
+  );
+
   // 🔍 Search items by name / barcode
   ipcMain.handle('catalog:search', async (_e, q: string) => {
     // FIX: Added image and image_local here

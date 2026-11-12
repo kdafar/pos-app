@@ -290,6 +290,8 @@ body {
   .ui-chip-sizes { background: #0e7490; }
   .ui-chip-addons { background: #6d28d9; }
   .ui-chip-options { background: #be185d; }
+  /* Sold only on Talabat / Keeta (orange-700, white 5.2:1). */
+  .ui-chip-platform { background: #c2410c; }
   .ui-chip-outline {
     background: transparent;
     color: var(--ink-2);

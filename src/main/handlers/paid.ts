@@ -24,6 +24,7 @@ import {
 import { resolveApprover, type ApprovalInput } from '../utils/approvals';
 import { logAction } from '../utils/logging';
 import { serverRecordsPayment } from '../paidState';
+import { assertPlatformPayment } from '../platformOnly';
 import {
   isOwnOrder,
   queuePaidAction,
@@ -147,6 +148,9 @@ export function registerPaidHandlers(ipcMain: IpcMain, services: MainServices) {
       ) {
         throw posError('POS_PAID_METHOD_LOCKED', { field: 'payment_method' });
       }
+
+      // §4.5: a dish sold only on Talabat or Keeta keeps its platform's method.
+      assertPlatformPayment(order.id, method.id);
 
       // A KNET mark needs the reference printed on the card-machine slip; the
       // server refuses it without one (POS_PAID_REFERENCE_MISSING). Checked

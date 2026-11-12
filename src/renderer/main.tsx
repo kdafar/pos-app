@@ -65,6 +65,7 @@ const Router =
 import './rootRelativeGuard';
 import { loadAndApplyBrandTheme } from './theme/brand';
 import { SYNCED_EVENT } from './utils/syncEvents';
+import { PlatformNoticeToaster } from './components/PlatformNoticeToaster';
 import { loadTextScale } from './theme/textScale';
 
 try {
@@ -94,6 +95,7 @@ try {
                     <ErrorBoundary>
                       <App />
                     </ErrorBoundary>
+                    <PlatformNoticeToaster />
                   </ApprovalProvider>
                 </ConfirmDialogProvider>
               </ToastProvider>

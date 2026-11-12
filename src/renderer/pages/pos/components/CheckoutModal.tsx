@@ -26,7 +26,13 @@ import { splitParts } from '../../../../shared/splitPayment';
 import { isCashPayment as isCashSlug } from '../../../../shared/cashChange';
 import { DeliveryFeeRow } from './DeliveryFeeRow';
 import { describeError } from '../../../utils/posError';
-import { paymentStatusCode } from '../../../../shared/errors';
+import { paymentStatusCode, toPosError } from '../../../../shared/errors';
+import {
+  joinLists,
+  platformRefusal,
+  refusalText,
+  type PlatformVerdict,
+} from '../../../../shared/platformOnly';
 import {
   WALK_IN_CUSTOMER_MOBILE,
   WALK_IN_CUSTOMER_NAME,
@@ -124,7 +130,23 @@ export function CheckoutModal({
     payment_method_id: '',
     payment_method_slug: 'cash',
   });
-  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [allPaymentMethods, setPaymentMethods] = useState<any[]>([]);
+  /**
+   * Dishes sold only on Talabat or Keeta (platform-only §1, §4). With such a
+   * dish in the order only its platform's methods are offered and the first
+   * is picked; checkout opens on the shop's default again for any other
+   * order, so taking the dish off gives the usual method back.
+   */
+  const [platformVerdict, setPlatformVerdict] = useState<PlatformVerdict>({ kind: 'none' });
+  const paymentMethods = useMemo(
+    () =>
+      platformVerdict.kind === 'ok'
+        ? platformVerdict.allowedMethodIds
+            .map((id) => allPaymentMethods.find((m: any) => String(m.id) === id))
+            .filter(Boolean)
+        : allPaymentMethods,
+    [allPaymentMethods, platformVerdict]
+  );
   /**
    * Whether this branch asks for the cash received. Off until the back office
    * ticks the box, and off on a till that has not bootstrapped since the
@@ -249,6 +271,13 @@ export function CheckoutModal({
     (async () => {
       const methods = await window.api.invoke('payments:listMethods');
       setPaymentMethods(methods || []);
+      let verdict: PlatformVerdict = { kind: 'none' };
+      try {
+        verdict = (await window.api.invoke('catalog:platformVerdict', order.id)) ?? verdict;
+      } catch {
+        // Unknown means as today; the main process still refuses at Pay.
+      }
+      setPlatformVerdict(verdict);
 
       try {
         const branch = await window.api.invoke('branch:profile');
@@ -257,11 +286,15 @@ export function CheckoutModal({
         // An unreachable profile means the field stays hidden, which is the
         // pre-existing checkout. Never block the sale over a receipt option.
       }
-      if (methods?.length) {
+      const first =
+        verdict.kind === 'ok'
+          ? (methods || []).find((m: any) => String(m.id) === verdict.allowedMethodIds[0])
+          : methods?.[0];
+      if (first) {
         setFormData((p) => ({
           ...p,
-          payment_method_id: String(methods[0].id),
-          payment_method_slug: methods[0].slug || 'cash',
+          payment_method_id: String(first.id),
+          payment_method_slug: first.slug || 'cash',
         }));
       }
     })();
@@ -363,6 +396,8 @@ export function CheckoutModal({
    */
   const splitAllowed =
     splitEnabled &&
+    // Not for Talabat / Keeta-only dishes: the platform takes the whole bill.
+    platformVerdict.kind === 'none' &&
     !!formData.payment_method_slug &&
     !isCashSlug(formData.payment_method_slug) &&
     !isOnlinePayment(formData.payment_method_slug);
@@ -485,7 +520,14 @@ export function CheckoutModal({
       found.push({ code: 'POS_VAL_SPLIT_AMOUNT' as FormIssue['code'], field: 'payment_method' });
     }
 
-    if (!formData.payment_method_id || !formData.payment_method_slug) {
+    const platformIssue = platformRefusal(platformVerdict, formData.payment_method_id);
+    if (platformIssue) {
+      found.push({
+        code: platformIssue.code,
+        field: 'payment_method',
+        params: platformIssue.params,
+      });
+    } else if (!formData.payment_method_id || !formData.payment_method_slug) {
       found.push({ code: 'POS_VAL_PAYMENT_METHOD_REQUIRED', field: 'payment_method' });
     } else if (
       isOnlinePayment(formData.payment_method_slug) &&
@@ -663,7 +705,12 @@ export function CheckoutModal({
       const described = describeError(err, lang);
       if (described.field) {
         issues.setIssues([
-          { code: described.code as FormIssue['code'], field: described.field },
+          {
+            code: described.code as FormIssue['code'],
+            field: described.field,
+            // Platform-only refusals name the dish and the platform.
+            params: (toPosError(err).params ?? undefined) as FormIssue['params'],
+          },
         ]);
         focusField(formRef.current, described.field);
       }
@@ -1156,6 +1203,21 @@ export function CheckoutModal({
                 )}
               </div>
             )}
+            {/* Why the methods are narrowed, or why none fits (§1.3, §5). */}
+            {platformVerdict.kind === 'ok' && (
+              <p className='mt-2 text-xs font-medium ink-2'>
+                {t('checkout.platformOnlyNote', {
+                  list: joinLists(platformVerdict.lists, lang),
+                })}
+              </p>
+            )}
+            {(platformVerdict.kind === 'mixed' || platformVerdict.kind === 'off') &&
+              !issues.codeFor('payment_method') && (() => {
+                const r = platformRefusal(platformVerdict, formData.payment_method_id);
+                return r ? (
+                  <p className='mt-2 text-xs font-semibold text-danger'>{refusalText(r, lang)}</p>
+                ) : null;
+              })()}
             <FieldError issue={issues.codeFor('payment_method')} />
           </div>
 

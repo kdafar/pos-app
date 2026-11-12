@@ -21,6 +21,7 @@ import { reconcileOrderFromServer } from '../sync';
 import { holdDeps, orderChangeDeps, schedulePushSoon, toServerUserId } from './sync';
 import { holdTable, releaseHold } from '../tableHolds';
 import { isOwnOrder } from '../paidMarks';
+import { assertPlatformAdd, assertPlatformCheckout } from '../platformOnly';
 import { isLineSending, sendOrderChange, sendOrderLines, type OrderChange } from '../orderStatusActions';
 import { normPullLine, orderLineUpsert, writePayParts } from '../sync';
 import { largerPart, splitParts, type PayPart } from '../../shared/splitPayment';
@@ -1156,6 +1157,8 @@ export function registerOrdersHandlers(
         .prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`)
         .get(itemId) as any;
       if (!item) throw posError('POS_VAL_ITEM_NOT_FOUND');
+      // A Talabat/Keeta-only dish cannot join an order already paid another way.
+      if (Number(qty) > 0) assertPlatformAdd(orderId, String(item.id));
 
       // Items sold by variation have no meaningful bare price — force the
       // caller through orders:addLineWithAddons so a variation is picked.
@@ -1253,6 +1256,8 @@ export function registerOrdersHandlers(
         .prepare(`SELECT id, name, name_ar, price FROM items WHERE id = ?`)
         .get(itemId) as any;
       if (!item) throw posError('POS_VAL_ITEM_NOT_FOUND');
+      // A Talabat/Keeta-only dish cannot join an order already paid another way.
+      if (Number(qty) > 0) assertPlatformAdd(orderId, String(item.id));
 
       // ── Variations ───────────────────────────────────────────────
       // An item that has variations MUST be sold as one of them, otherwise
@@ -1833,6 +1838,9 @@ export function registerOrdersHandlers(
       // change. New lines go to the server first; then how it was paid. A
       // tender is only ever kept for cash.
       const row = getOrderRow(orderId);
+      // Platform-only dishes (Talabat / Keeta): refused before anything is
+      // sent or saved.
+      if (row) assertPlatformCheckout(orderId, customer, row.payment_method_id);
       if (row && !isOwnOrder(row)) {
         const added = await sendUnsentLinesOfOtherTill(row);
         const fresh = getOrderRow(orderId) ?? row;

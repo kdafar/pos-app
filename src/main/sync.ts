@@ -6,6 +6,7 @@ import { app } from 'electron';
 
 import { posError } from '../shared/errorCodes';
 import { applyServerPaid } from './paidState';
+import { applyPriceListChange, storePlatformOnly, storePriceLists } from './platformOnly';
 import { matchTableByName } from './utils/pulledOrderTable';
 import { resolveOwnOrderStatus } from './utils/serverStatus';
 import {
@@ -1331,6 +1332,11 @@ export async function bootstrap(baseUrl: string) {
       .filter(Boolean);
     setMeta('kitchen.station_ids', JSON.stringify(ids));
   }
+  // Dishes sold only on Talabat or Keeta. The price lists are kept only to
+  // know which payment method is which platform (this till has no channel
+  // prices). A server that sends neither key leaves the last copy alone.
+  if (catalog.price_lists !== undefined) storePriceLists(catalog.price_lists);
+  if (catalog.platform_only !== undefined) storePlatformOnly(catalog.platform_only);
   const tables = asArray(catalog.tables ?? catalog.table_list ?? []);
   const tableSections = asArray(
     catalog.table_sections ?? data.table_sections ?? []
@@ -2889,6 +2895,11 @@ async function pullPage(): Promise<boolean> {
         if (op === 'delete') delBy('cities', c.pk);
       } else if (tbl === 'block' || tbl === 'blocks') {
         if (op === 'delete') delBy('blocks', c.pk);
+      } else if (tbl === 'platform_only') {
+        // Always the whole thing (pk "all"): replace the stored copy.
+        storePlatformOnly(c.data);
+      } else if (tbl === 'price_list' || tbl === 'price_lists') {
+        applyPriceListChange(op, c.pk, c.data);
       } else if (tbl === 'station' || tbl === 'stations') {
         // Kitchen stations print on the server's own printers; the till only
         // keeps which ones exist, to know whether to print kitchen slips.

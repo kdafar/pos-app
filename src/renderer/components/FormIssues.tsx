@@ -16,6 +16,7 @@ import { AlertTriangle, ArrowRight, ArrowLeft, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { ERROR_CATALOG, interpolate } from '../../shared/errorCatalog';
 import type { PosErrorCode } from '../../shared/errorCatalog';
+import { localizeParams } from '../../shared/platformOnly';
 
 export type FormIssue = {
   code: PosErrorCode;
@@ -106,7 +107,7 @@ export function FieldError({ issue }: { issue?: FormIssue }) {
           {/* 18px floor. The icon carries the state as well as the colour. */}
           <div className='mt-1.5 flex items-start gap-1.5 text-[16px] font-semibold text-danger'>
             <AlertTriangle className='mt-[3px] h-4 w-4 shrink-0' />
-            <span>{interpolate(ERROR_CATALOG[issue.code][lang].body, issue.params)}</span>
+            <span>{interpolate(ERROR_CATALOG[issue.code][lang].body, localizeParams(issue.params, lang))}</span>
           </div>
         </motion.div>
       )}
@@ -206,7 +207,7 @@ export function ValidationSummary({
                 >
                   {/* Title only. The message under the control says the rest. */}
                   <span className='min-w-0 flex-1 truncate text-[15px] font-semibold ink'>
-                    {interpolate(ERROR_CATALOG[issue.code][lang].title, issue.params)}
+                    {interpolate(ERROR_CATALOG[issue.code][lang].title, localizeParams(issue.params, lang))}
                   </span>
                   {extraAction?.(issue)}
                   {onFocusField && (

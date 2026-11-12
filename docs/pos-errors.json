@@ -3,14 +3,14 @@
   "note": "Generated. Edit the TypeScript module, then run: node scripts/export-errors.mjs",
   "conventions": {
     "code_coverage": {
-      "backend_sends": 72,
-      "mirrored_here": 61,
+      "backend_sends": 73,
+      "mirrored_here": 62,
       "outstanding": 11,
       "note": "backend_sends is the count of constants in PosError.php, their authority. POS_ORDER_NOT_FOUND is counted there but deliberately absent here: this client renders that condition as POS_VAL_ORDER_NOT_FOUND (their ALIASED_BY_THE_APP). \"outstanding\" conflates two unlike things and is not a count of missing copy. Four of them — POS_PROMO_WRONG_BRANCH, POS_PAY_STATUS_FAILED, POS_PAY_STATUS_EXPIRED, POS_OK_PROMO_APPLIED — have full copy here and are listed with sent_by_server false because they arrive in a 200 body, classified by promoRejectionCode() and paymentStatusCode() rather than from an error response. Only the six permission-write codes for GET/PUT /users/{user}/permissions genuinely have no copy, and this client never calls that endpoint: permissions arrive as role_permissions on bootstrap/pull and are enforced locally. Every code on the enrolment and sync path is mirrored — pairing 5, reclaim 6, device 4, push 5. Still awaiting the constant names from PosError.php to turn this from inference into a diff."
     },
-    "total_codes": 143,
-    "app_only": 58,
-    "server_side": 85
+    "total_codes": 148,
+    "app_only": 62,
+    "server_side": 86
   },
   "severities": {
     "blocker": "Centred modal, dimmed backdrop, explicit dismissal. Work stops.",
@@ -18,7 +18,7 @@
     "inline": "Message under the control that is wrong. The cashier can fix it now.",
     "info": "Quiet. Queues, progress, confirmations — not a failure."
   },
-  "count": 143,
+  "count": 148,
   "codes": [
     {
       "code": "POS_NET_OFFLINE",
@@ -104,7 +104,7 @@
         },
         {
           "file": "src/main/sync.ts",
-          "line": 1249,
+          "line": 1251,
           "trigger": "if (!deviceId || !token) throw posError('POS_AUTH_MISSING');"
         }
       ],
@@ -548,7 +548,7 @@
       "raised_at": [
         {
           "file": "src/main/sync.ts",
-          "line": 1074,
+          "line": 1076,
           "trigger": "throw posError('POS_PAIR_RESPONSE_INVALID');"
         }
       ],
@@ -664,12 +664,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 328,
+          "line": 329,
           "trigger": "throw posError('POS_PUSH_ORDER_FINALIZED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 874,
+          "line": 875,
           "trigger": "throw posError('POS_PUSH_ORDER_FINALIZED');"
         }
       ],
@@ -775,7 +775,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 161,
+          "line": 165,
           "trigger": "throw posError('POS_PAID_INPUT_MISSING', { field: 'reference' });"
         }
       ],
@@ -801,7 +801,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 157,
+          "line": 161,
           "trigger": "throw posError('POS_PAID_REFERENCE_MISSING', { field: 'reference' });"
         }
       ],
@@ -827,7 +827,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 113,
+          "line": 114,
           "trigger": "throw posError('POS_PAID_ORDER_CANCELLED');"
         }
       ],
@@ -853,7 +853,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 126,
+          "line": 127,
           "trigger": "throw posError('POS_PAID_ALREADY_PAID');"
         }
       ],
@@ -879,12 +879,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 108,
+          "line": 109,
           "trigger": "throw posError('POS_PAID_NOT_PERMITTED');"
         },
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 165,
+          "line": 169,
           "trigger": "if (paidBy == null) throw posError('POS_PAID_NOT_PERMITTED');"
         }
       ],
@@ -912,7 +912,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 130,
+          "line": 131,
           "trigger": "throw posError('POS_PAID_AMOUNT_MISMATCH', {"
         }
       ],
@@ -938,7 +938,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 148,
+          "line": 149,
           "trigger": "throw posError('POS_PAID_METHOD_LOCKED', { field: 'payment_method' });"
         }
       ],
@@ -984,7 +984,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 197,
+          "line": 201,
           "trigger": "if (order.paid_how === 'gateway') throw posError('POS_PAID_VERIFIED_LOCKED');"
         }
       ],
@@ -1010,7 +1010,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 216,
+          "line": 220,
           "trigger": "if (requestedBy == null) throw posError('POS_PAID_UNDO_NOT_PERMITTED');"
         }
       ],
@@ -1056,12 +1056,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 235,
+          "line": 236,
           "trigger": "if (!isOwnOrder(order)) throw posError('POS_ORDER_OTHER_TILL');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2366,
+          "line": 2374,
           "trigger": "if (seated.some((id) => !isOwnOrder({ id }))) throw posError('POS_ORDER_OTHER_TILL');"
         },
         {
@@ -1383,6 +1383,29 @@
       }
     },
     {
+      "code": "POS_PUSH_PLATFORM_ONLY_PAYMENT",
+      "severity": "toast",
+      "retry": false,
+      "where": "POST /push",
+      "http": 200,
+      "origin": "server",
+      "sent_by_server": true,
+      "params": [
+        "list_name",
+        "items"
+      ],
+      "user_action": "nothing",
+      "raised_at": [],
+      "en": {
+        "title": "Dish sold only on {list_name}",
+        "body": "The order was sent and saved, but {items} is sold only on {list_name} and the order was not paid that way. Tell a manager so the payment method can be corrected."
+      },
+      "ar": {
+        "title": "صنف يُباع فقط على {list_name}",
+        "body": "الطلب أُرسل وحُفظ، لكن فيه {items} ويُباع فقط على {list_name} ولم يُدفع عن طريقها. أبلغ المدير لتصحيح طريقة الدفع."
+      }
+    },
+    {
       "code": "POS_ORDER_LINES_SENDING",
       "severity": "inline",
       "retry": true,
@@ -1395,17 +1418,17 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1514,
+          "line": 1519,
           "trigger": "if (isLineSending(line.id)) throw posError('POS_ORDER_LINES_SENDING');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1545,
+          "line": 1550,
           "trigger": "if (isLineSending(line.id)) throw posError('POS_ORDER_LINES_SENDING');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1568,
+          "line": 1573,
           "trigger": "if (sending.length) throw posError('POS_ORDER_LINES_SENDING');"
         }
       ],
@@ -1431,7 +1454,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 303,
+          "line": 304,
           "trigger": "if (!parts) throw posError('POS_VAL_SPLIT_AMOUNT', { field: 'payment_method' });"
         }
       ],
@@ -1748,7 +1771,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 140,
+          "line": 141,
           "trigger": "if (!method) throw posError('POS_PAY_METHOD_UNAVAILABLE', { field: 'payment_method' });"
         },
         {
@@ -1965,12 +1988,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1682,
+          "line": 1687,
           "trigger": "throw posError('POS_VAL_TABLE_REQUIRED', { field: 'table' });"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1897,
+          "line": 1905,
           "trigger": "throw posError('POS_VAL_TABLE_REQUIRED', { field: 'table' });"
         },
         {
@@ -2001,12 +2024,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1881,
+          "line": 1889,
           "trigger": "throw posError('POS_VAL_CART_EMPTY');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2132,
+          "line": 2140,
           "trigger": "if (cartItems.length === 0) throw posError('POS_VAL_CART_EMPTY');"
         }
       ],
@@ -2078,7 +2101,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1675,
+          "line": 1680,
           "trigger": "throw posError('POS_VAL_CITY_REQUIRED', { field: 'geo' });"
         }
       ],
@@ -2144,7 +2167,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1894,
+          "line": 1902,
           "trigger": "throw posError('POS_VAL_ADDRESS_REQUIRED', { field: 'address' });"
         }
       ],
@@ -2272,7 +2295,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1277,
+          "line": 1282,
           "trigger": "throw posError('POS_VAL_VARIATION');"
         }
       ],
@@ -2298,12 +2321,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 377,
+          "line": 378,
           "trigger": "throw posError('POS_VAL_ORDER_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 383,
+          "line": 384,
           "trigger": "throw posError('POS_VAL_ORDER_LOCKED');"
         },
         {
@@ -2349,42 +2372,42 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 361,
+          "line": 362,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 745,
+          "line": 746,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 838,
+          "line": 839,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1625,
+          "line": 1630,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1797,
+          "line": 1802,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1872,
+          "line": 1880,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2266,
+          "line": 2274,
           "trigger": "if (!o) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 78,
+          "line": 79,
           "trigger": "if (!row) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
@@ -2414,17 +2437,17 @@
         },
         {
           "file": "src/main/print.ts",
-          "line": 1736,
+          "line": 1747,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/print.ts",
-          "line": 2002,
+          "line": 2014,
           "trigger": "if (!order) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/sync.ts",
-          "line": 2123,
+          "line": 2141,
           "trigger": "if (e?.response?.status === 404) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
@@ -2455,7 +2478,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1891,
+          "line": 1899,
           "trigger": "throw posError('POS_VAL_NAME_REQUIRED', { field: 'full_name' });"
         }
       ],
@@ -2501,7 +2524,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 70,
+          "line": 71,
           "trigger": "if (!id) throw posError('POS_VAL_ORDER_ID_MISSING');"
         },
         {
@@ -2532,7 +2555,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 765,
+          "line": 766,
           "trigger": "throw posError('POS_VAL_TYPE_LOCKED_TABLE');"
         }
       ],
@@ -2558,7 +2581,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 777,
+          "line": 778,
           "trigger": "throw posError('POS_VAL_TYPE_LOCKED_CLOSED');"
         }
       ],
@@ -2584,12 +2607,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 322,
+          "line": 323,
           "trigger": "if (!allowed.includes(target)) throw posError('POS_VAL_STATUS_UNKNOWN');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 851,
+          "line": 852,
           "trigger": "throw posError('POS_VAL_STATUS_UNKNOWN');"
         }
       ],
@@ -2618,7 +2641,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 881,
+          "line": 882,
           "trigger": "throw posError('POS_VAL_STATUS_TRANSITION', {"
         }
       ],
@@ -2644,7 +2667,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 868,
+          "line": 869,
           "trigger": "throw posError('POS_VAL_CANCEL_EMPTY_DRAFT');"
         }
       ],
@@ -2670,7 +2693,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1640,
+          "line": 1645,
           "trigger": "throw posError('POS_VAL_LINES_UNREADABLE');"
         }
       ],
@@ -2696,7 +2719,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2267,
+          "line": 2275,
           "trigger": "if (Number(o.order_type) !== 3) throw posError('POS_VAL_NOT_DINE_IN');"
         }
       ],
@@ -2722,12 +2745,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2262,
+          "line": 2270,
           "trigger": "if (!table) throw posError('POS_VAL_TABLE_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2357,
+          "line": 2365,
           "trigger": "if (!tableId) throw posError('POS_VAL_TABLE_NOT_FOUND');"
         }
       ],
@@ -2753,7 +2776,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2423,
+          "line": 2431,
           "trigger": "if (count > 0) throw posError('POS_VAL_TABLE_HAS_ITEMS');"
         }
       ],
@@ -2779,7 +2802,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2419,
+          "line": 2427,
           "trigger": "throw posError('POS_VAL_TABLE_CLEAR_UNVERIFIED');"
         }
       ],
@@ -2805,12 +2828,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1158,
+          "line": 1159,
           "trigger": "if (!item) throw posError('POS_VAL_ITEM_NOT_FOUND');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1255,
+          "line": 1258,
           "trigger": "if (!item) throw posError('POS_VAL_ITEM_NOT_FOUND');"
         }
       ],
@@ -2838,12 +2861,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1169,
+          "line": 1172,
           "trigger": "throw posError('POS_VAL_ITEM_NO_PRICE', { params: { name: String(item.name ?? '') } });"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1299,
+          "line": 1304,
           "trigger": "throw posError('POS_VAL_ITEM_NO_PRICE', { params: { name: String(item.name ?? '') } });"
         },
         {
@@ -2862,6 +2885,97 @@
       }
     },
     {
+      "code": "POS_VAL_PLATFORM_ONLY_ONE",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:complete",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "name",
+        "list"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [],
+      "en": {
+        "title": "Sold only on a delivery app",
+        "body": "{name} is only sold on {list}. Remove it or choose {list}."
+      },
+      "ar": {
+        "title": "يُباع على تطبيق توصيل فقط",
+        "body": "{name} يُباع فقط على {list}. احذفه من الطلب أو اختر {list}."
+      }
+    },
+    {
+      "code": "POS_VAL_PLATFORM_ONLY_MANY",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:complete",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "names",
+        "list"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [],
+      "en": {
+        "title": "Sold only on a delivery app",
+        "body": "{names} are only sold on {list}. Remove them or choose {list}."
+      },
+      "ar": {
+        "title": "تُباع على تطبيق توصيل فقط",
+        "body": "{names} تُباع فقط على {list}. احذفها من الطلب أو اختر {list}."
+      }
+    },
+    {
+      "code": "POS_VAL_PLATFORM_ONLY_MIXED",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:complete",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "names"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [],
+      "en": {
+        "title": "Dishes from different apps",
+        "body": "{names} are sold on different platforms, so they can’t be in one order. Split them into two orders."
+      },
+      "ar": {
+        "title": "أصناف من منصات مختلفة",
+        "body": "{names} تُباع على منصات مختلفة، لذلك لا يمكن أن تكون في طلب واحد. افصلها في طلبين."
+      }
+    },
+    {
+      "code": "POS_VAL_PLATFORM_ONLY_LIST_OFF",
+      "severity": "inline",
+      "retry": false,
+      "where": "orders:complete",
+      "http": null,
+      "origin": "app",
+      "sent_by_server": false,
+      "params": [
+        "name",
+        "list"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [],
+      "en": {
+        "title": "Price list is switched off",
+        "body": "{name} is only sold on {list}, and that price list is switched off. Switch it on under Price lists, or remove it."
+      },
+      "ar": {
+        "title": "قائمة الأسعار متوقفة",
+        "body": "{name} يُباع فقط على {list}، وهذه القائمة متوقفة الآن. شغّلها من قوائم الأسعار أو احذف الصنف."
+      }
+    },
+    {
       "code": "POS_VAL_VARIATION_REQUIRED",
       "severity": "inline",
       "retry": false,
@@ -2874,12 +2988,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1166,
+          "line": 1169,
           "trigger": "throw posError('POS_VAL_VARIATION_REQUIRED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1293,
+          "line": 1298,
           "trigger": "throw posError('POS_VAL_VARIATION_REQUIRED');"
         }
       ],
@@ -2908,7 +3022,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1285,
+          "line": 1290,
           "trigger": "throw posError('POS_VAL_VARIATION_NO_PRICE', {"
         }
       ],
@@ -2934,7 +3048,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1329,
+          "line": 1334,
           "trigger": "if (!a) throw posError('POS_VAL_ADDON_NOT_FOUND');"
         }
       ],
@@ -2962,7 +3076,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1333,
+          "line": 1338,
           "trigger": "throw posError('POS_VAL_ADDON_UNAVAILABLE', { params: { name: String(a.name ?? '') } });"
         }
       ],
@@ -2990,7 +3104,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1353,
+          "line": 1358,
           "trigger": "throw posError('POS_VAL_ADDON_GROUP_REQUIRED', { params: { group: String(g.name ?? '') } });"
         }
       ],
@@ -3019,7 +3133,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1357,
+          "line": 1362,
           "trigger": "throw posError('POS_VAL_ADDON_GROUP_MAX', {"
         }
       ],
@@ -3050,7 +3164,7 @@
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1249,
+          "line": 1252,
           "trigger": "throw posError('POS_VAL_QTY', { field: 'qty' });"
         }
       ],
@@ -3076,7 +3190,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1500,
+          "line": 1505,
           "trigger": "if (!line) throw posError('POS_VAL_LINE_NOT_FOUND');"
         }
       ],
@@ -3102,7 +3216,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1507,
+          "line": 1512,
           "trigger": "if (!(qty < before)) throw posError('POS_VAL_LINE_SENT_MODIFY');"
         }
       ],
@@ -3148,7 +3262,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 757,
+          "line": 758,
           "trigger": "throw posError('POS_VAL_DELIVERY_DISABLED');"
         }
       ],
@@ -3174,7 +3288,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 955,
+          "line": 956,
           "trigger": "throw posError('POS_VAL_DELIVERY_FEE_WRONG_TYPE');"
         }
       ],
@@ -3200,7 +3314,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 966,
+          "line": 967,
           "trigger": "throw posError('POS_VAL_DELIVERY_FEE_NOT_POSITIVE', { field: 'delivery_fee' });"
         }
       ],
@@ -3226,7 +3340,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 970,
+          "line": 971,
           "trigger": "throw posError('POS_VAL_DELIVERY_FEE_TOO_LARGE', { field: 'delivery_fee' });"
         }
       ],
@@ -3252,7 +3366,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1385,
+          "line": 1387,
           "trigger": "throw posError('POS_PRINT_NO_PRINTER');"
         }
       ],
@@ -3280,7 +3394,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1412,
+          "line": 1414,
           "trigger": "? posError('POS_PRINT_PRINTER_MISSING', {"
         }
       ],
@@ -3306,7 +3420,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 1415,
+          "line": 1417,
           "trigger": ": posError('POS_PRINT_PRINTER_NOT_SET');"
         }
       ],
@@ -3332,7 +3446,7 @@
       "raised_at": [
         {
           "file": "src/main/print.ts",
-          "line": 2010,
+          "line": 2022,
           "trigger": "throw posError('POS_PRINT_ORDER_NOT_LOCAL');"
         }
       ],
@@ -3436,87 +3550,87 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 240,
+          "line": 241,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 261,
+          "line": 262,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 645,
+          "line": 646,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 742,
+          "line": 743,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 835,
+          "line": 836,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 950,
+          "line": 951,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1148,
+          "line": 1149,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1240,
+          "line": 1243,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1496,
+          "line": 1501,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1533,
+          "line": 1538,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1554,
+          "line": 1559,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1575,
+          "line": 1580,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1599,
+          "line": 1604,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1612,
+          "line": 1617,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1812,
+          "line": 1817,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 1830,
+          "line": 1835,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         },
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2128,
+          "line": 2136,
           "trigger": "if (isPosLocked()) throw posError('POS_TILL_LOCKED');"
         }
       ],
@@ -3614,17 +3728,17 @@
         },
         {
           "file": "src/main/sync.ts",
-          "line": 982,
+          "line": 984,
           "trigger": "throw posError('POS_CFG_API_NOT_READY');"
         },
         {
           "file": "src/main/sync.ts",
-          "line": 2111,
+          "line": 2129,
           "trigger": "if (!api) throw posError('POS_CFG_API_NOT_READY');"
         },
         {
           "file": "src/main/sync.ts",
-          "line": 2214,
+          "line": 2232,
           "trigger": "if (!api) throw posError('POS_CFG_API_NOT_READY');"
         }
       ],
@@ -3676,7 +3790,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/orders.ts",
-          "line": 2024,
+          "line": 2032,
           "trigger": "throw posError('POS_DB_WRITE_FAILED', { cause: err });"
         }
       ],

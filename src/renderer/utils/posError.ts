@@ -16,6 +16,7 @@ import {
   type Severity,
 } from '../../shared/errorCatalog';
 import { useI18n } from '../i18n';
+import { localizeParams } from '../../shared/platformOnly';
 
 export type DescribedError = {
   code: string;
@@ -46,7 +47,8 @@ export function describeError(err: unknown, lang: 'en' | 'ar'): DescribedError {
     : ERROR_CATALOG.POS_UNKNOWN;
 
   const copy = known[lang];
-  const rendered = interpolate(copy.body, payload.params);
+  // A name with an Arabic twin (`name_ar`) is shown in Arabic on an Arabic till.
+  const rendered = interpolate(copy.body, localizeParams(payload.params, lang));
 
   // A row whose body is nothing but a placeholder ({detail}) and that arrived
   // without it filled would render literally. Fall back to the sentence the

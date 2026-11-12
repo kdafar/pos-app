@@ -17,6 +17,8 @@ export interface Order {
   promocode?: string;
   /** Set when the server refused the last table move (POS_PUSH_TABLE_INVALID). */
   push_notice?: string | null;
+  /** POS_PUSH_PLATFORM_ONLY_PAYMENT: 1 not toasted yet, 2 toasted. */
+  platform_notice?: number | null;
 }
 
 export interface OrderLine {

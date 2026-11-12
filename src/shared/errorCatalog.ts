@@ -75,11 +75,13 @@ export type CatalogEntry = {
  * 66 with 1.11.0 and the four codes of POST /orders/{id}/status, mirrored.
  * 72 with 1.14.0: POS_PUSH_LINES_KEPT, the four table-hold codes and
  * POS_PUSH_SPLIT_INVALID, mirrored.
+ * 73 with 1.15.0: POS_PUSH_PLATFORM_ONLY_PAYMENT (dishes sold only on Talabat
+ * or Keeta), mirrored.
  *
  * Kept next to the catalogue rather than inside the drift test so the export
  * and the test cannot disagree about the target.
  */
-export const BACKEND_SENT_CODE_COUNT = 72;
+export const BACKEND_SENT_CODE_COUNT = 73;
 
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
@@ -1037,6 +1039,27 @@ export const ERROR_CATALOG = {
       body: 'لم تتطابق طريقتا الدفع مع الفاتورة، فتم تسجيل الطلب بطريقة دفع واحدة.',
     },
   },
+  // pos-errors.json 1.15.0. The server keeps the sale (it already happened)
+  // and only flags it; never resent. It sends code, temp_id, error and
+  // retryable only: {items} and {list_name} are filled here from the order
+  // and this till's platform_only / price_lists copies (with `_ar` twins).
+  // The server's `error` text is never shown.
+  POS_PUSH_PLATFORM_ONLY_PAYMENT: {
+    severity: 'toast',
+    retry: false,
+    where: 'POST /push',
+    http: 200,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Dish sold only on {list_name}',
+      body: 'The order was sent and saved, but {items} is sold only on {list_name} and the order was not paid that way. Tell a manager so the payment method can be corrected.',
+    },
+    ar: {
+      title: 'صنف يُباع فقط على {list_name}',
+      body: 'الطلب أُرسل وحُفظ، لكن فيه {items} ويُباع فقط على {list_name} ولم يُدفع عن طريقها. أبلغ المدير لتصحيح طريقة الدفع.',
+    },
+  },
   POS_ORDER_LINES_SENDING: {
     severity: 'inline',
     retry: true,
@@ -1827,6 +1850,69 @@ export const ERROR_CATALOG = {
     ar: {
       title: 'لا يوجد سعر',
       body: 'الصنف "{name}" بدون سعر ولا يمكن بيعه. اطلب من الإدارة تحديد سعر له.',
+    },
+  },
+  // Dishes sold only on Talabat or Keeta (platform-only contract §5). The
+  // words are the web tills'. {name}/{names}/{list} arrive with an `_ar`
+  // twin for Arabic (shared/platformOnly.ts localizeParams).
+  POS_VAL_PLATFORM_ONLY_ONE: {
+    severity: 'inline',
+    retry: false,
+    where: 'orders:complete',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Sold only on a delivery app',
+      body: '{name} is only sold on {list}. Remove it or choose {list}.',
+    },
+    ar: {
+      title: 'يُباع على تطبيق توصيل فقط',
+      body: '{name} يُباع فقط على {list}. احذفه من الطلب أو اختر {list}.',
+    },
+  },
+  POS_VAL_PLATFORM_ONLY_MANY: {
+    severity: 'inline',
+    retry: false,
+    where: 'orders:complete',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Sold only on a delivery app',
+      body: '{names} are only sold on {list}. Remove them or choose {list}.',
+    },
+    ar: {
+      title: 'تُباع على تطبيق توصيل فقط',
+      body: '{names} تُباع فقط على {list}. احذفها من الطلب أو اختر {list}.',
+    },
+  },
+  POS_VAL_PLATFORM_ONLY_MIXED: {
+    severity: 'inline',
+    retry: false,
+    where: 'orders:complete',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Dishes from different apps',
+      body: '{names} are sold on different platforms, so they can’t be in one order. Split them into two orders.',
+    },
+    ar: {
+      title: 'أصناف من منصات مختلفة',
+      body: '{names} تُباع على منصات مختلفة، لذلك لا يمكن أن تكون في طلب واحد. افصلها في طلبين.',
+    },
+  },
+  POS_VAL_PLATFORM_ONLY_LIST_OFF: {
+    severity: 'inline',
+    retry: false,
+    where: 'orders:complete',
+    sent: false,
+    origin: 'app',
+    en: {
+      title: 'Price list is switched off',
+      body: '{name} is only sold on {list}, and that price list is switched off. Switch it on under Price lists, or remove it.',
+    },
+    ar: {
+      title: 'قائمة الأسعار متوقفة',
+      body: '{name} يُباع فقط على {list}، وهذه القائمة متوقفة الآن. شغّلها من قوائم الأسعار أو احذف الصنف.',
     },
   },
   POS_VAL_VARIATION_REQUIRED: {

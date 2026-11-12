@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Puzzle, Layers } from 'lucide-react';
+import { Puzzle, Layers, Motorbike } from 'lucide-react';
 import { fileUrl } from '../../../utils/fileUrl';
 import { useI18n } from '../../../i18n';
 import { Item } from '../types';
@@ -8,14 +8,17 @@ export function ItemCard({
   item,
   onAddItem,
   onSelectWithAddons,
+  platformTag,
 }: {
   item: Item;
+  /** Sold only on Talabat / Keeta: the platform name(s), "Talabat + Keeta". */
+  platformTag?: { en: string; ar: string } | null;
   /** Not read: colours come from tokens. Kept so call sites compile. */
   theme: 'light' | 'dark';
   onAddItem: (it: Item) => void;
   onSelectWithAddons?: (it: Item) => void;
 }) {
-  const { t, name: localName, money } = useI18n();
+  const { t, lang, name: localName, money } = useI18n();
   const [localImageFailed, setLocalImageFailed] = useState(false);
   const [remoteImageFailed, setRemoteImageFailed] = useState(false);
 
@@ -73,6 +76,13 @@ export function ItemCard({
     </span>
   );
 
+  const platformChip = platformTag && (
+    <span className='ui-chip ui-chip-platform' title={t('pos.platformOnlyTag')}>
+      <Motorbike size={12} strokeWidth={1.8} />
+      {lang === 'ar' ? platformTag.ar : platformTag.en}
+    </span>
+  );
+
   return (
     <button
       key={item.id}
@@ -99,9 +109,12 @@ export function ItemCard({
           {optionsChip && (
             <span className='absolute start-1.5 bottom-1.5 flex'>{optionsChip}</span>
           )}
-          {outOfStock && (
-            <span className='ui-chip ui-chip-red absolute start-1.5 top-1.5'>
-              {t('pos.outOfStock')}
+          {(outOfStock || platformChip) && (
+            <span className='absolute start-1.5 top-1.5 flex flex-wrap gap-1'>
+              {outOfStock && (
+                <span className='ui-chip ui-chip-red'>{t('pos.outOfStock')}</span>
+              )}
+              {platformChip}
             </span>
           )}
         </div>
@@ -116,8 +129,9 @@ export function ItemCard({
       </div>
 
       {/* Compact card: chips inline under the name */}
-      {compact && (optionsChip || outOfStock) && (
+      {compact && (optionsChip || outOfStock || platformChip) && (
         <div className='mb-1 flex flex-wrap gap-1'>
+          {platformChip}
           {optionsChip}
           {outOfStock && (
             <span className='ui-chip ui-chip-red'>{t('pos.outOfStock')}</span>

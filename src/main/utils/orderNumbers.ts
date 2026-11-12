@@ -362,6 +362,9 @@ export function applyPushResult(result: any, sent: any[] = []): {
     `UPDATE orders SET reference_no = ? WHERE id = ?`
   );
   const setNotice = db.prepare(`UPDATE orders SET push_notice = ? WHERE id = ?`);
+  const flagPlatformNotice = db.prepare(
+    `UPDATE orders SET platform_notice = 1 WHERE id = ? AND COALESCE(platform_notice, 0) = 0`
+  );
   const getStatus = db.prepare(`SELECT status FROM orders WHERE id = ?`);
   // updated_at deliberately untouched: this is the server's state coming back,
   // not a local edit, and must not queue the order for another push.
@@ -431,6 +434,17 @@ export function applyPushResult(result: any, sent: any[] = []): {
       // till's own log shows which approvals the server disagreed with.
       if (n?.code === 'POS_PUSH_APPROVAL_INVALID') {
         console.warn('[push] server flagged an approval as invalid', n);
+      }
+      // A dish sold only on Talabat or Keeta, paid another way. The server
+      // kept the sale as sent; never resend. Flagged only: the words are
+      // filled in when shown, after this sync's pull has refreshed the
+      // platform_only copy (a stale copy is the usual cause).
+      if (tempId && n?.code === 'POS_PUSH_PLATFORM_ONLY_PAYMENT') {
+        flagPlatformNotice.run(String(tempId));
+        console.warn('[push] platform-only dish paid another way', {
+          temp_id: tempId,
+          code: n.code,
+        });
       }
     }
   });
