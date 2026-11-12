@@ -289,7 +289,7 @@ describe('codes the server never sends', () => {
     expect(ERROR_CATALOG.POS_PUSH_PARTIAL.sent).toBe(false);
   });
 
-  it('mirrors 62 of the 73 codes the backend sends, with the gap pinned', () => {
+  it('mirrors 63 of the 74 codes the backend sends, with the gap pinned', () => {
     // Drift guard in both directions. The authority is the constants in
     // PosError.php, not this file — BACKEND_SENT_CODE_COUNT carries it.
     //
@@ -318,8 +318,9 @@ describe('codes the server never sends', () => {
     // 55 with the four POST /orders/{id}/status codes (1.11.0) and
     // POS_PUSH_CANCEL_NOT_PERMITTED, which that route is the first to need.
     // 61 with the six 1.14.0 codes (added items, table holds, split payment).
-    // 62 with POS_PUSH_PLATFORM_ONLY_PAYMENT (1.15.0); the gap stays 11.
-    expect(sent).toHaveLength(62);
+    // 62 with POS_PUSH_PLATFORM_ONLY_PAYMENT (1.15.0); 63 with
+    // POS_PLATFORM_ONLY_REFUSED (1.16.0). The gap stays 11.
+    expect(sent).toHaveLength(63);
     expect(BACKEND_SENT_CODE_COUNT - sent.length).toBe(11);
 
     // Spot-check the classes that must never be marked as server-sent.

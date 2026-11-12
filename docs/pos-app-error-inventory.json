@@ -71,7 +71,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 760,
+          "line": 762,
           "trigger": "throw posError('POS_PAIR_UNSENT_ORDERS', {"
         }
       ],
@@ -133,12 +133,12 @@
       "raised_at": [
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 124,
+          "line": 129,
           "trigger": "if (!api || !deps.isLive()) throw posError('POS_ORDER_CHANGE_UNSENT');"
         },
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 147,
+          "line": 152,
           "trigger": "throw posError('POS_ORDER_CHANGE_UNSENT');"
         }
       ],
@@ -164,7 +164,7 @@
       "raised_at": [
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 165,
+          "line": 177,
           "trigger": "if (status === 404) throw posError('POS_ORDER_CHANGE_UNAVAILABLE');"
         }
       ],
@@ -252,7 +252,7 @@
       "raised_at": [
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 158,
+          "line": 163,
           "trigger": "throw posError('POS_APPROVAL_REQUIRED', {"
         },
         {
@@ -1669,7 +1669,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 893,
+          "line": 895,
           "trigger": "if (!url) throw posError('POS_CFG_BASE_URL_MISSING');"
         }
       ],
@@ -1695,7 +1695,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1438,
+          "line": 1440,
           "trigger": "if (!base || !device_id || !token) throw posError('POS_CFG_API_NOT_READY');"
         },
         {

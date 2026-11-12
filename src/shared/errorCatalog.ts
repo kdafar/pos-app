@@ -76,12 +76,12 @@ export type CatalogEntry = {
  * 72 with 1.14.0: POS_PUSH_LINES_KEPT, the four table-hold codes and
  * POS_PUSH_SPLIT_INVALID, mirrored.
  * 73 with 1.15.0: POS_PUSH_PLATFORM_ONLY_PAYMENT (dishes sold only on Talabat
- * or Keeta), mirrored.
+ * or Keeta), mirrored. 74 with 1.16.0: POS_PLATFORM_ONLY_REFUSED, mirrored.
  *
  * Kept next to the catalogue rather than inside the drift test so the export
  * and the test cannot disagree about the target.
  */
-export const BACKEND_SENT_CODE_COUNT = 73;
+export const BACKEND_SENT_CODE_COUNT = 74;
 
 export const ERROR_CATALOG = {
   /* ─────────────────────────── network ─────────────────────────── */
@@ -1058,6 +1058,28 @@ export const ERROR_CATALOG = {
     ar: {
       title: 'صنف يُباع فقط على {list_name}',
       body: 'الطلب أُرسل وحُفظ، لكن فيه {items} ويُباع فقط على {list_name} ولم يُدفع عن طريقها. أبلغ المدير لتصحيح طريقة الدفع.',
+    },
+  },
+  // pos-errors.json 1.16.0 (contract §6a): POST /orders/{id}/paid, /status
+  // (payment change) and /lines refuse a Talabat/Keeta-only dish paid, or to
+  // be paid, another way. 422; nothing changed; the body's `order` replaces
+  // ours; never retried. The till shows its own §5 sentence when its copy
+  // explains the refusal (POS_VAL_PLATFORM_ONLY_*), this one otherwise.
+  // {items}/{list_name} are filled here, with `_ar` twins.
+  POS_PLATFORM_ONLY_REFUSED: {
+    severity: 'inline',
+    retry: false,
+    where: 'POST /orders/{order}/paid|status|lines',
+    http: 422,
+    sent: true,
+    origin: 'server',
+    en: {
+      title: 'Sold only on {list_name}',
+      body: '{items} is only sold on {list_name}, so this order can’t be paid another way. Choose {list_name} or remove the dish.',
+    },
+    ar: {
+      title: 'يُباع فقط على {list_name}',
+      body: '{items} يُباع فقط على {list_name}، لذلك لا يمكن دفع هذا الطلب بطريقة أخرى. اختر {list_name} أو احذف الصنف.',
     },
   },
   POS_ORDER_LINES_SENDING: {

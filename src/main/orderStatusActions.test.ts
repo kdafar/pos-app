@@ -41,6 +41,24 @@ describe('sendOrderChange', () => {
     expect(applied).toHaveLength(1);
   });
 
+  it('a platform-only refusal stores the server order and is worded by the till', async () => {
+    const post = vi.fn(async () => {
+      throw refusal(422, { code: 'POS_PLATFORM_ONLY_REFUSED', order: SERVER_ORDER });
+    });
+    const { d, applied } = deps(post);
+    const seen: any[] = [];
+    const worded = Object.assign(new Error('worded'), { code: 'POS_VAL_PLATFORM_ONLY_ONE' });
+    const withWords = { ...d, platformRefused: (id: string, m?: unknown) => (seen.push([id, m]), worded) };
+    await expect(sendOrderChange(withWords, ORDER, 16, { payment_method: 'cash' })).rejects.toBe(worded);
+    expect(seen).toEqual([['107790', 'cash']]);
+    expect(applied).toEqual([['107790', SERVER_ORDER]]);
+    expect(post).toHaveBeenCalledTimes(1);
+    // Without the hook the bare code still reaches the cashier.
+    await expect(sendOrderChange(d, ORDER, 16, { payment_method: 'cash' })).rejects.toSatisfy(
+      (e) => codeOf(e) === 'POS_PLATFORM_ONLY_REFUSED'
+    );
+  });
+
   it('a payment change sends no expected_status', async () => {
     const post = vi.fn(async () => ({ data: { applied: true } }));
     await sendOrderChange(deps(post).d, ORDER, 16, { payment_method: 'cash' });

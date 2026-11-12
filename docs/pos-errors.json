@@ -3,14 +3,14 @@
   "note": "Generated. Edit the TypeScript module, then run: node scripts/export-errors.mjs",
   "conventions": {
     "code_coverage": {
-      "backend_sends": 73,
-      "mirrored_here": 62,
+      "backend_sends": 74,
+      "mirrored_here": 63,
       "outstanding": 11,
       "note": "backend_sends is the count of constants in PosError.php, their authority. POS_ORDER_NOT_FOUND is counted there but deliberately absent here: this client renders that condition as POS_VAL_ORDER_NOT_FOUND (their ALIASED_BY_THE_APP). \"outstanding\" conflates two unlike things and is not a count of missing copy. Four of them — POS_PROMO_WRONG_BRANCH, POS_PAY_STATUS_FAILED, POS_PAY_STATUS_EXPIRED, POS_OK_PROMO_APPLIED — have full copy here and are listed with sent_by_server false because they arrive in a 200 body, classified by promoRejectionCode() and paymentStatusCode() rather than from an error response. Only the six permission-write codes for GET/PUT /users/{user}/permissions genuinely have no copy, and this client never calls that endpoint: permissions arrive as role_permissions on bootstrap/pull and are enforced locally. Every code on the enrolment and sync path is mirrored — pairing 5, reclaim 6, device 4, push 5. Still awaiting the constant names from PosError.php to turn this from inference into a diff."
     },
-    "total_codes": 148,
+    "total_codes": 149,
     "app_only": 62,
-    "server_side": 86
+    "server_side": 87
   },
   "severities": {
     "blocker": "Centred modal, dimmed backdrop, explicit dismissal. Work stops.",
@@ -18,7 +18,7 @@
     "inline": "Message under the control that is wrong. The cashier can fix it now.",
     "info": "Quiet. Queues, progress, confirmations — not a failure."
   },
-  "count": 148,
+  "count": 149,
   "codes": [
     {
       "code": "POS_NET_OFFLINE",
@@ -33,27 +33,27 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1335,
+          "line": 1337,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1341,
+          "line": 1343,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1395,
+          "line": 1397,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1444,
+          "line": 1446,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1458,
+          "line": 1460,
           "trigger": "throw posError('POS_NET_OFFLINE');"
         }
       ],
@@ -99,7 +99,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 716,
+          "line": 718,
           "trigger": "if (!device_id || !token) throw posError('POS_AUTH_MISSING');"
         },
         {
@@ -312,7 +312,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 795,
+          "line": 797,
           "trigger": "throw posError('POS_DEVICE_LOCKED');"
         }
       ],
@@ -576,7 +576,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 760,
+          "line": 762,
           "trigger": "throw posError('POS_PAIR_UNSENT_ORDERS', {"
         }
       ],
@@ -775,7 +775,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 165,
+          "line": 177,
           "trigger": "throw posError('POS_PAID_INPUT_MISSING', { field: 'reference' });"
         }
       ],
@@ -801,7 +801,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 161,
+          "line": 173,
           "trigger": "throw posError('POS_PAID_REFERENCE_MISSING', { field: 'reference' });"
         }
       ],
@@ -827,7 +827,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 114,
+          "line": 126,
           "trigger": "throw posError('POS_PAID_ORDER_CANCELLED');"
         }
       ],
@@ -853,7 +853,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 127,
+          "line": 139,
           "trigger": "throw posError('POS_PAID_ALREADY_PAID');"
         }
       ],
@@ -879,12 +879,12 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 109,
+          "line": 121,
           "trigger": "throw posError('POS_PAID_NOT_PERMITTED');"
         },
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 169,
+          "line": 181,
           "trigger": "if (paidBy == null) throw posError('POS_PAID_NOT_PERMITTED');"
         }
       ],
@@ -912,7 +912,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 131,
+          "line": 143,
           "trigger": "throw posError('POS_PAID_AMOUNT_MISMATCH', {"
         }
       ],
@@ -938,7 +938,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 149,
+          "line": 161,
           "trigger": "throw posError('POS_PAID_METHOD_LOCKED', { field: 'payment_method' });"
         }
       ],
@@ -984,7 +984,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 201,
+          "line": 213,
           "trigger": "if (order.paid_how === 'gateway') throw posError('POS_PAID_VERIFIED_LOCKED');"
         }
       ],
@@ -1010,7 +1010,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 220,
+          "line": 232,
           "trigger": "if (requestedBy == null) throw posError('POS_PAID_UNDO_NOT_PERMITTED');"
         }
       ],
@@ -1092,12 +1092,12 @@
       "raised_at": [
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 124,
+          "line": 129,
           "trigger": "if (!api || !deps.isLive()) throw posError('POS_ORDER_CHANGE_UNSENT');"
         },
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 147,
+          "line": 152,
           "trigger": "throw posError('POS_ORDER_CHANGE_UNSENT');"
         }
       ],
@@ -1123,7 +1123,7 @@
       "raised_at": [
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 165,
+          "line": 177,
           "trigger": "if (status === 404) throw posError('POS_ORDER_CHANGE_UNAVAILABLE');"
         }
       ],
@@ -1189,7 +1189,7 @@
       "raised_at": [
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 121,
+          "line": 126,
           "trigger": "if (by == null) throw posError('POS_ORDER_STATUS_NOT_PERMITTED');"
         }
       ],
@@ -1406,6 +1406,40 @@
       }
     },
     {
+      "code": "POS_PLATFORM_ONLY_REFUSED",
+      "severity": "inline",
+      "retry": false,
+      "where": "POST /orders/{order}/paid|status|lines",
+      "http": 422,
+      "origin": "server",
+      "sent_by_server": true,
+      "params": [
+        "list_name",
+        "items"
+      ],
+      "user_action": "fix a field",
+      "raised_at": [
+        {
+          "file": "src/main/orderStatusActions.ts",
+          "line": 172,
+          "trigger": ": posError('POS_PLATFORM_ONLY_REFUSED');"
+        },
+        {
+          "file": "src/main/platformOnly.ts",
+          "line": 280,
+          "trigger": "return posError('POS_PLATFORM_ONLY_REFUSED', {"
+        }
+      ],
+      "en": {
+        "title": "Sold only on {list_name}",
+        "body": "{items} is only sold on {list_name}, so this order can’t be paid another way. Choose {list_name} or remove the dish."
+      },
+      "ar": {
+        "title": "يُباع فقط على {list_name}",
+        "body": "{items} يُباع فقط على {list_name}، لذلك لا يمكن دفع هذا الطلب بطريقة أخرى. اختر {list_name} أو احذف الصنف."
+      }
+    },
+    {
       "code": "POS_ORDER_LINES_SENDING",
       "severity": "inline",
       "retry": true,
@@ -1480,7 +1514,7 @@
       "raised_at": [
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 158,
+          "line": 163,
           "trigger": "throw posError('POS_APPROVAL_REQUIRED', {"
         },
         {
@@ -1771,7 +1805,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/paid.ts",
-          "line": 141,
+          "line": 153,
           "trigger": "if (!method) throw posError('POS_PAY_METHOD_UNAVAILABLE', { field: 'payment_method' });"
         },
         {
@@ -2422,17 +2456,17 @@
         },
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1398,
+          "line": 1400,
           "trigger": "if (!payload) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 120,
+          "line": 125,
           "trigger": "if (!remote) throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
           "file": "src/main/orderStatusActions.ts",
-          "line": 155,
+          "line": 160,
           "trigger": "throw posError('POS_VAL_ORDER_NOT_FOUND');"
         },
         {
@@ -3697,7 +3731,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 893,
+          "line": 895,
           "trigger": "if (!url) throw posError('POS_CFG_BASE_URL_MISSING');"
         }
       ],
@@ -3723,7 +3757,7 @@
       "raised_at": [
         {
           "file": "src/main/handlers/sync.ts",
-          "line": 1438,
+          "line": 1440,
           "trigger": "if (!base || !device_id || !token) throw posError('POS_CFG_API_NOT_READY');"
         },
         {

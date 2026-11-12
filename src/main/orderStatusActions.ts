@@ -31,6 +31,11 @@ export type OrderChangeDeps = {
   isLive: () => boolean;
   /** Replace the local copy with the server's order. */
   applyOrder: (localId: string, order: any) => void;
+  /**
+   * POS_PLATFORM_ONLY_REFUSED in the cashier's words (platform-only §6a).
+   * Optional so tests and older callers keep the bare code.
+   */
+  platformRefused?: (localId: string, method?: unknown) => Error;
 };
 
 export type OrderChangeResult = { applied: boolean; replayed: boolean };
@@ -158,6 +163,13 @@ async function post(
       throw posError('POS_APPROVAL_REQUIRED', {
         params: { action: String(data.needs_approval) },
       });
+    }
+    // A Talabat/Keeta-only dish paid, or about to be, another way. The
+    // server's order is already applied above; never retried.
+    if (code === 'POS_PLATFORM_ONLY_REFUSED') {
+      throw deps.platformRefused
+        ? deps.platformRefused(String(order.id), payload.payment_method)
+        : posError('POS_PLATFORM_ONLY_REFUSED');
     }
     if (DECLARED_REFUSALS.has(code)) throw posError(code as any);
     // A bare 404 is a server without this route. Anything else undeclared (a

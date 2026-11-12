@@ -99,8 +99,8 @@ export function copyFor(
 ) {
   const entry = ERROR_CATALOG[code];
   return {
-    title: interpolate(entry[lang].title, params),
-    body: interpolate(entry[lang].body, params),
+    title: interpolate(entry[lang].title, localizeParams(params, lang)),
+    body: interpolate(entry[lang].body, localizeParams(params, lang)),
     severity: entry.severity,
     retryable: entry.retry,
   };

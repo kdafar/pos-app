@@ -251,3 +251,34 @@ export function takePlatformNotices(): { orderId: string; params: Record<string,
     return { orderId: r.id, params: platformNoticeParams(r.id) };
   });
 }
+
+/**
+ * POS_PLATFORM_ONLY_REFUSED from /paid, /status or /lines, as the cashier
+ * should read it. The §5 sentence when this till's copy explains the
+ * refusal for the method being used; the server's code with {items} and
+ * {list_name} otherwise (its copy was stale). `method` is the slug or id
+ * being tried; none means the order's own.
+ */
+export function platformRefusedError(orderId: string, method?: unknown) {
+  const order = db
+    .prepare(`SELECT payment_method_id FROM orders WHERE id = ?`)
+    .get(orderId) as { payment_method_id: string | null } | undefined;
+  let methodId: unknown = order?.payment_method_id ?? null;
+  const m = String(method ?? '').trim();
+  if (m) {
+    const row = db
+      .prepare(
+        `SELECT CAST(id AS TEXT) AS id FROM payment_methods WHERE CAST(id AS TEXT) = ? OR slug = ? LIMIT 1`
+      )
+      .get(m, m) as { id: string } | undefined;
+    methodId = row?.id ?? m;
+  }
+  const refusal = platformRefusal(verdictForOrder(orderId), methodId as any);
+  if (refusal) {
+    return posError(refusal.code, { params: refusal.params, field: 'payment_method' });
+  }
+  return posError('POS_PLATFORM_ONLY_REFUSED', {
+    params: platformNoticeParams(orderId),
+    field: 'payment_method',
+  });
+}

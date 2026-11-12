@@ -243,11 +243,30 @@ export function MarkPaidControl({
     await onChanged();
   };
 
+  // A platform-only refusal (§6a) names the dish and its platform, filled
+  // from the order and this till's copies.
+  const [platformParams, setPlatformParams] = useState<Record<string, string> | null>(null);
+  const platformRefused = order.paid_refusal === 'POS_PLATFORM_ONLY_REFUSED';
+  useEffect(() => {
+    if (!platformRefused) return;
+    let live = true;
+    window.api
+      .invoke('catalog:platformNotice', order.id)
+      .then((p: Record<string, string>) => live && setPlatformParams(p ?? null))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [platformRefused, order.id]);
+
   // The refusal was stored with no params; the one placeholder any of these
   // carries is the new total, which the refusal already wrote onto the order.
   const refusal =
     order.paid_refusal && isKnownCode(order.paid_refusal)
-      ? copyFor(order.paid_refusal, lang, { grand_total: money(order.grand_total) })
+      ? copyFor(order.paid_refusal, lang, {
+          grand_total: money(order.grand_total),
+          ...(platformRefused ? platformParams ?? {} : {}),
+        })
       : null;
 
   function renderDialogs() {

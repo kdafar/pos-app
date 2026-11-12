@@ -1,5 +1,6 @@
 import { applyServerTable, readPayParts } from '../sync';
 import type { OrderChangeDeps } from '../orderStatusActions';
+import { platformRefusedError } from '../platformOnly';
 import { HOLD_REFRESH_MS, holdTable, type HoldDeps } from '../tableHolds';
 import type { IpcMain } from 'electron';
 import https from 'node:https';
@@ -283,6 +284,7 @@ export function orderChangeDeps(): OrderChangeDeps {
     api: posApi,
     isLive: () => (getMeta('pos.mode') || 'live') === 'live',
     applyOrder: applyServerOrder,
+    platformRefused: platformRefusedError,
   };
 }
 

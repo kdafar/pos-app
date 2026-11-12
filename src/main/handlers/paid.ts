@@ -24,7 +24,7 @@ import {
 import { resolveApprover, type ApprovalInput } from '../utils/approvals';
 import { logAction } from '../utils/logging';
 import { serverRecordsPayment } from '../paidState';
-import { assertPlatformPayment } from '../platformOnly';
+import { assertPlatformPayment, platformRefusedError } from '../platformOnly';
 import {
   isOwnOrder,
   queuePaidAction,
@@ -92,6 +92,18 @@ export function registerPaidHandlers(ipcMain: IpcMain, services: MainServices) {
       return { state: 'queued', notices: [] };
     }
     if (out.kind === 'refused') {
+      // Platform-only §6a: the dish's platform, in the cashier's words.
+      if (out.code === 'POS_PLATFORM_ONLY_REFUSED') {
+        const body = db
+          .prepare(`SELECT body FROM order_paid_actions WHERE action_id = ?`)
+          .pluck()
+          .get(actionId) as string | undefined;
+        let method: unknown;
+        try {
+          method = JSON.parse(body ?? '{}')?.payment_method_id;
+        } catch {}
+        throw platformRefusedError(order.id, method);
+      }
       const params =
         out.params?.grand_total != null
           ? { grand_total: money(out.params.grand_total) }
