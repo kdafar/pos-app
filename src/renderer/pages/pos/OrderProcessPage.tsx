@@ -394,6 +394,8 @@ export default function OrderProcessPage() {
       );
       if (res && res.order) {
         setCurrentOrder(res.order);
+        // The recalculation can move line amounts too, not just the totals.
+        if (Array.isArray(res.lines)) setOrderLines(res.lines);
       }
     } catch (e) {
       toast.error(e, { title: t('promo.applyFailed') });
@@ -409,9 +411,11 @@ export default function OrderProcessPage() {
       );
       if (res && res.order) {
         setCurrentOrder(res.order);
+        if (Array.isArray(res.lines)) setOrderLines(res.lines);
       }
     } catch (e) {
-      console.error(e);
+      // Used to fail silently: the promo stayed on with no word why.
+      toast.error(e, { title: t('promo.removeFailed') });
     }
   };
 

@@ -530,7 +530,8 @@ export default function OrderSide({
             {/* Promo + Clear cart share one compact row. Neither can be used on
                 another till's order, so neither is offered there. */}
             {!isOtherTillsOrder && (
-            <div className='flex flex-wrap items-center gap-2'>
+            // Stretch: when the promo label wraps, Clear cart grows with it.
+            <div className='flex flex-wrap items-stretch gap-2'>
               {currentOrder.promocode ? (
                 <div className='ui-notice items-center justify-between flex-1 min-w-0 !py-0.5'>
                   <div className='flex items-center gap-2 min-w-0'>
@@ -558,7 +559,9 @@ export default function OrderSide({
                   onPress={() => setShowPromoDialog(true)}
                   startContent={<Percent size={16} strokeWidth={1.8} className='shrink-0' />}
                 >
-                  <span className='text-start'>{t('promo.title')}</span>
+                  {/* Takes the button's width: left to shrink, the label broke
+                      onto three lines ("Apply / Promo / Code"). */}
+                  <span className='text-start min-w-0 flex-1'>{t('promo.title')}</span>
                 </Button>
               )}
 
@@ -568,9 +571,8 @@ export default function OrderSide({
                   size='md'
                   variant='bordered'
                   color='danger'
-                  className={`min-w-0 h-auto min-h-11 py-1.5 px-3 whitespace-normal leading-tight font-semibold border border-[var(--line-strong)] bg-[var(--surface)] text-danger ${
-                    currentOrder.promocode ? 'shrink-0' : 'flex-1'
-                  }`}
+                  // Its own width; the promo button takes the rest of the row.
+                  className='shrink-0 h-auto min-h-11 py-1.5 px-3 whitespace-nowrap leading-tight font-semibold border border-[var(--line-strong)] bg-[var(--surface)] text-danger'
                   onPress={handleClearCart}
                   startContent={<X size={16} strokeWidth={1.8} className='shrink-0' />}
                 >

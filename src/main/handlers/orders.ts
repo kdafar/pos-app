@@ -1603,9 +1603,16 @@ export function registerOrdersHandlers(
   ipcMain.handle('orders:removePromo', async (_e, orderId: string) => {
     if (isPosLocked()) throw posError('POS_TILL_LOCKED');
     assertOrderEditable(orderId);
+    // The recalc writes a promo's discount into discount_amount, the column it
+    // reads back as a manual discount. Left there, the promo's discount
+    // outlived the promo: "Remove" brought the button back and the total
+    // stayed discounted. This till sets no manual discount of its own, so
+    // whatever is in it here came from the promo.
     rawDb
       .prepare(
-        `UPDATE orders SET promocode = NULL, updated_at = ? WHERE id = ?`
+        `UPDATE orders
+            SET promocode = NULL, discount_amount = 0, discount_total = 0, updated_at = ?
+          WHERE id = ?`
       )
       .run(nowMs(), orderId);
     return recalcAndGet(orderId);

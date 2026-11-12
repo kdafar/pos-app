@@ -234,6 +234,10 @@ export const cartStrings = {
     en: 'Could not apply this code.',
     ar: 'تعذر تطبيق هذا الكود.',
   },
+  'promo.removeFailed': {
+    en: 'Could not remove this code.',
+    ar: 'تعذر إزالة هذا الكود.',
+  },
   'promo.available': {
     en: 'Available Promo Codes:',
     ar: 'أكواد الخصم المتاحة:',
