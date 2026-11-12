@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import {
+  BACKOFF_MS,
   MAX_PER_RUN,
+  OPEN_ANSWERS_BEFORE_BACKOFF,
   RECHECK_MS,
   resetStaleSweep,
   staleCandidates,
@@ -113,6 +115,40 @@ describe('stale open orders', () => {
     expect((await sweepStaleOrders(d)).checked).toBe(0);
     const later = { ...d, now: () => NOW + RECHECK_MS };
     expect((await sweepStaleOrders(later)).checked).toBe(MAX_PER_RUN);
+  });
+
+  it('asks once a day about an order the server keeps calling open', async () => {
+    const db = makeDb();
+    add(db, { id: '107865' });
+    const { d } = deps(db, async () => ({ order: { status: 2 } }));
+    let t = NOW;
+    const at = () => ({ ...d, now: () => t });
+    for (let i = 0; i < OPEN_ANSWERS_BEFORE_BACKOFF; i++) {
+      expect((await sweepStaleOrders(at())).checked).toBe(1);
+      t += RECHECK_MS;
+    }
+    // Three open answers: an hour later is no longer enough.
+    expect((await sweepStaleOrders(at())).checked).toBe(0);
+    t += BACKOFF_MS - RECHECK_MS;
+    expect((await sweepStaleOrders(at())).checked).toBe(1);
+  });
+
+  it('a failed ask does not count as an open answer', async () => {
+    const db = makeDb();
+    add(db, { id: '107865' });
+    let fail = true;
+    const { d } = deps(db, async () => {
+      if (fail) throw Object.assign(new Error('x'), { response: { status: 400 } });
+      return { order: { status: 2 } };
+    });
+    let t = NOW;
+    const at = () => ({ ...d, now: () => t });
+    for (let i = 0; i < 5; i++) {
+      await sweepStaleOrders(at());
+      t += RECHECK_MS;
+    }
+    fail = false;
+    expect((await sweepStaleOrders(at())).checked).toBe(1);
   });
 
   it('stops at the first sign of no connection and tries again next time', async () => {

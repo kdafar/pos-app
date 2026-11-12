@@ -2,16 +2,18 @@
 //
 // Orders still open on this till that the server has already finished.
 //
-// /pull never sends a till its own orders back, so when the office or the
-// server's nightly job closes one (dine-ins left at status 1-3 for over 24 h,
-// server 51c35e5), the till that rang it up never hears. Its table shows
-// free (tables come from the server) while the order sits open here for good.
-// An order seeded from the server and later closed or deleted there can be
-// left behind the same way, since nothing prunes local orders.
+// Every close made online reaches every till through /pull, except one: the
+// sales report's "Close old orders" wrote no feed row until the server fixed
+// it (2026-11, Beirutuna: 53 till orders closed on 11-07, the tables freed,
+// the orders left open on the tills for days). Closes before 2026-11-04 also
+// missed a branch's other tills. Any other gap in the feed would leave an
+// order open here the same way, and nothing else prunes local orders.
 //
 // After each sync, ask the server about a few of the oldest such orders and
 // follow it: closed or cancelled there → closed here; unknown there and not
-// ours → removed, as a /pull delete would. Still open → left alone. Never
+// ours → removed, as a /pull delete would (orders are hard-deleted, and
+// another branch's order also answers 404). Still open → left alone, asked
+// again in an hour, and once a day after three open answers in a row. Never
 // touches an order with something unsent, and never reopens anything.
 
 import { activeOrderSql } from './utils/orderStatus';
@@ -22,6 +24,9 @@ export const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 export const RECHECK_MS = 60 * 60 * 1000;
 /** At most this many GETs per sync. */
 export const MAX_PER_RUN = 10;
+/** After this many "still open" answers in a row, ask only once a day. */
+export const OPEN_ANSWERS_BEFORE_BACKOFF = 3;
+export const BACKOFF_MS = 24 * 60 * 60 * 1000;
 
 type Db = { prepare: (sql: string) => any };
 
@@ -42,7 +47,8 @@ export type StaleDeps = {
 
 export type SweepResult = { checked: number; closed: number; removed: number; failed: number };
 
-const lastChecked = new Map<string, number>();
+/** Per order: when it was last asked about, and how many "still open" answers in a row. */
+const lastChecked = new Map<string, { at: number; open: number }>();
 
 /** For tests. */
 export function resetStaleSweep() {
@@ -102,16 +108,29 @@ async function sweep(deps: StaleDeps, out: SweepResult): Promise<SweepResult> {
   const now = (deps.now ?? Date.now)();
 
   const due = staleCandidates(deps.db, now)
-    .filter((r) => now - (lastChecked.get(r.id) ?? 0) >= RECHECK_MS)
+    .filter((r) => {
+      const seen = lastChecked.get(r.id);
+      if (!seen) return true;
+      // An order the server keeps answering open for is most likely really
+      // open (or a leftover nobody closes): ask once a day, not every hour.
+      const wait = seen.open >= OPEN_ANSWERS_BEFORE_BACKOFF ? BACKOFF_MS : RECHECK_MS;
+      return now - seen.at >= wait;
+    })
     .slice(0, MAX_PER_RUN);
 
   for (const r of due) {
-    lastChecked.set(r.id, now);
+    const prevOpen = lastChecked.get(r.id)?.open ?? 0;
+    lastChecked.set(r.id, { at: now, open: prevOpen });
     out.checked++;
     try {
       const { order } = await deps.fetchOrder(remoteIdOf(r));
       // applyClosed writes only when the server has finished the order.
-      if (order && deps.applyClosed(r.id, order)) out.closed++;
+      if (order && deps.applyClosed(r.id, order)) {
+        out.closed++;
+        lastChecked.delete(r.id);
+      } else if (order) {
+        lastChecked.set(r.id, { at: now, open: prevOpen + 1 });
+      }
     } catch (e: any) {
       const notFound = /POS_VAL_ORDER_NOT_FOUND/.test(String(e?.code ?? e?.message ?? ''));
       if (notFound && !isOwnId(r.id)) {
