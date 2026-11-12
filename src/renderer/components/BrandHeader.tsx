@@ -1,5 +1,7 @@
 // src/renderer/components/BrandHeader.tsx
-import logoUrl from '../assets/logo-pos.svg'; // adjust if svg
+// The Majestic wordmark (same artwork as the app icon), cropped to its ink.
+// It has its own white ground, so it reads the same in both themes.
+import logoUrl from '../assets/logo-majestic.png';
 import { useI18n } from '../i18n';
 
 type BrandHeaderProps = {
@@ -28,7 +30,7 @@ export function BrandHeader({
         <img
           src={logoUrl}
           alt={title}
-          className='h-10 w-10 rounded-[11px] border border-line bg-surface object-contain'
+          className='h-10 w-auto shrink-0 rounded-[11px] border border-line bg-white object-contain'
           draggable={false}
         />
         <div className={`${align === 'center' ? 'hidden' : 'block'}`}>
